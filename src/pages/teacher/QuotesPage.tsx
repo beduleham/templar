@@ -4,6 +4,7 @@ import { createOrder } from '../../api/orderStore'
 import { listAvailableProducts } from '../../api/productStore'
 import EstimateSummaryCard from '../../components/quotes/EstimateSummaryCard'
 import QuoteTable from '../../components/quotes/QuoteTable'
+import ReplaceProductModal from '../../components/quotes/ReplaceProductModal'
 import { useEstimate } from '../../hooks/useEstimate'
 import { downloadBlob } from '../../lib/download'
 import { computeItem, computeTotals, formatKrw } from '../../lib/quotation'
@@ -49,7 +50,12 @@ export default function QuotesPage() {
     setHeadcount,
     setTotalBudget,
     updateQuantity,
+    deleteItem,
+    swapItem,
   } = useEstimate(quoteProducts, DEFAULT_HEADCOUNT)
+  // 견적 확정(CONFIRMED): 편집 잠금 + 다운로드 활성화
+  const [confirmed, setConfirmed] = useState(false)
+  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null)
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
   const [exportError, setExportError] = useState(false)
   const [orderToast, setOrderToast] = useState<string | null>(null)
@@ -73,6 +79,7 @@ export default function QuotesPage() {
   }
 
   const exportableItems = items.filter((item) => item.quantity > 0)
+  const replaceTarget = items.find((item) => item.id === replaceTargetId) ?? null
 
   // 발주 요청: 현재 견적을 공급업체 주문 목록으로 전송한다.
   // (실제 인증 도입 전까지 기관/담당자 정보는 Mock 세션 값 사용)
@@ -156,6 +163,7 @@ export default function QuotesPage() {
               type="text"
               inputMode="numeric"
               value={headcountInput}
+              disabled={confirmed}
               onChange={(e) => handleHeadcountChange(e.target.value)}
               className="mt-1.5 block w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
             />
@@ -166,6 +174,7 @@ export default function QuotesPage() {
               type="text"
               inputMode="numeric"
               value={budgetInput}
+              disabled={confirmed}
               onChange={(e) => handleBudgetChange(e.target.value)}
               placeholder="예: 250000"
               className="mt-1.5 block w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
@@ -177,17 +186,42 @@ export default function QuotesPage() {
         </div>
       </section>
 
-      <QuoteTable items={items} onQuantityChange={updateQuantity} />
+      <QuoteTable
+        items={items}
+        onQuantityChange={updateQuantity}
+        onDelete={deleteItem}
+        onReplace={setReplaceTargetId}
+        readOnly={confirmed}
+      />
 
       {items.length > 0 && (
         <>
           <EstimateSummaryCard summary={summary} totalBudget={totalBudget} />
 
           <div className="flex flex-wrap items-center gap-3">
+            {confirmed ? (
+              <span className="flex items-center gap-2 rounded-lg bg-emerald-100 px-4 py-2.5 text-sm font-bold text-emerald-800">
+                견적 확정됨 (CONFIRMED)
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('견적을 확정하시겠습니까? 확정 후에는 수정할 수 없습니다.')) {
+                    setConfirmed(true)
+                  }
+                }}
+                disabled={exportableItems.length === 0}
+                className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                견적 확정하기
+              </button>
+            )}
             <button
               type="button"
               onClick={() => handleExport('pdf')}
-              disabled={exporting !== null || exportableItems.length === 0}
+              disabled={!confirmed || exporting !== null || exportableItems.length === 0}
+              title={confirmed ? undefined : '견적 확정 후 다운로드할 수 있습니다'}
               className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60"
             >
               {exporting === 'pdf' ? (
@@ -200,7 +234,8 @@ export default function QuotesPage() {
             <button
               type="button"
               onClick={() => handleExport('excel')}
-              disabled={exporting !== null || exportableItems.length === 0}
+              disabled={!confirmed || exporting !== null || exportableItems.length === 0}
+              title={confirmed ? undefined : '견적 확정 후 다운로드할 수 있습니다'}
               className="flex items-center gap-2 rounded-lg border border-emerald-600 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
             >
               {exporting === 'excel' ? (
@@ -226,6 +261,18 @@ export default function QuotesPage() {
             )}
           </div>
         </>
+      )}
+
+      {replaceTarget && !confirmed && (
+        <ReplaceProductModal
+          targetName={replaceTarget.name}
+          excludeIds={items.map((item) => item.id)}
+          onSelect={(product) => {
+            swapItem(replaceTarget.id, product)
+            setReplaceTargetId(null)
+          }}
+          onClose={() => setReplaceTargetId(null)}
+        />
       )}
 
       {orderToast && (

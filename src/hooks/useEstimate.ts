@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import {
   calculateEstimate,
   createEstimateItems,
+  removeItem,
+  replaceItem,
   setItemQuantity,
   summarize,
   type EstimateItem,
@@ -17,6 +19,8 @@ export interface UseEstimateResult {
   setHeadcount: (value: number) => void
   setTotalBudget: (value: number) => void
   updateQuantity: (itemId: string, quantity: number) => void
+  deleteItem: (itemId: string) => void
+  swapItem: (itemId: string, product: Product) => void
 }
 
 /** 인원수·예산·항목 수량을 관리하며 총액과 예산 상태를 실시간 산출하는 훅. */
@@ -41,7 +45,25 @@ export function useEstimate(products: Product[], initialHeadcount = 1): UseEstim
     setItems((prev) => setItemQuantity(prev, itemId, quantity))
   }
 
+  const deleteItem = (itemId: string) => {
+    setItems((prev) => removeItem(prev, itemId))
+  }
+
+  const swapItem = (itemId: string, product: Product) => {
+    setItems((prev) => replaceItem(prev, itemId, product))
+  }
+
   const summary = useMemo(() => summarize(items, totalBudget), [items, totalBudget])
 
-  return { headcount, totalBudget, items, summary, setHeadcount, setTotalBudget, updateQuantity }
+  return {
+    headcount,
+    totalBudget,
+    items,
+    summary,
+    setHeadcount,
+    setTotalBudget,
+    updateQuantity,
+    deleteItem,
+    swapItem,
+  }
 }

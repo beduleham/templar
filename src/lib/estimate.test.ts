@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateEstimate,
   createEstimateItems,
+  removeItem,
+  replaceItem,
   setItemQuantity,
   summarize,
 } from './estimate'
@@ -73,19 +75,37 @@ describe('calculateEstimate', () => {
 })
 
 describe('setItemQuantity', () => {
-  it('수량을 0으로 수정하면 항목이 총액에서 제외된다 (시나리오 4단계)', () => {
+  it('항목 삭제 시 총액에서 제외된다 (removeItem)', () => {
     let items = createEstimateItems(products, 12)
-    items = setItemQuantity(items, 's1', 0)
+    items = removeItem(items, 's1')
     const summary = summarize(items, 100000)
     expect(summary.totalAmount).toBe(96000)
     expect(summary.remainingBudget).toBe(4000)
     expect(summary.isOverBudget).toBe(false)
   })
 
-  it('음수 수량은 0으로 보정한다', () => {
+  it('수량은 최소 1로 보정한다 (제외는 removeItem 사용)', () => {
     let items = createEstimateItems(products, 10)
     items = setItemQuantity(items, 'p1', -3)
-    expect(items[0].quantity).toBe(0)
+    expect(items[0].quantity).toBe(1)
+    items = setItemQuantity(items, 'p1', 0)
+    expect(items[0].quantity).toBe(1)
+  })
+
+  it('대체 시 단가는 카탈로그 상품 값으로 강제되고 수량은 승계된다', () => {
+    let items = createEstimateItems(products, 10)
+    items = setItemQuantity(items, 'p1', 7)
+    items = replaceItem(items, 'p1', {
+      id: 'p9',
+      name: '대체 교구',
+      unitPrice: 12345,
+      taxRate: 0,
+      isPerStudent: true,
+    })
+    const replaced = items.find((i) => i.id === 'p9')
+    expect(replaced?.unitPrice).toBe(12345)
+    expect(replaced?.quantity).toBe(7)
+    expect(replaced?.isManuallyEdited).toBe(true)
   })
 
   it('소수점 수량은 내림 처리한다', () => {

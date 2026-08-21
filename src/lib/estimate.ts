@@ -62,7 +62,7 @@ export function summarize(items: EstimateItem[], totalBudget: number): EstimateS
   return { totalAmount, remainingBudget, isOverBudget: remainingBudget < 0 }
 }
 
-/** 수량 직접 수정: 0 이상 정수로 보정하고 수동 수정 플래그를 남긴다. (0 = 항목 제외) */
+/** 수량 직접 수정: 1 이상 정수로 보정하고 수동 수정 플래그를 남긴다. (제외는 removeItem 사용) */
 export function setItemQuantity(
   items: EstimateItem[],
   itemId: string,
@@ -70,7 +70,36 @@ export function setItemQuantity(
 ): EstimateItem[] {
   return items.map((item) =>
     item.id === itemId
-      ? { ...item, quantity: sanitizeCount(quantity, 0), isManuallyEdited: true }
+      ? { ...item, quantity: sanitizeCount(quantity, 1), isManuallyEdited: true }
+      : item,
+  )
+}
+
+/** 견적에서 항목을 제외한다 */
+export function removeItem(items: EstimateItem[], itemId: string): EstimateItem[] {
+  return items.filter((item) => item.id !== itemId)
+}
+
+/**
+ * 항목을 다른 카탈로그 상품으로 교체한다.
+ * 단가는 반드시 전달된 상품(공급업체 DB) 값에서 가져오므로 임의 단가 위조가 불가능하다.
+ * 수량과 수동 수정 플래그는 기존 항목을 승계한다.
+ */
+export function replaceItem(
+  items: EstimateItem[],
+  itemId: string,
+  product: Product & { targetAge?: string },
+): EstimateItem[] {
+  return items.map((item) =>
+    item.id === itemId
+      ? {
+          id: product.id,
+          name: product.name,
+          unitPrice: product.unitPrice,
+          quantity: item.quantity,
+          isPerStudent: product.isPerStudent,
+          isManuallyEdited: item.isManuallyEdited,
+        }
       : item,
   )
 }

@@ -1,5 +1,6 @@
-import { FileDown, FileSpreadsheet, Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { FileDown, FileSpreadsheet, Loader2, Send } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { createOrder } from '../../api/orderStore'
 import { listAvailableProducts } from '../../api/productStore'
 import EstimateSummaryCard from '../../components/quotes/EstimateSummaryCard'
 import QuoteTable from '../../components/quotes/QuoteTable'
@@ -51,6 +52,13 @@ export default function QuotesPage() {
   } = useEstimate(quoteProducts, DEFAULT_HEADCOUNT)
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
   const [exportError, setExportError] = useState(false)
+  const [orderToast, setOrderToast] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!orderToast) return
+    const timer = setTimeout(() => setOrderToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [orderToast])
 
   const handleHeadcountChange = (raw: string) => {
     const value = parseDigits(raw)
@@ -65,6 +73,26 @@ export default function QuotesPage() {
   }
 
   const exportableItems = items.filter((item) => item.quantity > 0)
+
+  // 발주 요청: 현재 견적을 공급업체 주문 목록으로 전송한다.
+  // (실제 인증 도입 전까지 기관/담당자 정보는 Mock 세션 값 사용)
+  const handleOrderRequest = () => {
+    if (exportableItems.length === 0) return
+    createOrder({
+      institutionName: RECIPIENT,
+      contactPerson: '김하늘 교사',
+      phone: '010-1234-5678',
+      studentCount: headcount,
+      totalBudget,
+      items: exportableItems.map((item) => ({
+        productId: item.id,
+        productName: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+    })
+    setOrderToast('발주 요청이 접수되었습니다. 공급업체가 곧 확인합니다.')
+  }
 
   const handleExport = async (format: ExportFormat) => {
     if (exportableItems.length === 0 || exporting) return
@@ -182,6 +210,15 @@ export default function QuotesPage() {
               )}
               Excel 다운로드
             </button>
+            <button
+              type="button"
+              onClick={handleOrderRequest}
+              disabled={exportableItems.length === 0}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              <Send className="size-4" aria-hidden />
+              견적 발주 요청
+            </button>
             {exportError && (
               <p role="alert" className="text-sm font-medium text-red-600">
                 파일 생성에 실패했습니다. 다시 시도해 주세요.
@@ -189,6 +226,15 @@ export default function QuotesPage() {
             )}
           </div>
         </>
+      )}
+
+      {orderToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900 px-5 py-2.5 text-sm font-medium text-white shadow-lg"
+        >
+          {orderToast}
+        </div>
       )}
 
       {/* 추천 근거 */}

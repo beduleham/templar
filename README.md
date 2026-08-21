@@ -16,6 +16,7 @@ npm install
 npm run dev      # 개발 서버
 npm run build    # 타입 체크 + 프로덕션 빌드
 npm run lint     # oxlint
+npm test         # vitest (견적 계산 엔진 단위 테스트)
 ```
 
 ## 구조
@@ -23,7 +24,9 @@ npm run lint     # oxlint
 - `src/components/layout/` — 앱 셸(`AppShell`), 헤더, 사이드바, 모바일 드로어
 - `src/config/navigation.ts` — 역할별 네비게이션 메뉴 정의
 - `src/store/useRoleStore.ts` — 교사/원장 ↔ 공급업체 역할 상태 (실제 인증 도입 전 Mock)
-- `src/pages/` — 라우트별 더미 페이지 (기능 구현은 후속 태스크)
+- `src/lib/` — 견적 계산 엔진(순수 함수), PDF/Excel 생성 모듈
+- `src/api/` — 백엔드 도입 전 Mock 데이터 레이어 (스펙의 API 응답 형태 유지)
+- `src/pages/` — 라우트별 페이지
 
 ### 라우트
 

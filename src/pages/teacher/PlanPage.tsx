@@ -2,7 +2,7 @@ import { CircleAlert, Loader2, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { generatePlan } from '../../api/planGenerator'
 import { deletePlan, listPlans, savePlan } from '../../api/planStorage'
-import { productCatalog } from '../../api/products'
+import { listAvailableProducts } from '../../api/productStore'
 import PlanSetupForm from '../../components/plan/PlanSetupForm'
 import PlanTable from '../../components/plan/PlanTable'
 import RecommendationPanel from '../../components/plan/RecommendationPanel'
@@ -36,12 +36,15 @@ export default function PlanPage() {
 
   // 현재 계획안의 활동 기반 추천 (대체 추천 목록 렌더링용)
   const recommendations = useMemo(
-    () => (content ? recommendForPlan(planActivities(content), productCatalog) : []),
+    () =>
+      content
+        ? recommendForPlan(planActivities(content), listAvailableProducts())
+        : [],
     [content],
   )
 
   const seedRecommendations = (planContent: PlanContent) => {
-    const recs = recommendForPlan(planActivities(planContent), productCatalog)
+    const recs = recommendForPlan(planActivities(planContent), listAvailableProducts())
     setRecommendationEntries(
       recs.map((rec) => ({
         product: rec.product,

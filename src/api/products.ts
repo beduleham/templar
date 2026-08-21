@@ -8,8 +8,8 @@ import type { Product } from '../lib/quotation'
 export interface CatalogProduct extends Product {
   category: string
   targetAge: string
-  /** 유사도 매칭 품질을 높이기 위한 검색 키워드 */
-  keywords: string[]
+  /** 유사도 매칭 품질을 높이기 위한 검색 키워드 (선택) */
+  keywords?: string[]
 }
 
 export const productCatalog: CatalogProduct[] = [
@@ -146,6 +146,3 @@ export const productCatalog: CatalogProduct[] = [
     description: '입체 조형 활동용 무독성 클레이 12색 (개인별)',
   },
 ]
-
-/** 이전 태스크 호환용: 기본 추천 상품 (추천 선택이 없을 때 견적 기본값) */
-export const recommendedProducts: CatalogProduct[] = productCatalog.slice(0, 3)

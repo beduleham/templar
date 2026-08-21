@@ -1,6 +1,6 @@
 import { FileDown, FileSpreadsheet, Loader2 } from 'lucide-react'
 import { useState } from 'react'
-import { recommendedProducts } from '../../api/products'
+import { listAvailableProducts } from '../../api/productStore'
 import EstimateSummaryCard from '../../components/quotes/EstimateSummaryCard'
 import QuoteTable from '../../components/quotes/QuoteTable'
 import { useEstimate } from '../../hooks/useEstimate'
@@ -36,7 +36,7 @@ export default function QuotesPage() {
   const recommendationEntries = useRecommendationStore((s) => s.entries)
   const [quoteProducts] = useState(() => {
     const picked = selectedProducts(useRecommendationStore.getState().entries)
-    return picked.length > 0 ? picked : recommendedProducts
+    return picked.length > 0 ? picked : listAvailableProducts().slice(0, 3)
   })
   const fromRecommendation =
     selectedProducts(recommendationEntries).length > 0

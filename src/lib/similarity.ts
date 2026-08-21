@@ -61,7 +61,7 @@ const productDocument = (product: CatalogProduct) =>
     product.name,
     product.category,
     product.description ?? '',
-    product.keywords.join(' '),
+    (product.keywords ?? []).join(' '),
   ].join(' ')
 
 /**

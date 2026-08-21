@@ -1,9 +1,11 @@
 import { CircleAlert, Loader2, Save } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { generatePlan } from '../../api/planGenerator'
 import { deletePlan, listPlans, savePlan } from '../../api/planStorage'
+import { productCatalog } from '../../api/products'
 import PlanSetupForm from '../../components/plan/PlanSetupForm'
 import PlanTable from '../../components/plan/PlanTable'
+import RecommendationPanel from '../../components/plan/RecommendationPanel'
 import SavedPlansList from '../../components/plan/SavedPlansList'
 import {
   updateActivity,
@@ -11,6 +13,11 @@ import {
   type PlanContent,
   type SavedPlan,
 } from '../../lib/plan'
+import { recommendForPlan } from '../../lib/similarity'
+import { useRecommendationStore } from '../../store/useRecommendationStore'
+
+const planActivities = (content: PlanContent) =>
+  content.schedule.flatMap((p) => p.activities)
 
 export default function PlanPage() {
   const [params, setParams] = useState<GeneratePlanParams>({
@@ -25,6 +32,25 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null)
   const [savedPlans, setSavedPlans] = useState<SavedPlan[]>(() => listPlans())
   const [toast, setToast] = useState<string | null>(null)
+  const setRecommendationEntries = useRecommendationStore((s) => s.setEntries)
+
+  // 현재 계획안의 활동 기반 추천 (대체 추천 목록 렌더링용)
+  const recommendations = useMemo(
+    () => (content ? recommendForPlan(planActivities(content), productCatalog) : []),
+    [content],
+  )
+
+  const seedRecommendations = (planContent: PlanContent) => {
+    const recs = recommendForPlan(planActivities(planContent), productCatalog)
+    setRecommendationEntries(
+      recs.map((rec) => ({
+        product: rec.product,
+        matchScore: rec.matchScore,
+        relatedActivity: rec.relatedActivity,
+        selected: true,
+      })),
+    )
+  }
 
   useEffect(() => {
     if (!toast) return
@@ -39,6 +65,7 @@ export default function PlanPage() {
       const generated = await generatePlan(params)
       setContent(generated)
       setCurrentId(undefined)
+      seedRecommendations(generated)
     } catch {
       setError('서버가 혼잡합니다. 잠시 후 다시 시도해주세요.')
     } finally {
@@ -71,6 +98,7 @@ export default function PlanPage() {
     setCurrentId(plan.id)
     setParams((prev) => ({ ...prev, planType: plan.planType }))
     setError(null)
+    seedRecommendations(plan.content)
   }
 
   const handleDelete = (id: string) => {
@@ -145,6 +173,8 @@ export default function PlanPage() {
           </section>
 
           <PlanTable content={content} onActivityChange={handleActivityChange} />
+
+          <RecommendationPanel recommendations={recommendations} />
         </>
       )}
 

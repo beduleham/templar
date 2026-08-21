@@ -6,6 +6,10 @@ import QuoteTable from '../../components/quotes/QuoteTable'
 import { useEstimate } from '../../hooks/useEstimate'
 import { downloadBlob } from '../../lib/download'
 import { computeItem, computeTotals, formatKrw } from '../../lib/quotation'
+import {
+  selectedProducts,
+  useRecommendationStore,
+} from '../../store/useRecommendationStore'
 
 const RECIPIENT = '누리 어린이집'
 const DEFAULT_HEADCOUNT = 1
@@ -28,6 +32,14 @@ const parseDigits = (raw: string) => {
 export default function QuotesPage() {
   const [headcountInput, setHeadcountInput] = useState(String(DEFAULT_HEADCOUNT))
   const [budgetInput, setBudgetInput] = useState('')
+  // AI 추천 단계에서 선택한 교재가 있으면 그 목록으로, 없으면 기본 추천으로 견적 구성
+  const recommendationEntries = useRecommendationStore((s) => s.entries)
+  const [quoteProducts] = useState(() => {
+    const picked = selectedProducts(useRecommendationStore.getState().entries)
+    return picked.length > 0 ? picked : recommendedProducts
+  })
+  const fromRecommendation =
+    selectedProducts(recommendationEntries).length > 0
   const {
     headcount,
     totalBudget,
@@ -36,7 +48,7 @@ export default function QuotesPage() {
     setHeadcount,
     setTotalBudget,
     updateQuantity,
-  } = useEstimate(recommendedProducts, DEFAULT_HEADCOUNT)
+  } = useEstimate(quoteProducts, DEFAULT_HEADCOUNT)
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
   const [exportError, setExportError] = useState(false)
 
@@ -60,7 +72,7 @@ export default function QuotesPage() {
     setExportError(false)
     try {
       const quoteItems = exportableItems.map((item) => {
-        const product = recommendedProducts.find((p) => p.id === item.id)
+        const product = quoteProducts.find((p) => p.id === item.id)
         return computeItem(
           product ?? { ...item, taxRate: 0, isPerStudent: item.isPerStudent },
           item.quantity,
@@ -99,6 +111,11 @@ export default function QuotesPage() {
         <p className="mt-1 text-sm text-slate-500">
           인원수와 예산을 입력하면 추천 교재 기준으로 견적 금액이 실시간 산출됩니다.
         </p>
+        {fromRecommendation && (
+          <p className="mt-2 inline-flex rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+            AI 교육계획안에서 선택한 교재로 구성된 견적입니다
+          </p>
+        )}
       </div>
 
       {/* 인원수/예산 입력 (실시간 반영) */}
@@ -178,7 +195,7 @@ export default function QuotesPage() {
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">AI 추천 교재·교구 정보</h2>
         <ul className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {recommendedProducts.map((product) => (
+          {quoteProducts.map((product) => (
             <li
               key={product.id}
               className="rounded-lg border border-slate-100 bg-slate-50 p-4"

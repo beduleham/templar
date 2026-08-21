@@ -1,16 +1,28 @@
 import type { Product } from '../lib/quotation'
 
-// AI 추천 교재·교구 목록.
-// RAG 추천 기능이 붙기 전까지는 공급업체 등록 상품을 가정한 Mock 데이터.
+// 공급업체(누리에듀) 등록 교재·교구 카탈로그.
+// 백엔드 products 테이블이 준비되기 전까지의 Mock 데이터.
+// AI 추천은 반드시 이 카탈로그 안의 상품만 반환한다(환각 원천 차단).
 // (교재·도서류는 면세 품목이므로 taxRate 0)
-export const recommendedProducts: Product[] = [
+
+export interface CatalogProduct extends Product {
+  category: string
+  targetAge: string
+  /** 유사도 매칭 품질을 높이기 위한 검색 키워드 */
+  keywords: string[]
+}
+
+export const productCatalog: CatalogProduct[] = [
   {
     id: 'prod-001',
     name: '누리과정 미술 놀이 세트',
     unitPrice: 10000,
     taxRate: 0,
     isPerStudent: true,
-    description: "만 3~5세 '여름과 자연' 주제 연계 미술 활동 재료 모음 (개인별)",
+    category: '미술',
+    targetAge: '만 3~5세',
+    keywords: ['그리기', '콜라주', '물감', '색칠', '만들기', '표현', '작품'],
+    description: '계절·주제 연계 미술 활동 재료 모음 (개인별)',
   },
   {
     id: 'prod-002',
@@ -18,6 +30,9 @@ export const recommendedProducts: Product[] = [
     unitPrice: 5000,
     taxRate: 0,
     isPerStudent: true,
+    category: '조작놀이',
+    targetAge: '만 3~5세',
+    keywords: ['블록', '쌓기', '구성', '소근육', '공간', '패턴', '만들기'],
     description: '소근육 발달과 공간 지각을 돕는 감각 블록 세트 (개인별)',
   },
   {
@@ -26,6 +41,111 @@ export const recommendedProducts: Product[] = [
     unitPrice: 15000,
     taxRate: 0,
     isPerStudent: false,
+    category: '교사자료',
+    targetAge: '교사용',
+    keywords: ['지도서', '가이드', '운영', '계획', '수업'],
     description: '주간 활동 운영을 위한 교사용 가이드북 (학급 공용)',
   },
+  {
+    id: 'prod-004',
+    name: '어린이 관찰 돋보기 세트',
+    unitPrice: 4500,
+    taxRate: 0,
+    isPerStudent: true,
+    category: '과학탐구',
+    targetAge: '만 3~5세',
+    keywords: ['관찰', '돋보기', '탐구', '자연', '곤충', '식물', '세밀화'],
+    description: '유아 손 크기에 맞춘 안전한 플라스틱 돋보기 세트',
+  },
+  {
+    id: 'prod-005',
+    name: '유아 과학 실험 키트',
+    unitPrice: 12000,
+    taxRate: 0,
+    isPerStudent: true,
+    category: '과학탐구',
+    targetAge: '만 4~5세',
+    keywords: ['실험', '과학', '변화', '예측', '물', '얼음', '탐구'],
+    description: '안전한 재료로 구성된 유아용 기초 과학 실험 키트',
+  },
+  {
+    id: 'prod-006',
+    name: '리듬 악기 바구니',
+    unitPrice: 18000,
+    taxRate: 0,
+    isPerStudent: false,
+    category: '음률',
+    targetAge: '만 3~5세',
+    keywords: ['악기', '리듬', '노래', '연주', '음악', '소리', '동요'],
+    description: '탬버린·마라카스·캐스터네츠 등 리듬 악기 학급 세트 (학급 공용)',
+  },
+  {
+    id: 'prod-007',
+    name: '주제별 그림책 꾸러미',
+    unitPrice: 30000,
+    taxRate: 0,
+    isPerStudent: false,
+    category: '언어',
+    targetAge: '만 3~5세',
+    keywords: ['그림책', '동화', '읽기', '이야기', '언어', '독서', '듣기'],
+    description: '주제 연계 그림책 5권 구성 학급 문고 (학급 공용)',
+  },
+  {
+    id: 'prod-008',
+    name: '낱말 카드 놀이 세트',
+    unitPrice: 6500,
+    taxRate: 0,
+    isPerStudent: true,
+    category: '언어',
+    targetAge: '만 4~5세',
+    keywords: ['낱말', '카드', '글자', '문장', '어휘', '수수께끼', '말하기'],
+    description: '어휘 확장과 문장 만들기를 돕는 그림 낱말 카드 (개인별)',
+  },
+  {
+    id: 'prod-009',
+    name: '평균대·징검다리 세트',
+    unitPrice: 45000,
+    taxRate: 0,
+    isPerStudent: false,
+    category: '신체활동',
+    targetAge: '만 3~5세',
+    keywords: ['균형', '평균대', '장애물', '대근육', '체육', '운동', '신체'],
+    description: '균형 감각과 대근육 발달을 위한 실내 체육 교구 (학급 공용)',
+  },
+  {
+    id: 'prod-010',
+    name: '역할 놀이 의상 세트',
+    unitPrice: 22000,
+    taxRate: 0,
+    isPerStudent: false,
+    category: '역할놀이',
+    targetAge: '만 3~5세',
+    keywords: ['역할', '극놀이', '의상', '직업', '사회', '협동', '표현'],
+    description: '다양한 직업 체험을 위한 역할 놀이 의상 10종 (학급 공용)',
+  },
+  {
+    id: 'prod-011',
+    name: '수 세기 교구 세트',
+    unitPrice: 8000,
+    taxRate: 0,
+    isPerStudent: true,
+    category: '수·조작',
+    targetAge: '만 3~5세',
+    keywords: ['수', '세기', '숫자', '비교', '분류', '측정', '수학'],
+    description: '수 개념과 분류·비교를 익히는 조작 교구 (개인별)',
+  },
+  {
+    id: 'prod-012',
+    name: '클레이 점토 12색 세트',
+    unitPrice: 7000,
+    taxRate: 0,
+    isPerStudent: true,
+    category: '미술',
+    targetAge: '만 3~5세',
+    keywords: ['클레이', '점토', '만들기', '조형', '입체', '모형', '창의'],
+    description: '입체 조형 활동용 무독성 클레이 12색 (개인별)',
+  },
 ]
+
+/** 이전 태스크 호환용: 기본 추천 상품 (추천 선택이 없을 때 견적 기본값) */
+export const recommendedProducts: CatalogProduct[] = productCatalog.slice(0, 3)

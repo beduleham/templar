@@ -135,6 +135,17 @@ export const productCatalog: CatalogProduct[] = [
     description: '수 개념과 분류·비교를 익히는 조작 교구 (개인별)',
   },
   {
+    id: 'prod-013',
+    name: '자연 모래놀이 세트',
+    unitPrice: 16000,
+    taxRate: 0,
+    isPerStudent: false,
+    category: '과학탐구',
+    targetAge: '만 3~5세',
+    keywords: ['모래', '모래놀이', '촉감', '갯벌', '삽', '틀'],
+    description: '실내외 겸용 촉감 모래와 놀이 도구 구성 (학급 공용)',
+  },
+  {
     id: 'prod-012',
     name: '클레이 점토 12색 세트',
     unitPrice: 7000,

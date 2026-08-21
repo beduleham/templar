@@ -69,13 +69,17 @@ export default function PlanPage() {
   const recommendations = useMemo(
     () =>
       content
-        ? recommendForPlan(planActivities(content), listAvailableProducts())
+        ? recommendForPlan(planActivities(content), listAvailableProducts(), 2, {
+            targetAge: content.target_age,
+          })
         : [],
     [content],
   )
 
   const seedRecommendations = (planContent: PlanContent) => {
-    const recs = recommendForPlan(planActivities(planContent), listAvailableProducts())
+    const recs = recommendForPlan(planActivities(planContent), listAvailableProducts(), 2, {
+      targetAge: planContent.target_age,
+    })
     setRecommendationEntries(
       recs.map((rec) => ({
         product: rec.product,

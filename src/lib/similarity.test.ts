@@ -3,6 +3,7 @@ import { productCatalog } from '../api/products'
 import {
   cosineSimilarity,
   MATCH_THRESHOLD,
+  matchesTargetAge,
   recommendForActivity,
   recommendForPlan,
   termFrequency,
@@ -81,5 +82,44 @@ describe('recommendForPlan', () => {
     expect(recs.some((r) => r.product.name === '어린이 관찰 돋보기 세트')).toBe(true)
     expect(recs.some((r) => r.product.name === '클레이 점토 12색 세트')).toBe(true)
     for (const rec of recs) expect(rec.relatedActivity).toBeTruthy()
+  })
+})
+
+describe('시맨틱 매칭 (개념 시소러스)', () => {
+  it("'흙 놀이'는 어휘가 달라도 모래놀이 세트를 0.7 이상으로 매칭한다", () => {
+    const matches = recommendForActivity('흙 놀이', productCatalog, 5)
+    const sand = matches.find((m) => m.product.name === '자연 모래놀이 세트')
+    expect(sand).toBeDefined()
+    expect(sand!.matchScore).toBeGreaterThanOrEqual(0.7)
+  })
+
+  it('개념 연결이 없으면 어휘 코사인 점수를 그대로 쓴다', () => {
+    const matches = recommendForActivity('xyzabc', productCatalog, 2)
+    expect(matches.every((m) => m.matchScore === 0)).toBe(true)
+  })
+})
+
+describe('연령 필터링', () => {
+  it('만 3세 요청 시 만 4~5세 전용 상품은 제외된다', () => {
+    const matches = recommendForActivity('낱말 카드 어휘 놀이', productCatalog, 12, {
+      targetAge: '만 3세',
+    })
+    expect(matches.some((m) => m.product.name === '낱말 카드 놀이 세트')).toBe(false)
+  })
+
+  it('만 4세 요청 시 만 4~5세 상품이 포함된다', () => {
+    const matches = recommendForActivity('낱말 카드 어휘 놀이', productCatalog, 12, {
+      targetAge: '만 4세',
+    })
+    expect(matches.some((m) => m.product.name === '낱말 카드 놀이 세트')).toBe(true)
+  })
+
+  it('혼합반 요청은 전체 연령을 허용한다', () => {
+    expect(matchesTargetAge('만 4~5세', '혼합반')).toBe(true)
+  })
+
+  it('공통/교사용 상품은 모든 연령에 매칭된다', () => {
+    expect(matchesTargetAge('공통', '만 3세')).toBe(true)
+    expect(matchesTargetAge('교사용', '만 5세')).toBe(true)
   })
 })

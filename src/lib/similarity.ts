@@ -1,12 +1,15 @@
-// 인메모리 RAG 매칭 엔진 (순수 함수).
+// 인메모리 RAG 시맨틱 매칭 엔진 (순수 함수).
 //
-// 소규모 카탈로그에 대해 문자 바이그램 + 어절 토큰 기반 코사인 유사도로
-// 계획안 활동 텍스트와 상품 메타데이터를 매칭한다. 추천 결과는 반드시
-// 카탈로그에 존재하는 상품만 반환하므로 환각이 원천 차단된다.
-// 카탈로그가 커지면 이 모듈의 scoreProducts를 백엔드 벡터 검색
-// (Gemini Embedding + pgvector 코사인 유사도)으로 교체한다.
+// 1) 문자 바이그램 + 어절 토큰 기반 코사인 유사도 (어휘 매칭)
+// 2) 유아교육 개념 시소러스 확장 (어휘가 달라도 의미가 통하는 시맨틱 브리지)
+// 를 결합해 계획안 활동 텍스트와 상품 메타데이터를 매칭한다.
+// 추천 결과는 반드시 카탈로그에 존재하는 상품만 반환하므로 환각이 원천 차단된다.
+// 카탈로그가 커지면 이 모듈을 백엔드 벡터 검색(Gemini text-embedding-004 768차원
+// + pgvector `<=>` 코사인 거리)으로 교체하고, 본 엔진은 임베딩 장애 시
+// Fallback 매칭으로 유지한다.
 
 import type { CatalogProduct } from '../api/products'
+import { findConceptGroups, sharedConceptCount } from './conceptMap'
 
 /** 한국어 텍스트를 어절 + 문자 바이그램 토큰으로 분해한다. */
 export function tokenize(text: string): string[] {
@@ -64,30 +67,70 @@ const productDocument = (product: CatalogProduct) =>
     (product.keywords ?? []).join(' '),
   ].join(' ')
 
+/** 시맨틱 브리지 매칭의 최소 보정 점수 (개념 그룹이 겹치면 이 이상을 보장) */
+export const SEMANTIC_BRIDGE_SCORE = 0.7
+
 /**
- * 활동 텍스트와 카탈로그 상품의 유사도를 계산해 상위 topN개를 반환한다.
+ * 상품의 대상 연령이 요청 연령을 포함하는지 판정한다.
+ * '공통'·'교사용'은 전 연령 허용, '혼합반' 요청은 전 상품 허용.
+ * (예: '만 3~5세'는 만 3세 요청에 매칭, '만 4~5세'는 매칭 안 됨)
+ */
+export function matchesTargetAge(productAge: string, targetAge?: string): boolean {
+  if (!targetAge || targetAge === '혼합반') return true
+  if (productAge.includes('공통') || productAge.includes('교사용')) return true
+  const requested = Number(targetAge.match(/\d/)?.[0])
+  if (!Number.isFinite(requested)) return true
+  const nums = productAge.match(/\d/g)?.map(Number) ?? []
+  if (nums.length === 0) return true
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  return requested >= min && requested <= max
+}
+
+export interface RecommendOptions {
+  /** 지정 시 해당 연령에 맞는 상품만 매칭한다 */
+  targetAge?: string
+}
+
+/**
+ * 활동 텍스트와 카탈로그 상품의 시맨틱 유사도를 계산해 상위 topN개를 반환한다.
+ * 어휘(코사인) 매칭에 더해, 개념 시소러스로 연결되는 상품은 어휘가 달라도
+ * SEMANTIC_BRIDGE_SCORE 이상의 보정 점수로 매칭된다.
  * 임계값 이상 매칭이 없으면 카탈로그 앞쪽(베스트셀러 가정) 상품을 Fallback으로 반환한다.
  */
 export function recommendForActivity(
   activityText: string,
   catalog: CatalogProduct[],
   topN = 3,
+  options: RecommendOptions = {},
 ): ProductMatch[] {
+  const eligible = catalog.filter((p) =>
+    matchesTargetAge(p.targetAge, options.targetAge),
+  )
   const queryVector = termFrequency(tokenize(activityText))
-  const scored = catalog
-    .map((product) => ({
-      product,
-      matchScore: cosineSimilarity(
-        queryVector,
-        termFrequency(tokenize(productDocument(product))),
-      ),
-    }))
+  const queryConcepts = findConceptGroups(activityText)
+
+  const scored = eligible
+    .map((product) => {
+      const doc = productDocument(product)
+      const lexical = cosineSimilarity(queryVector, termFrequency(tokenize(doc)))
+      const bridges = sharedConceptCount(queryConcepts, findConceptGroups(doc))
+      // 개념이 겹치면 최소 0.7을 보장하고, 겹치는 그룹 수·어휘 유사도로 가산한다
+      const semantic =
+        bridges > 0
+          ? Math.min(
+              0.99,
+              SEMANTIC_BRIDGE_SCORE + Math.min(bridges - 1, 2) * 0.08 + lexical * 0.2,
+            )
+          : lexical
+      return { product, matchScore: Math.max(lexical, semantic) }
+    })
     .sort((a, b) => b.matchScore - a.matchScore)
 
   const matched = scored.filter((m) => m.matchScore >= MATCH_THRESHOLD)
   if (matched.length > 0) return matched.slice(0, topN)
   // Fallback: 매칭 실패 시 기본 추천 (점수 0으로 표기)
-  return catalog.slice(0, topN).map((product) => ({ product, matchScore: 0 }))
+  return eligible.slice(0, topN).map((product) => ({ product, matchScore: 0 }))
 }
 
 export interface PlanRecommendation extends ProductMatch {
@@ -111,12 +154,13 @@ export function recommendForPlan(
   activities: ActivityLike[],
   catalog: CatalogProduct[],
   alternativesPerItem = 2,
+  options: RecommendOptions = {},
 ): PlanRecommendation[] {
   const byProduct = new Map<string, PlanRecommendation>()
 
   for (const activity of activities) {
     const text = `${activity.activity_name} ${activity.description}`
-    const matches = recommendForActivity(text, catalog, alternativesPerItem + 1)
+    const matches = recommendForActivity(text, catalog, alternativesPerItem + 1, options)
     if (matches.length === 0) continue
     const [top, ...rest] = matches
     const existing = byProduct.get(top.product.id)

@@ -24,7 +24,7 @@ const supplier = {
 
 let cachedFontBytes: ArrayBuffer | null = null
 
-async function loadFontBytes(): Promise<ArrayBuffer> {
+export async function loadFontBytes(): Promise<ArrayBuffer> {
   if (!cachedFontBytes) {
     const res = await fetch(nanumGothicUrl)
     if (!res.ok) throw new Error('한글 폰트를 불러오지 못했습니다')

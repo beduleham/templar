@@ -1,4 +1,4 @@
-import { CircleAlert, Loader2, Save } from 'lucide-react'
+import { CircleAlert, FileDown, Loader2, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useBlocker } from 'react-router-dom'
 import {
@@ -12,7 +12,9 @@ import PlanSetupForm from '../../components/plan/PlanSetupForm'
 import PlanTable from '../../components/plan/PlanTable'
 import RecommendationPanel from '../../components/plan/RecommendationPanel'
 import SavedPlansList from '../../components/plan/SavedPlansList'
+import { downloadBlob } from '../../lib/download'
 import {
+  planTypeLabels,
   updateActivity,
   type GeneratePlanParams,
   type PlanContent,
@@ -149,6 +151,38 @@ export default function PlanPage() {
     if (id === currentId) setCurrentId(undefined)
   }
 
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const handlePdfDownload = async () => {
+    if (!content || exportingPdf) return
+    setExportingPdf(true)
+    try {
+      const { generatePlanPdf, planPdfFileName } = await import(
+        '../../lib/exportPlanPdf'
+      )
+      const entries = useRecommendationStore.getState().entries
+      const blob = await generatePlanPdf({
+        content,
+        planTypeLabel: planTypeLabels[params.planType],
+        institution: '누리 어린이집',
+        recommendations: entries
+          .filter((e) => e.selected)
+          .map((e) => ({
+            name: e.product.name,
+            unitPrice: e.product.unitPrice,
+            matchScore: e.matchScore,
+            relatedActivity: e.relatedActivity,
+          })),
+        issuedAt: new Date(),
+      })
+      downloadBlob(blob, planPdfFileName('누리 어린이집', new Date()))
+    } catch (error) {
+      console.error('계획안 PDF 생성 실패:', error)
+      setError('PDF 생성에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
@@ -200,15 +234,30 @@ export default function PlanPage() {
                   {content.target_age} · {content.theme}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!dirty}
-                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                <Save className="size-4" aria-hidden />
-                {dirty ? '변경사항 저장' : '저장됨'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handlePdfDownload}
+                  disabled={exportingPdf}
+                  className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-900 disabled:opacity-60"
+                >
+                  {exportingPdf ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <FileDown className="size-4" aria-hidden />
+                  )}
+                  PDF 다운로드
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!dirty}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Save className="size-4" aria-hidden />
+                  {dirty ? '변경사항 저장' : '저장됨'}
+                </button>
+              </div>
             </div>
             <ul className="mt-3 flex flex-wrap gap-2">
               {content.goals.map((goal) => (

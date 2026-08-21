@@ -123,7 +123,11 @@ export default function QuotesPage() {
       }
       if (format === 'pdf') {
         const { generateQuotationPdf } = await import('../../lib/exportPdf')
-        downloadBlob(await generateQuotationPdf(docData), `견적서_${dateStamp()}.pdf`)
+        const { planPdfFileName } = await import('../../lib/exportPlanPdf')
+        downloadBlob(
+          await generateQuotationPdf(docData),
+          planPdfFileName(RECIPIENT, new Date()),
+        )
       } else {
         const { generateQuotationExcel } = await import('../../lib/exportExcel')
         downloadBlob(

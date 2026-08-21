@@ -89,7 +89,7 @@ export function updateActivity(
   content: PlanContent,
   period: string,
   area: string,
-  patch: Partial<Pick<PlanActivity, 'activity_name' | 'description'>>,
+  patch: Partial<Pick<PlanActivity, 'activity_name' | 'description' | 'objective'>>,
 ): PlanContent {
   return {
     ...content,

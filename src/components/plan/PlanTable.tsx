@@ -1,45 +1,17 @@
-import { useState } from 'react'
 import { findActivity, NURI_AREAS, type PlanContent } from '../../lib/plan'
+import EditableCell from '../shared/EditableCell'
 
 interface PlanTableProps {
   content: PlanContent
   onActivityChange: (
     period: string,
     area: string,
-    patch: { activity_name: string; description: string },
+    patch: { activity_name?: string; description?: string; objective?: string },
   ) => void
 }
 
-interface EditingCell {
-  period: string
-  area: string
-  name: string
-  description: string
-}
-
 export default function PlanTable({ content, onActivityChange }: PlanTableProps) {
-  const [editing, setEditing] = useState<EditingCell | null>(null)
   const periods = content.schedule.map((p) => p.period)
-
-  const startEdit = (period: string, area: string) => {
-    const activity = findActivity(content, period, area)
-    if (!activity) return
-    setEditing({
-      period,
-      area,
-      name: activity.activity_name,
-      description: activity.description,
-    })
-  }
-
-  const commitEdit = () => {
-    if (!editing) return
-    onActivityChange(editing.period, editing.area, {
-      activity_name: editing.name.trim() || '(활동 없음)',
-      description: editing.description.trim(),
-    })
-    setEditing(null)
-  }
 
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -65,62 +37,54 @@ export default function PlanTable({ content, onActivityChange }: PlanTableProps)
               </th>
               {periods.map((period) => {
                 const activity = findActivity(content, period, area)
-                const isEditing =
-                  editing?.period === period && editing?.area === area
+                if (!activity) return <td key={period} className="px-2 py-2" />
                 return (
-                  <td key={period} className="px-1.5 py-1.5">
-                    {isEditing ? (
-                      <div
-                        className="rounded-lg border border-emerald-300 bg-emerald-50/40 p-2"
-                        onBlur={(e) => {
-                          if (!e.currentTarget.contains(e.relatedTarget)) commitEdit()
-                        }}
-                      >
-                        <input
-                          autoFocus
-                          value={editing.name}
-                          onChange={(e) =>
-                            setEditing({ ...editing, name: e.target.value })
+                  <td key={period} className="min-w-40 px-2 py-2">
+                    <EditableCell
+                      value={activity.activity_name}
+                      onSave={(activity_name) =>
+                        onActivityChange(period, area, {
+                          activity_name: activity_name || '(활동 없음)',
+                        })
+                      }
+                      ariaLabel={`${period} ${area} 활동명`}
+                      placeholder="활동명"
+                      className="text-xs font-semibold"
+                      displayClassName="text-xs font-semibold text-slate-800"
+                    />
+                    {activity.objective !== undefined && (
+                      <div className="mt-1 flex gap-1">
+                        <span className="shrink-0 pt-0.5 text-[10px] font-semibold text-emerald-600">
+                          목표
+                        </span>
+                        <EditableCell
+                          value={activity.objective}
+                          onSave={(objective) =>
+                            onActivityChange(period, area, { objective })
                           }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') commitEdit()
-                            if (e.key === 'Escape') setEditing(null)
-                          }}
-                          aria-label={`${period} ${area} 활동명`}
-                          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold outline-none focus:border-emerald-500"
-                        />
-                        <textarea
-                          value={editing.description}
-                          onChange={(e) =>
-                            setEditing({ ...editing, description: e.target.value })
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') setEditing(null)
-                          }}
-                          rows={3}
-                          aria-label={`${period} ${area} 활동 설명`}
-                          className="mt-1 w-full resize-none rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-emerald-500"
+                          ariaLabel={`${period} ${area} 활동 목표`}
+                          isTextArea
+                          placeholder="활동 목표"
+                          className="text-[11px]"
+                          displayClassName="text-[11px] leading-relaxed text-slate-500"
                         />
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onDoubleClick={() => startEdit(period, area)}
-                        title={activity?.objective ?? '더블클릭하여 수정'}
-                        className="block w-full rounded-lg p-2 text-left hover:bg-slate-50"
-                      >
-                        <p className="text-xs font-semibold text-slate-800">
-                          {activity?.activity_name}
-                        </p>
-                        <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-slate-500">
-                          {activity?.description}
-                        </p>
-                        {activity?.materials && activity.materials.length > 0 && (
-                          <p className="mt-1 truncate text-[10px] text-slate-400">
-                            준비물: {activity.materials.join(', ')}
-                          </p>
-                        )}
-                      </button>
+                    )}
+                    <EditableCell
+                      value={activity.description}
+                      onSave={(description) =>
+                        onActivityChange(period, area, { description })
+                      }
+                      ariaLabel={`${period} ${area} 활동 내용`}
+                      isTextArea
+                      placeholder="활동 내용"
+                      className="mt-1 text-[11px]"
+                      displayClassName="mt-1 text-[11px] leading-relaxed text-slate-500 line-clamp-3"
+                    />
+                    {activity.materials && activity.materials.length > 0 && (
+                      <p className="mt-1 truncate px-1 text-[10px] text-slate-400">
+                        준비물: {activity.materials.join(', ')}
+                      </p>
                     )}
                   </td>
                 )

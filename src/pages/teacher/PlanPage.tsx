@@ -1,5 +1,6 @@
 import { CircleAlert, Loader2, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { useBlocker } from 'react-router-dom'
 import {
   GENERATION_TIMEOUT_MS,
   generatePlan,
@@ -36,7 +37,33 @@ export default function PlanPage() {
   const [error, setError] = useState<string | null>(null)
   const [savedPlans, setSavedPlans] = useState<SavedPlan[]>(() => listPlans())
   const [toast, setToast] = useState<string | null>(null)
+  /** 저장되지 않은 변경사항 여부 (생성/편집 시 true, 저장/열기 시 false) */
+  const [dirty, setDirty] = useState(false)
   const setRecommendationEntries = useRecommendationStore((s) => s.setEntries)
+
+  // 미저장 상태 이탈 방지: SPA 라우팅 차단 + 브라우저 이탈(beforeunload) 경고
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname,
+  )
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (
+      window.confirm('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')
+    ) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
+    }
+  }, [blocker])
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
 
   // 현재 계획안의 활동 기반 추천 (대체 추천 목록 렌더링용)
   const recommendations = useMemo(
@@ -72,6 +99,7 @@ export default function PlanPage() {
       const generated = await withTimeout(generatePlan(params), GENERATION_TIMEOUT_MS)
       setContent(generated)
       setCurrentId(undefined)
+      setDirty(true)
       seedRecommendations(generated)
     } catch {
       setError('네트워크 오류가 발생했습니다. 다시 시도해주세요.')
@@ -83,9 +111,10 @@ export default function PlanPage() {
   const handleActivityChange = (
     period: string,
     area: string,
-    patch: { activity_name: string; description: string },
+    patch: { activity_name?: string; description?: string; objective?: string },
   ) => {
     setContent((prev) => (prev ? updateActivity(prev, period, area, patch) : prev))
+    setDirty(true)
   }
 
   const handleSave = () => {
@@ -94,7 +123,8 @@ export default function PlanPage() {
       const saved = savePlan(content, params.planType, currentId)
       setCurrentId(saved.id)
       setSavedPlans(listPlans())
-      setToast('계획안이 저장되었습니다')
+      setDirty(false)
+      setToast('성공적으로 저장되었습니다.')
     } catch {
       setError('계획안 저장에 실패했습니다. 브라우저 저장소 상태를 확인해 주세요.')
     }
@@ -105,6 +135,7 @@ export default function PlanPage() {
     setCurrentId(plan.id)
     setParams((prev) => ({ ...prev, planType: plan.planType }))
     setError(null)
+    setDirty(false)
     seedRecommendations(plan.content)
   }
 
@@ -168,10 +199,11 @@ export default function PlanPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                disabled={!dirty}
+                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
               >
                 <Save className="size-4" aria-hidden />
-                계획안 저장
+                {dirty ? '변경사항 저장' : '저장됨'}
               </button>
             </div>
             <ul className="mt-3 flex flex-wrap gap-2">

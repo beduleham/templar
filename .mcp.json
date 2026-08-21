@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ign8t": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ign8t/mcp@latest",
+        "--api-key",
+        "${IGN8T_API_KEY}"
+      ],
+      "env": {}
+    }
+  }
+}

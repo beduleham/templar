@@ -115,12 +115,13 @@ export function recommendForActivity(
       const doc = productDocument(product)
       const lexical = cosineSimilarity(queryVector, termFrequency(tokenize(doc)))
       const bridges = sharedConceptCount(queryConcepts, findConceptGroups(doc))
-      // 개념이 겹치면 최소 0.7을 보장하고, 겹치는 그룹 수·어휘 유사도로 가산한다
+      // 개념이 겹치면 최소 0.7을 보장하되, 어휘 일치가 강한(리터럴) 상품이
+      // 일반적 개념 연결보다 우선하도록 어휘 유사도에 큰 가중치를 둔다
       const semantic =
         bridges > 0
           ? Math.min(
               0.99,
-              SEMANTIC_BRIDGE_SCORE + Math.min(bridges - 1, 2) * 0.08 + lexical * 0.2,
+              SEMANTIC_BRIDGE_SCORE + Math.min(bridges - 1, 2) * 0.03 + lexical * 0.35,
             )
           : lexical
       return { product, matchScore: Math.max(lexical, semantic) }
@@ -163,13 +164,36 @@ export function recommendForPlan(
     const matches = recommendForActivity(text, catalog, alternativesPerItem + 1, options)
     if (matches.length === 0) continue
     const [top, ...rest] = matches
+    const freshAlternatives = rest.filter((m) => m.matchScore >= MATCH_THRESHOLD)
     const existing = byProduct.get(top.product.id)
-    if (!existing || top.matchScore > existing.matchScore) {
+    if (!existing) {
       byProduct.set(top.product.id, {
         ...top,
         relatedActivity: activity.activity_name,
-        alternatives: rest.filter((m) => m.matchScore >= MATCH_THRESHOLD),
+        alternatives: freshAlternatives,
       })
+      continue
+    }
+    // 여러 활동에서 같은 상품이 대표로 뽑히면 대체 추천을 병합해
+    // 특정 활동의 차순위 상품이 묻히지 않도록 한다.
+    const altByProduct = new Map(existing.alternatives.map((a) => [a.product.id, a]))
+    for (const alt of freshAlternatives) {
+      const known = altByProduct.get(alt.product.id)
+      if (!known || alt.matchScore > known.matchScore) {
+        altByProduct.set(alt.product.id, alt)
+      }
+    }
+    const merged = [...altByProduct.values()]
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, Math.max(alternativesPerItem, 3))
+    if (top.matchScore > existing.matchScore) {
+      byProduct.set(top.product.id, {
+        ...top,
+        relatedActivity: activity.activity_name,
+        alternatives: merged,
+      })
+    } else {
+      existing.alternatives = merged
     }
   }
 

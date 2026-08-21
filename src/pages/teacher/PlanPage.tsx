@@ -188,7 +188,23 @@ export default function PlanPage() {
 
           <PlanTable content={content} onActivityChange={handleActivityChange} />
 
-          <RecommendationPanel recommendations={recommendations} />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() =>
+                document
+                  .getElementById('recommendation-panel')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              계획안 확정 및 교재 추천 받기 ↓
+            </button>
+          </div>
+
+          <div id="recommendation-panel">
+            <RecommendationPanel recommendations={recommendations} />
+          </div>
         </>
       )}
 

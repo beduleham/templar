@@ -108,3 +108,26 @@ describe('withTimeout', () => {
     await expect(withTimeout(never, 30)).rejects.toThrow('timeout')
   })
 })
+
+describe('연령별 맞춤 구성', () => {
+  it('만 3세는 감각 탐색·단순 모방 중심으로 서술된다', async () => {
+    const plan = await generatePlan({ ...params, targetAge: '만 3세' })
+    const text = JSON.stringify(plan)
+    expect(text).toContain('감각 탐색')
+    expect(text).toContain('단순 모방')
+  })
+
+  it('만 5세는 협동·토의·초등 연계 수준으로 서술된다', async () => {
+    const plan = await generatePlan({ ...params, targetAge: '만 5세' })
+    const text = JSON.stringify(plan)
+    expect(text).toContain('협동')
+    expect(text).toContain('초등 연계')
+  })
+
+  it('활동에 목표와 준비물이 포함된다', async () => {
+    const plan = await generatePlan(params)
+    const activity = plan.schedule[0].activities[0]
+    expect(activity.objective).toBeTruthy()
+    expect(activity.materials?.length).toBeGreaterThan(0)
+  })
+})

@@ -7,6 +7,7 @@
 //   안정 모델(예: gemini-2.5-flash)을 서버 환경 변수로 관리할 것.
 //   GEMINI_API_KEY는 반드시 서버 환경 변수로만 관리하고 클라이언트에 노출하지 않는다.
 
+import { AGE_PROFILES } from '../lib/ageProfiles'
 import {
   NURI_AREAS,
   periodsForPlanType,
@@ -69,6 +70,23 @@ const activityBank: Record<NuriArea, Array<{ name: string; desc: string }>> = {
   ],
 }
 
+// 영역별 활동 목표 및 기본 준비물 템플릿
+const areaObjectives: Record<NuriArea, string> = {
+  '신체운동·건강': '{sub}을 몸으로 표현하며 신체 조절력과 기초 체력을 기른다.',
+  의사소통: '{sub}에 대한 생각을 말과 글로 표현하며 어휘력을 확장한다.',
+  사회관계: '친구와 협력하며 {sub}에 대한 공동체 의식을 기른다.',
+  예술경험: '{sub}을 다양한 예술 매체로 표현하며 심미감을 기른다.',
+  자연탐구: '{sub}을 관찰·비교하며 탐구하는 태도를 기른다.',
+}
+
+const areaMaterials: Record<NuriArea, string[]> = {
+  '신체운동·건강': ['활동 매트', '배경 음악'],
+  의사소통: ['그림책', '낱말 카드'],
+  사회관계: ['역할 소품', '모둠 이름표'],
+  예술경험: ['미술 재료', '리듬 악기'],
+  자연탐구: ['관찰 도구', '기록지'],
+}
+
 const fill = (template: string, theme: string, sub: string) =>
   template.replaceAll('{theme}', theme).replaceAll('{sub}', sub)
 
@@ -102,10 +120,14 @@ export async function generatePlan(params: GeneratePlanParams): Promise<PlanCont
       activities: NURI_AREAS.map((area) => {
         const bank = activityBank[area]
         const pick = bank[pi % bank.length]
+        // 연령별 발달 특성에 맞춰 활동 난이도 서술을 조정한다
+        const adaptation = AGE_PROFILES[params.targetAge].adaptationNote
         return {
           area,
           activity_name: fill(pick.name, theme, sub),
-          description: fill(pick.desc, theme, sub),
+          description: `${fill(pick.desc, theme, sub)} ${adaptation}`,
+          objective: fill(areaObjectives[area], theme, sub),
+          materials: areaMaterials[area],
         }
       }),
     })),

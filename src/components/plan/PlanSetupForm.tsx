@@ -1,4 +1,5 @@
 import { Loader2, Sparkles } from 'lucide-react'
+import { AGE_PROFILES } from '../../lib/ageProfiles'
 import {
   planTypeLabels,
   TARGET_AGES,
@@ -102,6 +103,34 @@ export default function PlanSetupForm({
           )}
           AI 계획안 생성
         </button>
+      </div>
+
+      {/* 연령별 발달 특성 및 추천 대주제 */}
+      <div className="mt-4 rounded-lg bg-slate-50 px-4 py-3">
+        <p className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-700">
+            {value.targetAge} 발달 특성:
+          </span>{' '}
+          {AGE_PROFILES[value.targetAge].developmentalFocus}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-slate-500">추천 대주제</span>
+          {AGE_PROFILES[value.targetAge].recommendedThemes.map((theme) => (
+            <button
+              key={theme}
+              type="button"
+              onClick={() => onChange({ ...value, theme })}
+              aria-pressed={value.theme === theme}
+              className={`rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                value.theme === theme
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-white text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50'
+              }`}
+            >
+              {theme}
+            </button>
+          ))}
+        </div>
       </div>
     </section>
   )

@@ -106,7 +106,7 @@ export default function PlanTable({ content, onActivityChange }: PlanTableProps)
                       <button
                         type="button"
                         onDoubleClick={() => startEdit(period, area)}
-                        title="더블클릭하여 수정"
+                        title={activity?.objective ?? '더블클릭하여 수정'}
                         className="block w-full rounded-lg p-2 text-left hover:bg-slate-50"
                       >
                         <p className="text-xs font-semibold text-slate-800">
@@ -115,6 +115,11 @@ export default function PlanTable({ content, onActivityChange }: PlanTableProps)
                         <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-slate-500">
                           {activity?.description}
                         </p>
+                        {activity?.materials && activity.materials.length > 0 && (
+                          <p className="mt-1 truncate text-[10px] text-slate-400">
+                            준비물: {activity.materials.join(', ')}
+                          </p>
+                        )}
                       </button>
                     )}
                   </td>

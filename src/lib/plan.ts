@@ -41,6 +41,10 @@ export interface PlanActivity {
   area: string
   activity_name: string
   description: string
+  /** 활동 목표 */
+  objective?: string
+  /** 준비물 */
+  materials?: string[]
 }
 
 export interface PlanPeriod {

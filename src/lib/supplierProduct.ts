@@ -7,7 +7,7 @@ import { NURI_AREAS } from './plan'
 
 export interface SupplierProduct extends CatalogProduct {
   productCode: string
-  /** 누리과정 5대 영역 중 하나 */
+  /** 누리과정 5대 영역 중 하나 (CatalogProduct에서는 선택, 공급업체 상품에는 필수) */
   nuriDomain: string
   /** 품절/공급 중단 시 false — 추천·견적 대상에서 제외 */
   isAvailable: boolean
@@ -193,6 +193,7 @@ export function applyBulkUpsert(
         nuriDomain: row.nuriDomain,
         unitPrice: row.unitPrice,
         description: row.description,
+        imageUrl: row.imageUrl || current.imageUrl,
         isAvailable: row.isAvailable,
         ragSynced: false,
         updatedAt: now,
@@ -210,6 +211,7 @@ export function applyBulkUpsert(
         taxRate: 0,
         isPerStudent: true,
         description: row.description,
+        imageUrl: row.imageUrl || undefined,
         keywords: [],
         isAvailable: row.isAvailable,
         ragSynced: false,

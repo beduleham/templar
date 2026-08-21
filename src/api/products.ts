@@ -10,6 +10,10 @@ export interface CatalogProduct extends Product {
   targetAge: string
   /** 유사도 매칭 품질을 높이기 위한 검색 키워드 (선택) */
   keywords?: string[]
+  /** 상품 이미지 URL (없거나 로드 실패 시 카테고리 아이콘 플레이스홀더 사용) */
+  imageUrl?: string
+  /** 누리과정 연계 영역 (교육 효과 태그) */
+  nuriDomain?: string
 }
 
 export const productCatalog: CatalogProduct[] = [

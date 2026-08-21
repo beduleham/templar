@@ -7,4 +7,5 @@
 
 body {
   font-family: var(--font-sans);
+  background-color: #f8fafc; /* slate-50 — 임베드 환경에서도 바닥색 보장 */
 }

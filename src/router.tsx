@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, createHashRouter } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import RootRedirect from './components/RootRedirect'
 import OrdersPage from './pages/supplier/OrdersPage'
@@ -8,7 +8,12 @@ import PlanPage from './pages/teacher/PlanPage'
 import QuotesPage from './pages/teacher/QuotesPage'
 import TeacherDashboardPage from './pages/teacher/TeacherDashboardPage'
 
-export const router = createBrowserRouter([
+// 정적 호스팅(리라이트 불가) 프리뷰 빌드에서는 해시 라우터를 사용한다.
+// (vite.config.ts의 define으로 빌드 시 결정되는 상수)
+declare const __USE_HASH_ROUTER__: boolean
+const createRouter = __USE_HASH_ROUTER__ ? createHashRouter : createBrowserRouter
+
+export const router = createRouter([
   {
     element: <AppShell />,
     children: [

@@ -1,5 +1,6 @@
 import { Loader2, Sparkles } from 'lucide-react'
 import {
+  planTypeLabels,
   TARGET_AGES,
   type GeneratePlanParams,
   type PlanType,
@@ -13,10 +14,10 @@ interface PlanSetupFormProps {
   onGenerate: () => void
 }
 
-const planTypes: Array<{ value: PlanType; label: string }> = [
-  { value: 'WEEKLY', label: '주간 계획안' },
-  { value: 'MONTHLY', label: '월간 계획안' },
-]
+const planTypes = (Object.keys(planTypeLabels) as PlanType[]).map((value) => ({
+  value,
+  label: `${planTypeLabels[value]} 계획안`,
+}))
 
 export default function PlanSetupForm({
   value,

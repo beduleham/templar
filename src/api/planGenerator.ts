@@ -8,15 +8,27 @@
 //   GEMINI_API_KEY는 반드시 서버 환경 변수로만 관리하고 클라이언트에 노출하지 않는다.
 
 import {
-  MONTHLY_PERIODS,
   NURI_AREAS,
-  WEEKLY_PERIODS,
+  periodsForPlanType,
+  planTypeLabels,
   type GeneratePlanParams,
   type NuriArea,
   type PlanContent,
 } from '../lib/plan'
 
 const MOCK_DELAY_MS = import.meta.env.MODE === 'test' ? 0 : 1200
+
+/** 생성 요청 타임아웃 (스펙: 최대 15초 초과 시 타임아웃 처리) */
+export const GENERATION_TIMEOUT_MS = 15_000
+
+export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('generation timeout')), ms)
+    }),
+  ])
+}
 
 // 영역별 활동 템플릿 뱅크. {theme}/{sub} 자리에 주제를 삽입해 다양성을 흉내낸다.
 const activityBank: Record<NuriArea, Array<{ name: string; desc: string }>> = {
@@ -73,8 +85,8 @@ export async function generatePlan(params: GeneratePlanParams): Promise<PlanCont
 
   await delay(MOCK_DELAY_MS)
 
-  const periods = params.planType === 'WEEKLY' ? WEEKLY_PERIODS : MONTHLY_PERIODS
-  const typeLabel = params.planType === 'WEEKLY' ? '주간' : '월간'
+  const periods = periodsForPlanType(params.planType)
+  const typeLabel = planTypeLabels[params.planType]
 
   return {
     title: `${params.targetAge} '${theme}' ${typeLabel} 교육계획안`,

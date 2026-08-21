@@ -1,6 +1,10 @@
 import { CircleAlert, Loader2, Save } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { generatePlan } from '../../api/planGenerator'
+import {
+  GENERATION_TIMEOUT_MS,
+  generatePlan,
+  withTimeout,
+} from '../../api/planGenerator'
 import { deletePlan, listPlans, savePlan } from '../../api/planStorage'
 import { listAvailableProducts } from '../../api/productStore'
 import PlanSetupForm from '../../components/plan/PlanSetupForm'
@@ -65,12 +69,12 @@ export default function PlanPage() {
     setLoading(true)
     setError(null)
     try {
-      const generated = await generatePlan(params)
+      const generated = await withTimeout(generatePlan(params), GENERATION_TIMEOUT_MS)
       setContent(generated)
       setCurrentId(undefined)
       seedRecommendations(generated)
     } catch {
-      setError('서버가 혼잡합니다. 잠시 후 다시 시도해주세요.')
+      setError('네트워크 오류가 발생했습니다. 다시 시도해주세요.')
     } finally {
       setLoading(false)
     }
@@ -137,10 +141,17 @@ export default function PlanPage() {
       {error && (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-5 py-3.5 text-sm font-medium text-red-700"
+          className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-5 py-3.5 text-sm font-medium text-red-700"
         >
           <CircleAlert className="size-5 shrink-0" aria-hidden />
           {error}
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="ml-auto shrink-0 rounded-lg bg-red-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+          >
+            다시 시도
+          </button>
         </div>
       )}
 

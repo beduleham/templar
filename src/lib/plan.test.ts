@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generatePlan } from '../api/planGenerator'
+import { generatePlan, withTimeout } from '../api/planGenerator'
 import {
   findActivity,
   MONTHLY_PERIODS,
@@ -80,5 +80,31 @@ describe('validatePlanContent', () => {
       ],
     }
     expect(validatePlanContent(broken)).toBe(false)
+  })
+})
+
+describe('연간 계획안 (YEARLY)', () => {
+  it('학사 연도 3월~2월 12개 기간을 가진다', async () => {
+    const plan = await generatePlan({ ...params, planType: 'YEARLY', subTheme: '' })
+    expect(plan.schedule.map((p) => p.period)).toEqual([
+      '3월', '4월', '5월', '6월', '7월', '8월',
+      '9월', '10월', '11월', '12월', '1월', '2월',
+    ])
+    expect(validatePlanContent(plan)).toBe(true)
+  })
+
+  it('소주제 없이 생성할 수 있다 (연간은 소주제 선택)', async () => {
+    const plan = await generatePlan({ ...params, planType: 'YEARLY', subTheme: undefined })
+    expect(plan.title).toContain('연간')
+  })
+})
+
+describe('withTimeout', () => {
+  it('시간 내 완료되면 결과를 반환한다', async () => {
+    await expect(withTimeout(Promise.resolve(42), 100)).resolves.toBe(42)
+  })
+  it('초과 시 타임아웃 에러를 던진다', async () => {
+    const never = new Promise(() => {})
+    await expect(withTimeout(never, 30)).rejects.toThrow('timeout')
   })
 })

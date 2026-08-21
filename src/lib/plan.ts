@@ -14,10 +14,28 @@ export type NuriArea = (typeof NURI_AREAS)[number]
 export const TARGET_AGES = ['만 3세', '만 4세', '만 5세', '혼합반'] as const
 export type TargetAge = (typeof TARGET_AGES)[number]
 
-export type PlanType = 'WEEKLY' | 'MONTHLY'
+export type PlanType = 'WEEKLY' | 'MONTHLY' | 'YEARLY'
+
+export const planTypeLabels: Record<PlanType, string> = {
+  WEEKLY: '주간',
+  MONTHLY: '월간',
+  YEARLY: '연간',
+}
 
 export const WEEKLY_PERIODS = ['월', '화', '수', '목', '금'] as const
 export const MONTHLY_PERIODS = ['1주', '2주', '3주', '4주'] as const
+// 연간 계획안: 학사 연도 기준 3월 시작 ~ 이듬해 2월
+export const YEARLY_PERIODS = [
+  '3월', '4월', '5월', '6월', '7월', '8월',
+  '9월', '10월', '11월', '12월', '1월', '2월',
+] as const
+
+export const periodsForPlanType = (planType: PlanType): readonly string[] =>
+  planType === 'WEEKLY'
+    ? WEEKLY_PERIODS
+    : planType === 'MONTHLY'
+      ? MONTHLY_PERIODS
+      : YEARLY_PERIODS
 
 export interface PlanActivity {
   area: string

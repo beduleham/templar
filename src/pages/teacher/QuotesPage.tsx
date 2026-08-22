@@ -1,6 +1,8 @@
-import { FileDown, FileSpreadsheet, Loader2, Send } from 'lucide-react'
+import { FileCheck, FileDown, FileSpreadsheet, Loader2, Send } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { createOrder } from '../../api/orderStore'
+import { listPlans } from '../../api/planStorage'
 import { listAvailableProducts } from '../../api/productStore'
 import EstimateSummaryCard from '../../components/quotes/EstimateSummaryCard'
 import QuoteTable from '../../components/quotes/QuoteTable'
@@ -8,6 +10,7 @@ import ReplaceProductModal from '../../components/quotes/ReplaceProductModal'
 import { useEstimate } from '../../hooks/useEstimate'
 import { downloadBlob } from '../../lib/download'
 import { computeItem, computeTotals, formatKrw } from '../../lib/quotation'
+import { useDeliberationStore } from '../../store/useDeliberationStore'
 import {
   selectedProducts,
   useRecommendationStore,
@@ -80,6 +83,31 @@ export default function QuotesPage() {
 
   const exportableItems = items.filter((item) => item.quantity > 0)
   const replaceTarget = items.find((item) => item.id === replaceTargetId) ?? null
+  const navigate = useNavigate()
+  const setDeliberationSource = useDeliberationStore((s) => s.setSource)
+
+  // 운영위원회 심의서 생성: 현재 견적 구성을 심의서 페이지로 전달한다
+  const handleDeliberation = () => {
+    if (exportableItems.length === 0) return
+    const products = listAvailableProducts()
+    setDeliberationSource({
+      targetAge: listPlans()[0]?.content.target_age ?? '만 3~5세',
+      classSize: Math.max(1, headcount),
+      totalBudget,
+      items: exportableItems.map((item) => {
+        const product = products.find((p) => p.id === item.id)
+        return {
+          itemId: item.id,
+          itemName: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          curriculumArea: product?.nuriDomain ?? product?.category ?? '',
+          description: product?.description ?? '',
+        }
+      }),
+    })
+    navigate('/teacher/deliberation')
+  }
 
   // 발주 요청: 현재 견적을 공급업체 주문 목록으로 전송한다.
   // (실제 인증 도입 전까지 기관/담당자 정보는 Mock 세션 값 사용)
@@ -257,6 +285,15 @@ export default function QuotesPage() {
             >
               <Send className="size-4" aria-hidden />
               견적 발주 요청
+            </button>
+            <button
+              type="button"
+              onClick={handleDeliberation}
+              disabled={exportableItems.length === 0}
+              className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              <FileCheck className="size-4" aria-hidden />
+              운영위원회 심의서 생성
             </button>
             {exportError && (
               <p role="alert" className="text-sm font-medium text-red-600">

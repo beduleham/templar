@@ -4,6 +4,7 @@ import RootRedirect from './components/RootRedirect'
 import OrdersPage from './pages/supplier/OrdersPage'
 import ProductsPage from './pages/supplier/ProductsPage'
 import SupplierDashboardPage from './pages/supplier/SupplierDashboardPage'
+import DeliberationPage from './pages/teacher/DeliberationPage'
 import JournalPage from './pages/teacher/JournalPage'
 import PlanPage from './pages/teacher/PlanPage'
 import QuotesPage from './pages/teacher/QuotesPage'
@@ -23,6 +24,7 @@ export const router = createRouter([
       { path: '/teacher/plan', element: <PlanPage /> },
       { path: '/teacher/quotes', element: <QuotesPage /> },
       { path: '/teacher/journal', element: <JournalPage /> },
+      { path: '/teacher/deliberation', element: <DeliberationPage /> },
       { path: '/supplier/dashboard', element: <SupplierDashboardPage /> },
       { path: '/supplier/products', element: <ProductsPage /> },
       { path: '/supplier/orders', element: <OrdersPage /> },

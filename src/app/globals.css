@@ -116,3 +116,151 @@
     letter-spacing: -0.02em;
   }
 }
+
+/* ── 랜딩 모션 유틸 ────────────────────────────────────────────
+   스크롤 진입 시 페이드업(Reveal), 히어로 오로라, 설계도 노드 점등 등
+   랜딩 전용 키프레임. prefers-reduced-motion에서는 전부 정지 상태로 고정한다. */
+
+@keyframes archon-rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes archon-blob {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(6%, -7%, 0) scale(1.12);
+  }
+  66% {
+    transform: translate3d(-5%, 5%, 0) scale(0.93);
+  }
+}
+
+@keyframes archon-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes archon-node {
+  0%,
+  12% {
+    fill: #e5e8eb;
+    stroke: #d7dce1;
+  }
+  22%,
+  88% {
+    fill: #d6f7f1;
+    stroke: var(--vivid-mint);
+  }
+  100% {
+    fill: #e5e8eb;
+    stroke: #d7dce1;
+  }
+}
+
+@keyframes archon-node-label {
+  0%,
+  12% {
+    fill: #8b95a1;
+  }
+  22%,
+  88% {
+    fill: #04836f;
+  }
+  100% {
+    fill: #8b95a1;
+  }
+}
+
+@keyframes archon-sweep {
+  0%,
+  8% {
+    width: 4%;
+  }
+  70%,
+  92% {
+    width: 72%;
+  }
+  100% {
+    width: 4%;
+  }
+}
+
+@keyframes archon-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes archon-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@layer components {
+  .archon-rise {
+    animation: archon-rise 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .archon-reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+      opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .archon-reveal[data-shown="true"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  .archon-blob {
+    animation: archon-blob 18s ease-in-out infinite;
+  }
+
+  .archon-grid {
+    background-image:
+      linear-gradient(to right, rgba(25, 31, 40, 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(25, 31, 40, 0.055) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(
+      ellipse 80% 60% at 50% 0%,
+      #000 25%,
+      transparent 78%
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .archon-rise,
+  .archon-blob,
+  .archon-reveal {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .archon-preview * {
+    animation: none !important;
+  }
+}

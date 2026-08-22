@@ -1,0 +1,133 @@
+import { describe, expect, it } from 'vitest'
+import { generatePlan, withTimeout } from '../api/planGenerator'
+import {
+  findActivity,
+  MONTHLY_PERIODS,
+  NURI_AREAS,
+  updateActivity,
+  validatePlanContent,
+  WEEKLY_PERIODS,
+  type PlanContent,
+} from './plan'
+
+const params = {
+  targetAge: '만 5세' as const,
+  planType: 'WEEKLY' as const,
+  theme: '우주와 지구',
+  subTheme: '태양계 행성 탐험',
+}
+
+describe('generatePlan (mock)', () => {
+  it('주간 계획안은 월~금 5개 기간을 가진다', async () => {
+    const plan = await generatePlan(params)
+    expect(plan.schedule.map((p) => p.period)).toEqual([...WEEKLY_PERIODS])
+  })
+
+  it('월간 계획안은 1~4주 4개 기간을 가진다', async () => {
+    const plan = await generatePlan({ ...params, planType: 'MONTHLY' })
+    expect(plan.schedule.map((p) => p.period)).toEqual([...MONTHLY_PERIODS])
+  })
+
+  it('모든 기간에 누리과정 5대 영역이 포함된다', async () => {
+    const plan = await generatePlan(params)
+    for (const period of plan.schedule) {
+      expect(period.activities.map((a) => a.area)).toEqual([...NURI_AREAS])
+    }
+    expect(validatePlanContent(plan)).toBe(true)
+  })
+
+  it('제목과 주제에 입력값이 반영된다', async () => {
+    const plan = await generatePlan(params)
+    expect(plan.title).toContain('만 5세')
+    expect(plan.title).toContain('우주와 지구')
+    expect(plan.theme).toContain('태양계 행성 탐험')
+    expect(plan.goals.length).toBeGreaterThan(0)
+  })
+
+  it('빈 대주제는 에러를 던진다', async () => {
+    await expect(generatePlan({ ...params, theme: '  ' })).rejects.toThrow()
+  })
+})
+
+describe('updateActivity', () => {
+  it('특정 기간·영역의 활동만 불변 수정한다', async () => {
+    const plan = await generatePlan(params)
+    const updated = updateActivity(plan, '월', '자연탐구', {
+      activity_name: '클레이로 나만의 행성 만들기',
+    })
+    expect(findActivity(updated, '월', '자연탐구')?.activity_name).toBe(
+      '클레이로 나만의 행성 만들기',
+    )
+    // 원본 불변 + 다른 셀 영향 없음
+    expect(findActivity(plan, '월', '자연탐구')?.activity_name).not.toBe(
+      '클레이로 나만의 행성 만들기',
+    )
+    expect(findActivity(updated, '화', '자연탐구')).toEqual(
+      findActivity(plan, '화', '자연탐구'),
+    )
+  })
+})
+
+describe('validatePlanContent', () => {
+  it('영역이 누락되면 실패한다', () => {
+    const broken: PlanContent = {
+      title: 't',
+      target_age: '만 3세',
+      theme: 'x',
+      goals: [],
+      schedule: [
+        { period: '월', activities: [{ area: '의사소통', activity_name: 'a', description: 'd' }] },
+      ],
+    }
+    expect(validatePlanContent(broken)).toBe(false)
+  })
+})
+
+describe('연간 계획안 (YEARLY)', () => {
+  it('학사 연도 3월~2월 12개 기간을 가진다', async () => {
+    const plan = await generatePlan({ ...params, planType: 'YEARLY', subTheme: '' })
+    expect(plan.schedule.map((p) => p.period)).toEqual([
+      '3월', '4월', '5월', '6월', '7월', '8월',
+      '9월', '10월', '11월', '12월', '1월', '2월',
+    ])
+    expect(validatePlanContent(plan)).toBe(true)
+  })
+
+  it('소주제 없이 생성할 수 있다 (연간은 소주제 선택)', async () => {
+    const plan = await generatePlan({ ...params, planType: 'YEARLY', subTheme: undefined })
+    expect(plan.title).toContain('연간')
+  })
+})
+
+describe('withTimeout', () => {
+  it('시간 내 완료되면 결과를 반환한다', async () => {
+    await expect(withTimeout(Promise.resolve(42), 100)).resolves.toBe(42)
+  })
+  it('초과 시 타임아웃 에러를 던진다', async () => {
+    const never = new Promise(() => {})
+    await expect(withTimeout(never, 30)).rejects.toThrow('timeout')
+  })
+})
+
+describe('연령별 맞춤 구성', () => {
+  it('만 3세는 감각 탐색·단순 모방 중심으로 서술된다', async () => {
+    const plan = await generatePlan({ ...params, targetAge: '만 3세' })
+    const text = JSON.stringify(plan)
+    expect(text).toContain('감각 탐색')
+    expect(text).toContain('단순 모방')
+  })
+
+  it('만 5세는 협동·토의·초등 연계 수준으로 서술된다', async () => {
+    const plan = await generatePlan({ ...params, targetAge: '만 5세' })
+    const text = JSON.stringify(plan)
+    expect(text).toContain('협동')
+    expect(text).toContain('초등 연계')
+  })
+
+  it('활동에 목표와 준비물이 포함된다', async () => {
+    const plan = await generatePlan(params)
+    const activity = plan.schedule[0].activities[0]
+    expect(activity.objective).toBeTruthy()
+    expect(activity.materials?.length).toBeGreaterThan(0)
+  })
+})

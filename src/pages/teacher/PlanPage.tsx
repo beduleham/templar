@@ -13,6 +13,7 @@ import PlanTable from '../../components/plan/PlanTable'
 import RecommendationPanel from '../../components/plan/RecommendationPanel'
 import SavedPlansList from '../../components/plan/SavedPlansList'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import {
   planTypeLabels,
   updateActivity,
@@ -154,6 +155,10 @@ export default function PlanPage() {
   const [exportingPdf, setExportingPdf] = useState(false)
   const handlePdfDownload = async () => {
     if (!content || exportingPdf) return
+    if (EXPORT_DISABLED) {
+      setError(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     setExportingPdf(true)
     try {
       const { generatePlanPdf, planPdfFileName } = await import(

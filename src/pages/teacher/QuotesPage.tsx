@@ -9,6 +9,7 @@ import QuoteTable from '../../components/quotes/QuoteTable'
 import ReplaceProductModal from '../../components/quotes/ReplaceProductModal'
 import { useEstimate } from '../../hooks/useEstimate'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import { computeItem, computeTotals, formatKrw } from '../../lib/quotation'
 import { useDeliberationStore } from '../../store/useDeliberationStore'
 import {
@@ -131,6 +132,11 @@ export default function QuotesPage() {
 
   const handleExport = async (format: ExportFormat) => {
     if (exportableItems.length === 0 || exporting) return
+    if (EXPORT_DISABLED) {
+      console.warn(EXPORT_DISABLED_MESSAGE)
+      setExportError(true)
+      return
+    }
     setExporting(format)
     setExportError(false)
     try {

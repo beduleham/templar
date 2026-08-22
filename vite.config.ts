@@ -12,6 +12,8 @@ export default defineConfig({
   define: {
     // 정적 단일 파일 프리뷰에서는 해시 라우터를 사용 (리라이트 불가 호스팅 대응)
     __USE_HASH_ROUTER__: JSON.stringify(artifactBuild),
+    // 프리뷰(아티팩트) 환경은 다운로드가 차단되므로 PDF/Excel 엔진을 번들에서 제외
+    __ARTIFACT_PREVIEW__: JSON.stringify(artifactBuild),
   },
   build: artifactBuild
     ? {

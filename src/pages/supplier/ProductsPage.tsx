@@ -19,6 +19,7 @@ import {
 import ExcelUploadModal from '../../components/supplier/ExcelUploadModal'
 import ProductFormModal from '../../components/supplier/ProductFormModal'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import { NURI_AREAS } from '../../lib/plan'
 import { formatKrw } from '../../lib/quotation'
 import type { RowError, SupplierProduct } from '../../lib/supplierProduct'
@@ -93,6 +94,10 @@ export default function ProductsPage() {
   }
 
   const handleDownloadTemplate = async () => {
+    if (EXPORT_DISABLED) {
+      setToast(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     const { generateProductTemplate } = await import('../../api/productExcel')
     downloadBlob(
       await generateProductTemplate(listSupplierProducts()),
@@ -103,6 +108,10 @@ export default function ProductsPage() {
   const handleUpload = async (file: File) => {
     setHeaderError(null)
     setRowErrors([])
+    if (EXPORT_DISABLED) {
+      setHeaderError(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     const { parseProductUpload } = await import('../../api/productExcel')
     const result = await parseProductUpload(file)
     if (result.headerError) {

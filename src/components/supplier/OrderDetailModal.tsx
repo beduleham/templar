@@ -1,6 +1,7 @@
 import { FileSpreadsheet, Loader2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import {
   ORDER_STATUSES,
   orderStatusLabels,
@@ -33,8 +34,14 @@ export default function OrderDetailModal({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
 
+  const [exportNotice, setExportNotice] = useState<string | null>(null)
+
   const handleExcel = async () => {
     if (exporting) return
+    if (EXPORT_DISABLED) {
+      setExportNotice(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     setExporting(true)
     try {
       const { generateOrderExcel } = await import('../../lib/exportOrderExcel')
@@ -178,6 +185,12 @@ export default function OrderDetailModal({
             엑셀 다운로드
           </button>
         </div>
+
+        {exportNotice && (
+          <p role="alert" className="mt-2 text-xs font-medium text-amber-700">
+            {exportNotice}
+          </p>
+        )}
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ import {
   type DeliberationReportResponse,
 } from '../../lib/deliberation'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import { formatKrw } from '../../lib/quotation'
 import { useDeliberationStore } from '../../store/useDeliberationStore'
 
@@ -87,6 +88,10 @@ export default function DeliberationPage() {
 
   const handleExport = async (format: 'pdf' | 'excel') => {
     if (!report || exporting) return
+    if (EXPORT_DISABLED) {
+      setError(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     setExporting(format)
     try {
       const {

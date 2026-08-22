@@ -12,6 +12,7 @@ import { generateJournalDraft } from '../../api/journalGenerator'
 import { getJournalByDate, saveJournal } from '../../api/journalStorage'
 import { listPlans } from '../../api/planStorage'
 import { downloadBlob } from '../../lib/download'
+import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
 import {
   activitiesForDate,
   formatJournalDate,
@@ -128,6 +129,10 @@ export default function JournalPage() {
 
   const handleExport = async (format: 'pdf' | 'excel') => {
     if (!schedule || exporting) return
+    if (EXPORT_DISABLED) {
+      setError(EXPORT_DISABLED_MESSAGE)
+      return
+    }
     setExporting(format)
     try {
       const { generateJournalPdf, generateJournalExcel, journalFileName } =

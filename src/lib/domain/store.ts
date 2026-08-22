@@ -1,0 +1,761 @@
+import { generateSpecFromAnswers, type GeneratedSpec } from "@/lib/domain/spec-engine";
+import {
+  MILESTONE_RATIOS,
+  calcProgressRate,
+  flattenTasks,
+  splitMilestoneAmounts,
+  type AuditActionType,
+  type AuditLog,
+  type Bid,
+  type BidItem,
+  type DomainState,
+  type Milestone,
+  type MilestonePhase,
+  type Project,
+  type SpecTaskStatus,
+} from "@/lib/domain/types";
+import type { UserRole } from "@/lib/navigation";
+
+const STORAGE_KEY = "archon.domain.v1";
+
+export interface ActorInfo {
+  id: string;
+  name: string;
+  role: UserRole;
+}
+
+export class DomainError extends Error {}
+
+let idSeq = 0;
+function newId(prefix: string): string {
+  idSeq += 1;
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${idSeq}`;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+/* ------------------------------------------------------------------ */
+/* Seed 데이터 — 결정적(고정 날짜)이라 SSR 스냅샷으로도 안전하다        */
+/* ------------------------------------------------------------------ */
+
+function seededProject(
+  id: string,
+  spec: GeneratedSpec,
+  base: Partial<Project>
+): Project {
+  return {
+    id,
+    title: spec.title,
+    summary: spec.summary,
+    clientId: "mock-user-1",
+    clientName: "김아칸",
+    techTags: spec.techTags,
+    specMarkdown: spec.specMarkdown,
+    mermaidCode: spec.mermaidCode,
+    epics: spec.epics,
+    status: "draft",
+    ndaSignatures: [],
+    bids: [],
+    contract: null,
+    milestones: [],
+    createdAt: "2026-08-10T09:00:00.000Z",
+    ...base,
+  };
+}
+
+function buildSeed(): DomainState {
+  // P1: 계약 후 개발이 진행 중인 프로젝트
+  const petSpec = generateSpecFromAnswers([
+    { questionId: "service", question: "어떤 서비스인가요?", answer: "펫시터 예약·결제 플랫폼" },
+    { questionId: "users", question: "사용자는?", answer: "반려동물을 키우는 30대 직장인" },
+    { questionId: "features", question: "핵심 기능은?", answer: "펫시터 예약, 안전 결제, 돌봄 일지" },
+    { questionId: "auth", question: "가입 방식은?", answer: "카카오 간편 로그인" },
+    { questionId: "payment", question: "결제 필요?", answer: "네, 필요해요" },
+    { questionId: "data", question: "중요 데이터?", answer: "예약 내역과 고객 정보" },
+    { questionId: "admin", question: "관리 화면?", answer: "예약 현황 대시보드" },
+    { questionId: "timeline", question: "기한은?", answer: "3개월" },
+  ]);
+
+  const p1 = seededProject("prj-pet", petSpec, {
+    status: "active",
+    createdAt: "2026-07-21T02:00:00.000Z",
+    ndaSignatures: [
+      {
+        userId: "mock-user-1",
+        signerName: "김아칸",
+        signerCompany: "스튜디오 아칸",
+        signedAt: "2026-07-28T05:12:00.000Z",
+      },
+    ],
+  });
+  // 1단계 태스크 완료, 2단계 일부 진행
+  for (const task of flattenTasks(p1)) {
+    if (task.milestonePhase === 1) task.status = "done";
+  }
+  const phase2 = flattenTasks(p1).filter((t) => t.milestonePhase === 2);
+  if (phase2.length > 0) phase2[0].status = "done";
+  if (phase2.length > 1) phase2[1].status = "in_progress";
+
+  const p1Total = 28_000_000;
+  const p1Amounts = splitMilestoneAmounts(p1Total);
+  const acceptedBid: Bid = {
+    id: "bid-pet-1",
+    projectId: p1.id,
+    partnerId: "mock-user-1",
+    partnerName: "김아칸 (개발 파트너)",
+    items: Object.fromEntries(
+      flattenTasks(p1).map((t) => [t.id, { manDay: t.estimatedMd, unitPrice: 700_000 }])
+    ),
+    totalAmount: p1Total,
+    totalManDays: flattenTasks(p1).reduce((s, t) => s + t.estimatedMd, 0),
+    status: "accepted",
+    createdAt: "2026-07-29T03:00:00.000Z",
+  };
+  p1.bids = [acceptedBid];
+  p1.contract = {
+    id: "contract-pet",
+    bidId: acceptedBid.id,
+    partnerId: "mock-user-1",
+    partnerName: "김아칸 (개발 파트너)",
+    totalAmount: p1Total,
+    signedAt: "2026-07-30T01:00:00.000Z",
+  };
+  p1.milestones = [
+    {
+      id: "ms-pet-1",
+      phase: 1,
+      ratio: MILESTONE_RATIOS[1],
+      amount: p1Amounts[1],
+      status: "released",
+      inspectionNotes: "1단계 산출물: 기반 화면·로그인·예약 화면 데모 링크",
+      rejectReason: null,
+      updatedAt: "2026-08-12T06:00:00.000Z",
+    },
+    {
+      id: "ms-pet-2",
+      phase: 2,
+      ratio: MILESTONE_RATIOS[2],
+      amount: p1Amounts[2],
+      status: "escrow_deposited",
+      inspectionNotes: null,
+      rejectReason: null,
+      updatedAt: "2026-08-13T02:00:00.000Z",
+    },
+    {
+      id: "ms-pet-3",
+      phase: 3,
+      ratio: MILESTONE_RATIOS[3],
+      amount: p1Amounts[3],
+      status: "pending",
+      inspectionNotes: null,
+      rejectReason: null,
+      updatedAt: "2026-07-30T01:00:00.000Z",
+    },
+  ];
+
+  // P2: 입찰이 진행 중인 프로젝트 (타사 입찰 1건 존재)
+  const careSpec = generateSpecFromAnswers([
+    { questionId: "service", question: "어떤 서비스인가요?", answer: "헬스케어 구독 커머스" },
+    { questionId: "users", question: "사용자는?", answer: "건강기능식품을 정기 구독하는 40대" },
+    { questionId: "features", question: "핵심 기능은?", answer: "상품 구독, 정기 결제, 배송 조회" },
+    { questionId: "auth", question: "가입 방식은?", answer: "이메일 가입" },
+    { questionId: "payment", question: "결제 필요?", answer: "네, 필요해요" },
+    { questionId: "data", question: "중요 데이터?", answer: "구독과 결제 이력" },
+    { questionId: "admin", question: "관리 화면?", answer: "구독 현황 관리" },
+    { questionId: "timeline", question: "기한은?", answer: "3개월" },
+  ]);
+  const p2 = seededProject("prj-care", careSpec, {
+    status: "bidding",
+    createdAt: "2026-08-18T01:30:00.000Z",
+  });
+  const p2Tasks = flattenTasks(p2);
+  p2.bids = [
+    {
+      id: "bid-care-rocket",
+      projectId: p2.id,
+      partnerId: "partner-rocket",
+      partnerName: "스튜디오 로켓",
+      items: Object.fromEntries(
+        p2Tasks.map((t) => [t.id, { manDay: t.estimatedMd + 1, unitPrice: 650_000 }])
+      ),
+      totalAmount: p2Tasks.reduce((s, t) => s + (t.estimatedMd + 1) * 650_000, 0),
+      totalManDays: p2Tasks.reduce((s, t) => s + t.estimatedMd + 1, 0),
+      status: "submitted",
+      createdAt: "2026-08-20T07:45:00.000Z",
+    },
+  ];
+
+  const auditLogs: AuditLog[] = [
+    {
+      id: "log-seed-1",
+      projectId: p1.id,
+      actorId: "mock-user-1",
+      actorName: "김아칸",
+      actionType: "CONTRACT_CREATED",
+      beforeState: { project_status: "bidding" },
+      afterState: { project_status: "active", total_amount: p1Total },
+      createdAt: "2026-07-30T01:00:00.000Z",
+    },
+    {
+      id: "log-seed-2",
+      projectId: p1.id,
+      actorId: "mock-user-1",
+      actorName: "김아칸",
+      actionType: "MILESTONE_RELEASED",
+      beforeState: { phase: 1, status: "inspection_requested" },
+      afterState: { phase: 1, status: "released", amount: p1Amounts[1] },
+      createdAt: "2026-08-12T06:00:00.000Z",
+    },
+  ];
+
+  return { projects: [p1, p2], auditLogs };
+}
+
+const SEED: DomainState = buildSeed();
+
+/* ------------------------------------------------------------------ */
+/* 스토어 본체                                                          */
+/* ------------------------------------------------------------------ */
+
+function loadPersisted(): DomainState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return null;
+    return JSON.parse(raw) as DomainState;
+  } catch {
+    return null;
+  }
+}
+
+function persist(state: DomainState) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // 저장 실패는 무시 — 세션 내 상태만 유지
+  }
+}
+
+const listeners = new Set<() => void>();
+let state: DomainState = SEED;
+let hydrated = false;
+
+function setState(next: DomainState) {
+  state = next;
+  persist(next);
+  listeners.forEach((l) => l());
+}
+
+export const domainStore = {
+  subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  },
+  getSnapshot(): DomainState {
+    if (!hydrated) {
+      hydrated = true;
+      const persisted = loadPersisted();
+      if (persisted !== null) state = persisted;
+    }
+    return state;
+  },
+  getServerSnapshot(): DomainState {
+    return SEED;
+  },
+  /** 데모 초기화 — 시드로 되돌린다 */
+  reset() {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setState(buildSeed());
+  },
+};
+
+function findProject(current: DomainState, projectId: string): Project {
+  const project = current.projects.find((p) => p.id === projectId);
+  if (project === undefined) throw new DomainError("프로젝트를 찾을 수 없습니다.");
+  return project;
+}
+
+function replaceProject(current: DomainState, next: Project): DomainState {
+  return {
+    ...current,
+    projects: current.projects.map((p) => (p.id === next.id ? next : p)),
+  };
+}
+
+/**
+ * 감사 로그 기록 — INSERT 전용.
+ * 스토어는 로그를 수정·삭제하는 API를 일절 제공하지 않는다
+ * (Supabase 연동 시 UPDATE/DELETE 차단 트리거 + RLS로 동일 규칙 적용).
+ */
+function appendAudit(
+  current: DomainState,
+  actor: ActorInfo,
+  projectId: string,
+  actionType: AuditActionType,
+  beforeState: Record<string, unknown> | null,
+  afterState: Record<string, unknown> | null
+): DomainState {
+  const log: AuditLog = {
+    id: newId("log"),
+    projectId,
+    actorId: actor.id,
+    actorName: actor.name,
+    actionType,
+    beforeState,
+    afterState,
+    createdAt: nowIso(),
+  };
+  return { ...current, auditLogs: [log, ...current.auditLogs] };
+}
+
+/* ------------------------------------------------------------------ */
+/* 접근 제어 (Supabase RLS 대응 지점)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 스펙 상세(스펙 문서·아키텍처·태스크) 열람 권한.
+ * 소유 의뢰자·관리자는 즉시, 파트너는 NDA 서명 후에만 열람 가능 —
+ * Supabase 연동 시 projects/project_specs/tasks RLS 정책으로 이관된다.
+ */
+export function canViewSpecDetail(actor: ActorInfo, project: Project): boolean {
+  if (actor.role === "admin") return true;
+  if (actor.role === "client" && project.clientId === actor.id) return true;
+  return project.ndaSignatures.some((s) => s.userId === actor.id);
+}
+
+export function hasSignedNda(actor: ActorInfo, project: Project): boolean {
+  return project.ndaSignatures.some((s) => s.userId === actor.id);
+}
+
+/* ------------------------------------------------------------------ */
+/* 액션                                                                */
+/* ------------------------------------------------------------------ */
+
+export function createProjectFromSpec(
+  actor: ActorInfo,
+  spec: GeneratedSpec
+): Project {
+  const current = domainStore.getSnapshot();
+  const project: Project = {
+    id: newId("prj"),
+    title: spec.title,
+    summary: spec.summary,
+    clientId: actor.id,
+    clientName: actor.name,
+    techTags: spec.techTags,
+    specMarkdown: spec.specMarkdown,
+    mermaidCode: spec.mermaidCode,
+    epics: spec.epics,
+    status: "bidding",
+    ndaSignatures: [],
+    bids: [],
+    contract: null,
+    milestones: [],
+    createdAt: nowIso(),
+  };
+  let next: DomainState = {
+    ...current,
+    projects: [project, ...current.projects],
+  };
+  next = appendAudit(next, actor, project.id, "PROJECT_CREATED", null, {
+    title: project.title,
+    status: project.status,
+  });
+  setState(next);
+  return project;
+}
+
+export function signNda(
+  actor: ActorInfo,
+  projectId: string,
+  signerName: string,
+  signerCompany: string
+) {
+  if (signerName.trim() === "") throw new DomainError("서명자 성명을 입력해주세요.");
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (hasSignedNda(actor, project)) return;
+  const updated: Project = {
+    ...project,
+    ndaSignatures: [
+      ...project.ndaSignatures,
+      {
+        userId: actor.id,
+        signerName: signerName.trim(),
+        signerCompany: signerCompany.trim(),
+        signedAt: nowIso(),
+      },
+    ],
+  };
+  let next = replaceProject(current, updated);
+  next = appendAudit(next, actor, projectId, "NDA_SIGNED", null, {
+    signer_name: signerName.trim(),
+  });
+  setState(next);
+}
+
+/** 입찰 검증: 모든 최하위 태스크에 공수·단가가 입력되어야 한다 */
+export function validateBidItems(
+  project: Project,
+  items: Record<string, BidItem>
+): { valid: boolean; missingCount: number; totalAmount: number; totalManDays: number } {
+  const tasks = flattenTasks(project);
+  let missingCount = 0;
+  let totalAmount = 0;
+  let totalManDays = 0;
+  for (const task of tasks) {
+    const item = items[task.id];
+    if (item === undefined || item.manDay <= 0 || item.unitPrice <= 0) {
+      missingCount += 1;
+      continue;
+    }
+    totalAmount += item.manDay * item.unitPrice;
+    totalManDays += item.manDay;
+  }
+  return { valid: missingCount === 0, missingCount, totalAmount, totalManDays };
+}
+
+export function submitBid(
+  actor: ActorInfo,
+  projectId: string,
+  items: Record<string, BidItem>
+): Bid {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.status !== "bidding")
+    throw new DomainError("입찰이 마감된 프로젝트입니다.");
+  if (!hasSignedNda(actor, project))
+    throw new DomainError("NDA 서명 후에 입찰할 수 있습니다.");
+  const { valid, missingCount, totalAmount, totalManDays } = validateBidItems(
+    project,
+    items
+  );
+  if (!valid)
+    throw new DomainError(
+      `공수와 단가가 입력되지 않은 태스크가 ${missingCount}개 있습니다.`
+    );
+
+  const bid: Bid = {
+    id: newId("bid"),
+    projectId,
+    partnerId: actor.id,
+    partnerName: actor.name,
+    items,
+    totalAmount,
+    totalManDays,
+    status: "submitted",
+    createdAt: nowIso(),
+  };
+  const updated: Project = {
+    ...project,
+    bids: [...project.bids.filter((b) => b.partnerId !== actor.id), bid],
+  };
+  let next = replaceProject(current, updated);
+  next = appendAudit(next, actor, projectId, "BID_SUBMITTED", null, {
+    total_amount: totalAmount,
+    total_man_days: totalManDays,
+  });
+  setState(next);
+  return bid;
+}
+
+/**
+ * 입찰 선정 → 계약 체결 → 50/30/20 마일스톤 자동 생성 (단일 원자적 갱신).
+ */
+export function acceptBid(actor: ActorInfo, projectId: string, bidId: string) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("프로젝트 소유자만 입찰을 수락할 수 있습니다.");
+  const bid = project.bids.find((b) => b.id === bidId);
+  if (bid === undefined) throw new DomainError("입찰을 찾을 수 없습니다.");
+
+  const amounts = splitMilestoneAmounts(bid.totalAmount);
+  const milestones: Milestone[] = ([1, 2, 3] as MilestonePhase[]).map(
+    (phase) => ({
+      id: newId("ms"),
+      phase,
+      ratio: MILESTONE_RATIOS[phase],
+      amount: amounts[phase],
+      status: "pending",
+      inspectionNotes: null,
+      rejectReason: null,
+      updatedAt: nowIso(),
+    })
+  );
+
+  const updated: Project = {
+    ...project,
+    status: "active",
+    bids: project.bids.map((b) => ({
+      ...b,
+      status: b.id === bidId ? "accepted" : "rejected",
+    })),
+    contract: {
+      id: newId("contract"),
+      bidId,
+      partnerId: bid.partnerId,
+      partnerName: bid.partnerName,
+      totalAmount: bid.totalAmount,
+      signedAt: nowIso(),
+    },
+    milestones,
+  };
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "BID_ACCEPTED",
+    { project_status: project.status },
+    { project_status: "active", accepted_bid_id: bidId }
+  );
+  next = appendAudit(next, actor, projectId, "CONTRACT_CREATED", null, {
+    total_amount: bid.totalAmount,
+    milestones: amounts,
+  });
+  setState(next);
+}
+
+function updateMilestone(
+  project: Project,
+  milestoneId: string,
+  patch: Partial<Milestone>
+): { updated: Project; before: Milestone; after: Milestone } {
+  const milestone = project.milestones.find((m) => m.id === milestoneId);
+  if (milestone === undefined)
+    throw new DomainError("마일스톤을 찾을 수 없습니다.");
+  const after: Milestone = { ...milestone, ...patch, updatedAt: nowIso() };
+  return {
+    updated: {
+      ...project,
+      milestones: project.milestones.map((m) =>
+        m.id === milestoneId ? after : m
+      ),
+    },
+    before: milestone,
+    after,
+  };
+}
+
+/** 의뢰자: 에스크로 예치 (Mock PG — 실제 PG 연동 시 웹훅 승인으로 교체) */
+export function depositEscrow(
+  actor: ActorInfo,
+  projectId: string,
+  milestoneId: string
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("의뢰자만 에스크로를 예치할 수 있습니다.");
+  const milestone = project.milestones.find((m) => m.id === milestoneId);
+  if (milestone === undefined)
+    throw new DomainError("마일스톤을 찾을 수 없습니다.");
+  if (milestone.status !== "pending")
+    throw new DomainError("이미 예치된 마일스톤입니다.");
+  const prevPhase = project.milestones.find(
+    (m) => m.phase === milestone.phase - 1
+  );
+  if (prevPhase !== undefined && prevPhase.status !== "released")
+    throw new DomainError("이전 마일스톤 정산이 완료된 후 예치할 수 있습니다.");
+
+  const { updated, before, after } = updateMilestone(project, milestoneId, {
+    status: "escrow_deposited",
+  });
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "ESCROW_DEPOSITED",
+    { phase: before.phase, status: before.status },
+    { phase: after.phase, status: after.status, amount: after.amount }
+  );
+  setState(next);
+}
+
+/** 칸반 태스크 상태 변경 — 계약 이후에는 반드시 감사 로그가 남는다 */
+export function updateTaskStatus(
+  actor: ActorInfo,
+  projectId: string,
+  taskId: string,
+  status: SpecTaskStatus
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  let beforeStatus: SpecTaskStatus | null = null;
+  let taskTitle = "";
+  const updated: Project = {
+    ...project,
+    epics: project.epics.map((epic) => ({
+      ...epic,
+      features: epic.features.map((feature) => ({
+        ...feature,
+        tasks: feature.tasks.map((task) => {
+          if (task.id !== taskId) return task;
+          beforeStatus = task.status;
+          taskTitle = task.title;
+          return { ...task, status };
+        }),
+      })),
+    })),
+  };
+  if (beforeStatus === null) throw new DomainError("태스크를 찾을 수 없습니다.");
+  if (beforeStatus === status) return;
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "TASK_STATUS_UPDATE",
+    { task: taskTitle, status: beforeStatus },
+    { task: taskTitle, status, progress_rate: calcProgressRate(updated) }
+  );
+  setState(next);
+}
+
+/** 파트너: 마일스톤 검수 요청 — 해당 단계 태스크가 모두 완료돼야 한다 */
+export function requestInspection(
+  actor: ActorInfo,
+  projectId: string,
+  milestoneId: string,
+  notes: string
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  const milestone = project.milestones.find((m) => m.id === milestoneId);
+  if (milestone === undefined)
+    throw new DomainError("마일스톤을 찾을 수 없습니다.");
+  if (milestone.status !== "escrow_deposited")
+    throw new DomainError("에스크로가 예치된 마일스톤만 검수를 요청할 수 있습니다.");
+  const phaseTasks = flattenTasks(project).filter(
+    (t) => t.milestonePhase === milestone.phase
+  );
+  const undone = phaseTasks.filter((t) => t.status !== "done").length;
+  if (undone > 0)
+    throw new DomainError(
+      `마일스톤 내 미완료된 태스크가 ${undone}개 있어 검수를 요청할 수 없습니다.`
+    );
+
+  const { updated, before, after } = updateMilestone(project, milestoneId, {
+    status: "inspection_requested",
+    inspectionNotes: notes.trim() === "" ? null : notes.trim(),
+    rejectReason: null,
+  });
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "MILESTONE_INSPECTION_REQUESTED",
+    { phase: before.phase, status: before.status },
+    { phase: after.phase, status: after.status }
+  );
+  setState(next);
+}
+
+/** 의뢰자: 검수 승인 → 에스크로 정산 방출 */
+export function approveInspection(
+  actor: ActorInfo,
+  projectId: string,
+  milestoneId: string
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("의뢰자만 검수를 승인할 수 있습니다.");
+  const milestone = project.milestones.find((m) => m.id === milestoneId);
+  if (milestone === undefined)
+    throw new DomainError("마일스톤을 찾을 수 없습니다.");
+  if (milestone.status !== "inspection_requested")
+    throw new DomainError("검수 요청 상태의 마일스톤만 승인할 수 있습니다.");
+
+  const { updated, before, after } = updateMilestone(project, milestoneId, {
+    status: "released",
+  });
+  const allReleased = updated.milestones.every((m) => m.status === "released");
+  const finalProject: Project = allReleased
+    ? { ...updated, status: "completed" }
+    : updated;
+  let next = replaceProject(current, finalProject);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "MILESTONE_RELEASED",
+    { phase: before.phase, status: before.status },
+    { phase: after.phase, status: after.status, amount: after.amount }
+  );
+  setState(next);
+}
+
+/** 의뢰자: 검수 반려 → 에스크로 예치 상태로 복귀 */
+export function rejectInspection(
+  actor: ActorInfo,
+  projectId: string,
+  milestoneId: string,
+  reason: string
+) {
+  if (reason.trim() === "") throw new DomainError("반려 사유를 입력해주세요.");
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("의뢰자만 검수를 반려할 수 있습니다.");
+  const { updated, before, after } = updateMilestone(project, milestoneId, {
+    status: "escrow_deposited",
+    rejectReason: reason.trim(),
+  });
+  if (before.status !== "inspection_requested")
+    throw new DomainError("검수 요청 상태의 마일스톤만 반려할 수 있습니다.");
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "MILESTONE_INSPECTION_REJECTED",
+    { phase: before.phase, status: before.status },
+    { phase: after.phase, status: after.status, reason: reason.trim() }
+  );
+  setState(next);
+}
+
+/* ------------------------------------------------------------------ */
+/* 매칭 적합도 (정밀 매칭)                                              */
+/* ------------------------------------------------------------------ */
+
+export interface PartnerProfile {
+  id: string;
+  name: string;
+  specialties: string[];
+  completedProjects: number;
+}
+
+export const PARTNER_POOL: PartnerProfile[] = [
+  { id: "partner-rocket", name: "스튜디오 로켓", specialties: ["웹", "결제", "커머스"], completedProjects: 14 },
+  { id: "partner-lumen", name: "루멘랩스", specialties: ["웹", "어드민", "AI"], completedProjects: 9 },
+  { id: "partner-orbit", name: "오르빗웍스", specialties: ["모바일", "웹"], completedProjects: 21 },
+];
+
+/** 프로젝트 기술 태그와 파트너 전문 분야의 겹침 기반 적합도(%) */
+export function calcMatchScore(
+  project: Project,
+  partner: PartnerProfile
+): number {
+  if (project.techTags.length === 0) return 50;
+  const overlap = project.techTags.filter((t) =>
+    partner.specialties.some((s) => s.includes(t) || t.includes(s))
+  ).length;
+  const base = (overlap / project.techTags.length) * 70;
+  const experience = Math.min(partner.completedProjects, 20) * 1.5;
+  return Math.min(99, Math.round(base + experience));
+}

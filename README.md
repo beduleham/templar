@@ -3,6 +3,9 @@
 AI 기반 SI 플랫폼 — 대화형 AI 스펙 생성부터 입찰·계약, 마일스톤 에스크로 정산,
 실시간 공정관리까지를 하나의 '단일 진실 공급원(SSOT)'으로 관리합니다.
 
+**🌐 라이브 데모: https://beduleham.github.io/templar/**
+(GitHub Pages 정적 배포 — `main`/개발 브랜치 push 시 GitHub Actions가 자동 재배포)
+
 ## 기술 스택
 
 - [Next.js](https://nextjs.org) 16 (App Router) + TypeScript (strict, `any` 금지)

@@ -1,0 +1,58 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/components/providers/auth-provider";
+import { ROLE_LABELS, type UserRole } from "@/lib/navigation";
+
+const SIGN_IN_ROLES: UserRole[] = ["client", "partner", "admin"];
+
+/**
+ * Mock 로그인 화면.
+ * Supabase Auth(소셜 OAuth·이메일) 연동은 후속 태스크에서 이 화면을 대체한다.
+ */
+export default function AuthPage() {
+  const router = useRouter();
+  const { signIn } = useAuth();
+
+  const handleSignIn = (role: UserRole) => {
+    signIn(role);
+    toast.success(`${ROLE_LABELS[role]} 계정으로 로그인했습니다.`);
+    router.push("/dashboard");
+  };
+
+  return (
+    <div className="bg-card text-card-foreground w-full max-w-sm rounded-xl border p-8 shadow-sm">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xl font-bold tracking-tight">아칸</span>
+        <span className="text-muted-foreground text-xs font-medium">Archon</span>
+      </div>
+      <h1 className="mt-6 text-lg font-semibold">로그인</h1>
+      <p className="text-muted-foreground mt-1 text-sm">
+        역할을 선택해 데모 계정으로 입장하세요. 실제 로그인(소셜/이메일)은 준비
+        중입니다.
+      </p>
+      <div className="mt-6 flex flex-col gap-2">
+        {SIGN_IN_ROLES.map((role) => (
+          <Button
+            key={role}
+            variant={role === "client" ? "default" : "outline"}
+            onClick={() => handleSignIn(role)}
+          >
+            {ROLE_LABELS[role]}로 시작하기
+          </Button>
+        ))}
+      </div>
+      <Separator className="my-6" />
+      <p className="text-muted-foreground text-center text-xs">
+        <Link href="/" className="hover:text-foreground underline underline-offset-4">
+          소개 페이지로 돌아가기
+        </Link>
+      </p>
+    </div>
+  );
+}

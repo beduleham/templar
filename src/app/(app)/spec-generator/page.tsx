@@ -103,7 +103,7 @@ export default function SpecGeneratorPage() {
       result
     );
     toast.success("프로젝트가 생성되고 입찰이 시작됐어요.");
-    router.push(`/bids/${project.id}`);
+    router.push(`/bids/view?id=${project.id}`);
   };
 
   if (role === "partner") {

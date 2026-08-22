@@ -75,7 +75,7 @@ export default function BidsPage() {
                     </p>
                   </div>
                   <Button asChild>
-                    <Link href={`/bids/${project.id}`} data-testid={`explore-${project.id}`}>
+                    <Link href={`/bids/view?id=${project.id}`} data-testid={`explore-${project.id}`}>
                       상세 스펙 보기
                       <ArrowRight className="size-4" />
                     </Link>
@@ -141,7 +141,7 @@ export default function BidsPage() {
                 </p>
               </div>
               <Button asChild variant={project.status === "bidding" ? "default" : "secondary"}>
-                <Link href={`/bids/${project.id}`} data-testid={`compare-${project.id}`}>
+                <Link href={`/bids/view?id=${project.id}`} data-testid={`compare-${project.id}`}>
                   {project.status === "bidding" ? "입찰 비교" : "계약 보기"}
                   <ArrowRight className="size-4" />
                 </Link>

@@ -1,7 +1,8 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { ArchitectureMap } from "@/components/architecture-map";
@@ -28,10 +29,11 @@ import {
  * SSOT 프로젝트 상세 — 스펙·계약·마일스톤·공정판·감사 로그를
  * 하나의 화면에서 통합 관리한다.
  */
-export default function ProjectDetailPage() {
-  const params = useParams<{ projectId: string }>();
+function ProjectDetailView() {
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("id") ?? "";
   const { user } = useAuth();
-  const project = useProject(params.projectId);
+  const project = useProject(projectId);
 
   if (project === null) {
     return (
@@ -173,5 +175,13 @@ export default function ProjectDetailPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProjectDetailPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <ProjectDetailView />
+    </React.Suspense>
   );
 }

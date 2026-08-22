@@ -90,7 +90,7 @@ export default function ProjectsPage() {
                   </div>
                   <Button asChild>
                     <Link
-                      href={`/projects/${project.id}`}
+                      href={`/projects/view?id=${project.id}`}
                       data-testid={`open-project-${project.id}`}
                     >
                       공정판 열기

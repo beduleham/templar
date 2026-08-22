@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { ArchitectureMap } from "@/components/architecture-map";
@@ -19,10 +19,11 @@ import { useProject } from "@/lib/domain/hooks";
 import { canViewSpecDetail, type ActorInfo } from "@/lib/domain/store";
 
 /** 프로젝트 입찰 상세 — 파트너: NDA → 스펙 열람 → 입찰 / 의뢰자: 비교·선정 */
-export default function BidProjectPage() {
-  const params = useParams<{ projectId: string }>();
+function BidProjectView() {
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("id") ?? "";
   const { user } = useAuth();
-  const project = useProject(params.projectId);
+  const project = useProject(projectId);
 
   if (project === null) {
     return (
@@ -73,7 +74,7 @@ export default function BidProjectPage() {
           </Button>
           {project.contract !== null && (
             <Button asChild size="sm">
-              <Link href={`/projects/${project.id}`}>
+              <Link href={`/projects/view?id=${project.id}`}>
                 프로젝트 공정판
                 <ArrowRight className="size-4" />
               </Link>
@@ -136,5 +137,13 @@ export default function BidProjectPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function BidProjectPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <BidProjectView />
+    </React.Suspense>
   );
 }

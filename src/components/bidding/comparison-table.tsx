@@ -52,7 +52,7 @@ export function ComparisonTable({
     try {
       acceptBid(actor, project.id, bidId);
       toast.success("계약이 체결되고 50/30/20 마일스톤이 생성됐어요.");
-      router.push(`/projects/${project.id}`);
+      router.push(`/projects/view?id=${project.id}`);
     } catch (e) {
       toast.error(e instanceof DomainError ? e.message : "선정에 실패했습니다.");
     }

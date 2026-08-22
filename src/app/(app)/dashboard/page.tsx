@@ -31,6 +31,12 @@ const ACTIVITY_TYPE_MAP: Record<AuditActionType, ActivityType> = {
   MILESTONE_INSPECTION_REQUESTED: "milestone_review_requested",
   MILESTONE_INSPECTION_REJECTED: "milestone_review_requested",
   MILESTONE_RELEASED: "payment_deposited",
+  DISPUTE_RAISED: "milestone_review_requested",
+  ADMIN_OVERRIDE_SETTLE: "payment_deposited",
+  ADMIN_OVERRIDE_REFUND: "payment_deposited",
+  SUBSCRIPTION_STARTED: "payment_deposited",
+  SUBSCRIPTION_PAYMENT: "payment_deposited",
+  SUBSCRIPTION_CANCEL_SCHEDULED: "milestone_review_requested",
 };
 
 const AUDIT_MESSAGES: Record<AuditActionType, string> = {
@@ -44,6 +50,12 @@ const AUDIT_MESSAGES: Record<AuditActionType, string> = {
   MILESTONE_INSPECTION_REQUESTED: "마일스톤 검수가 요청됐어요",
   MILESTONE_INSPECTION_REJECTED: "마일스톤 검수가 반려됐어요",
   MILESTONE_RELEASED: "마일스톤 대금이 정산됐어요",
+  DISPUTE_RAISED: "분쟁이 신고됐어요",
+  ADMIN_OVERRIDE_SETTLE: "운영사가 강제 정산을 실행했어요",
+  ADMIN_OVERRIDE_REFUND: "운영사가 강제 환불을 실행했어요",
+  SUBSCRIPTION_STARTED: "AS 구독이 시작됐어요",
+  SUBSCRIPTION_PAYMENT: "AS 구독료가 결제됐어요",
+  SUBSCRIPTION_CANCEL_SCHEDULED: "AS 구독 해지가 예약됐어요",
 };
 
 function toSummary(project: Project): ProjectSummary {

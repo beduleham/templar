@@ -22,7 +22,10 @@ import {
 interface DraftItem {
   manDay: string;
   unitPrice: string;
+  estimationBasis: string;
 }
+
+const EMPTY_DRAFT: DraftItem = { manDay: "", unitPrice: "", estimationBasis: "" };
 
 function toBidItems(draft: Record<string, DraftItem>): Record<string, BidItem> {
   const items: Record<string, BidItem> = {};
@@ -30,7 +33,12 @@ function toBidItems(draft: Record<string, DraftItem>): Record<string, BidItem> {
     const manDay = Number(value.manDay);
     const unitPrice = Number(value.unitPrice);
     if (Number.isFinite(manDay) && Number.isFinite(unitPrice)) {
-      items[taskId] = { manDay, unitPrice };
+      items[taskId] = {
+        manDay,
+        unitPrice,
+        estimationBasis:
+          value.estimationBasis.trim() === "" ? null : value.estimationBasis.trim(),
+      };
     }
   }
   return items;
@@ -61,10 +69,7 @@ export function BidForm({
   const update = (taskId: string, field: keyof DraftItem, value: string) => {
     setDraft((prev) => ({
       ...prev,
-      [taskId]: {
-        manDay: field === "manDay" ? value : (prev[taskId]?.manDay ?? ""),
-        unitPrice: field === "unitPrice" ? value : (prev[taskId]?.unitPrice ?? ""),
-      },
+      [taskId]: { ...(prev[taskId] ?? EMPTY_DRAFT), [field]: value },
     }));
   };
 
@@ -114,8 +119,9 @@ export function BidForm({
                 feature.tasks.map((task) => (
                   <div
                     key={task.id}
-                    className="bg-card flex flex-col gap-2 rounded-xl p-3 sm:flex-row sm:items-center"
+                    className="bg-card flex flex-col gap-2 rounded-xl p-3"
                   >
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold">{task.title}</p>
                       <p className="text-muted-foreground text-xs">
@@ -154,6 +160,19 @@ export function BidForm({
                         원
                       </span>
                     </div>
+                    </div>
+                    {/* 산정 근거 — 의뢰자 비교 화면에서 호버 툴팁으로 노출된다 */}
+                    <textarea
+                      value={draft[task.id]?.estimationBasis ?? ""}
+                      onChange={(e) =>
+                        update(task.id, "estimationBasis", e.target.value)
+                      }
+                      placeholder="공수 산정 근거 (선택) — 의뢰자가 견적을 이해하는 데 도움이 돼요"
+                      rows={2}
+                      aria-label={`${task.title} 산정 근거`}
+                      data-testid={`basis-${task.id}`}
+                      className="border-input bg-background placeholder:text-muted-foreground focus-visible:ring-ring/50 w-full resize-y rounded-xl border px-3 py-2 text-xs font-medium outline-none focus-visible:ring-[3px]"
+                    />
                   </div>
                 ))
               )}

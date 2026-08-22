@@ -35,7 +35,10 @@ function careProject(): Project {
 
 function fullItems(project: Project) {
   return Object.fromEntries(
-    flattenTasks(project).map((t) => [t.id, { manDay: 2, unitPrice: 500_000 }])
+    flattenTasks(project).map((t) => [
+      t.id,
+      { manDay: 2, unitPrice: 500_000, estimationBasis: null },
+    ])
   );
 }
 

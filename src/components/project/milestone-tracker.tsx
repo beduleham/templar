@@ -14,6 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CountUp } from "@/components/ui/count-up";
+import { celebrateSettlement } from "@/lib/celebrate";
 import { cn } from "@/lib/utils";
 import {
   approveInspection,
@@ -40,6 +42,8 @@ const STATUS_BADGES: Record<
   escrow_deposited: "default",
   inspection_requested: "coral",
   released: "mint",
+  override_settled: "mint",
+  override_refunded: "secondary",
 };
 
 /**
@@ -56,6 +60,7 @@ export function MilestoneTracker({
 }) {
   const [requestTarget, setRequestTarget] = React.useState<Milestone | null>(null);
   const [rejectTarget, setRejectTarget] = React.useState<Milestone | null>(null);
+  const [approveTarget, setApproveTarget] = React.useState<Milestone | null>(null);
   const [notes, setNotes] = React.useState("");
   const [reason, setReason] = React.useState("");
 
@@ -86,8 +91,24 @@ export function MilestoneTracker({
   };
 
   const releasedTotal = project.milestones
-    .filter((m) => m.status === "released")
+    .filter((m) => m.status === "released" || m.status === "override_settled")
     .reduce((s, m) => s + m.amount, 0);
+
+  /** 검수 승인 — 성공 시 콘페티로 축하하고 대금 정산을 알린다 */
+  const confirmApprove = () => {
+    if (approveTarget === null) return;
+    try {
+      approveInspection(actor, project.id, approveTarget.id);
+      void celebrateSettlement();
+      toast.success(
+        "마일스톤 검수가 완료되어 대금이 안전하게 정산되었습니다!"
+      );
+    } catch (e) {
+      toast.error(e instanceof DomainError ? e.message : "처리에 실패했습니다.");
+    } finally {
+      setApproveTarget(null);
+    }
+  };
 
   return (
     <Card data-testid="milestone-tracker">
@@ -95,8 +116,13 @@ export function MilestoneTracker({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <CardTitle className="text-lg">마일스톤 · 에스크로 정산</CardTitle>
           <p className="text-muted-foreground text-sm font-bold tabular-nums">
-            정산 완료 {formatKrw(releasedTotal)} /{" "}
-            {formatKrw(project.contract.totalAmount)}
+            정산 완료{" "}
+            <CountUp
+              value={releasedTotal}
+              format={formatKrw}
+              className="text-vivid-mint"
+            />{" "}
+            / {formatKrw(project.contract.totalAmount)}
           </p>
         </div>
       </CardHeader>
@@ -116,8 +142,9 @@ export function MilestoneTracker({
             <div
               key={milestone.id}
               className={cn(
-                "rounded-2xl border p-5",
-                milestone.status === "released"
+                "rounded-2xl border p-5 transition-colors duration-500",
+                milestone.status === "released" ||
+                  milestone.status === "override_settled"
                   ? "border-vivid-mint/40 bg-vivid-mint/8"
                   : "bg-muted/40 border-transparent"
               )}
@@ -127,7 +154,13 @@ export function MilestoneTracker({
                 <p className="text-sm font-extrabold">
                   {MILESTONE_PHASE_LABELS[milestone.phase]}
                 </p>
-                <Badge variant={STATUS_BADGES[milestone.status]}>
+                <Badge
+                  variant={STATUS_BADGES[milestone.status]}
+                  className={cn(
+                    milestone.status === "released" &&
+                      "animate-in zoom-in-95 duration-300"
+                  )}
+                >
                   {MILESTONE_STATUS_LABELS[milestone.status]}
                 </Badge>
               </div>
@@ -192,13 +225,7 @@ export function MilestoneTracker({
                   <>
                     <Button
                       size="sm"
-                      onClick={() =>
-                        run(
-                          () =>
-                            approveInspection(actor, project.id, milestone.id),
-                          "검수가 승인되어 대금이 정산됐어요."
-                        )
-                      }
+                      onClick={() => setApproveTarget(milestone)}
                       data-testid={`approve-${milestone.phase}`}
                     >
                       <CircleCheck className="size-4" />
@@ -216,10 +243,17 @@ export function MilestoneTracker({
                     </Button>
                   </>
                 )}
-                {milestone.status === "released" && (
-                  <p className="text-vivid-mint flex items-center gap-1.5 text-xs font-bold">
+                {(milestone.status === "released" ||
+                  milestone.status === "override_settled") && (
+                  <p className="text-vivid-mint animate-in fade-in-0 flex items-center gap-1.5 text-xs font-bold duration-500">
                     <Landmark className="size-3.5" />
                     파트너에게 정산 지급 완료
+                  </p>
+                )}
+                {milestone.status === "override_refunded" && (
+                  <p className="text-muted-foreground flex items-center gap-1.5 text-xs font-bold">
+                    <Landmark className="size-3.5" />
+                    의뢰자에게 환불 완료
                   </p>
                 )}
               </div>
@@ -259,6 +293,27 @@ export function MilestoneTracker({
             data-testid="inspect-submit"
           >
             검수 요청 보내기
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* 검수 승인 확인 (의뢰자) — 되돌릴 수 없으므로 금액을 명시한다 */}
+      <Dialog
+        open={approveTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setApproveTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>검수 승인 및 정산</DialogTitle>
+          <DialogDescription>
+            {approveTarget !== null
+              ? `승인 즉시 예치된 ${formatKrw(approveTarget.amount)}이 개발 파트너에게 정산되며, 이 작업은 취소할 수 없습니다.`
+              : ""}
+          </DialogDescription>
+          <Button onClick={confirmApprove} data-testid="approve-confirm">
+            <CircleCheck className="size-4" />
+            승인하고 정산하기
           </Button>
         </DialogContent>
       </Dialog>

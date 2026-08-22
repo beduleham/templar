@@ -1,9 +1,14 @@
 import { generateSpecFromAnswers, type GeneratedSpec } from "@/lib/domain/spec-engine";
 import {
+  AS_TIER_PLANS,
   MILESTONE_RATIOS,
   calcProgressRate,
   flattenTasks,
+  isMilestoneClosed,
   splitMilestoneAmounts,
+  type AsPaymentLog,
+  type AsSubscription,
+  type AsSubscriptionTier,
   type AuditActionType,
   type AuditLog,
   type Bid,
@@ -63,6 +68,8 @@ function seededProject(
     bids: [],
     contract: null,
     milestones: [],
+    disputeReason: null,
+    subscription: null,
     createdAt: "2026-08-10T09:00:00.000Z",
     ...base,
   };
@@ -109,11 +116,19 @@ function buildSeed(): DomainState {
     partnerId: "mock-user-1",
     partnerName: "김아칸 (개발 파트너)",
     items: Object.fromEntries(
-      flattenTasks(p1).map((t) => [t.id, { manDay: t.estimatedMd, unitPrice: 700_000 }])
+      flattenTasks(p1).map((t) => [
+        t.id,
+        {
+          manDay: t.estimatedMd,
+          unitPrice: 700_000,
+          estimationBasis: null,
+        },
+      ])
     ),
     totalAmount: p1Total,
     totalManDays: flattenTasks(p1).reduce((s, t) => s + t.estimatedMd, 0),
     status: "accepted",
+    scores: { techScore: 88, commScore: 84, portfolioScore: 80 },
     createdAt: "2026-07-29T03:00:00.000Z",
   };
   p1.bids = [acceptedBid];
@@ -173,20 +188,64 @@ function buildSeed(): DomainState {
     status: "bidding",
     createdAt: "2026-08-18T01:30:00.000Z",
   });
+  // 서로 다른 견적 성향의 입찰 2건 — 비교 대시보드의 편차·레이더가 바로 의미를 갖는다
   const p2Tasks = flattenTasks(p2);
+  const rocketItems = Object.fromEntries(
+    p2Tasks.map((t, i) => [
+      t.id,
+      {
+        manDay: t.estimatedMd + 1,
+        // 결제·데이터 관련 태스크에 공수를 크게 잡은 성향
+        unitPrice: i % 3 === 0 ? 820_000 : 650_000,
+        estimationBasis:
+          i % 3 === 0
+            ? "외부 결제사 연동과 예외 처리(환불·부분취소) 검증에 추가 공수가 필요합니다."
+            : null,
+      },
+    ])
+  );
+  const lumenItems = Object.fromEntries(
+    p2Tasks.map((t, i) => [
+      t.id,
+      {
+        manDay: t.estimatedMd,
+        unitPrice: i % 4 === 1 ? 430_000 : 600_000,
+        estimationBasis:
+          i % 4 === 1
+            ? "사내에 유사 모듈이 있어 재사용이 가능해 공수를 낮게 책정했습니다."
+            : null,
+      },
+    ])
+  );
+  const sumOf = (items: Record<string, BidItem>) =>
+    Object.values(items).reduce((s, it) => s + it.manDay * it.unitPrice, 0);
+  const mdOf = (items: Record<string, BidItem>) =>
+    Object.values(items).reduce((s, it) => s + it.manDay, 0);
+
   p2.bids = [
     {
       id: "bid-care-rocket",
       projectId: p2.id,
       partnerId: "partner-rocket",
       partnerName: "스튜디오 로켓",
-      items: Object.fromEntries(
-        p2Tasks.map((t) => [t.id, { manDay: t.estimatedMd + 1, unitPrice: 650_000 }])
-      ),
-      totalAmount: p2Tasks.reduce((s, t) => s + (t.estimatedMd + 1) * 650_000, 0),
-      totalManDays: p2Tasks.reduce((s, t) => s + t.estimatedMd + 1, 0),
+      items: rocketItems,
+      totalAmount: sumOf(rocketItems),
+      totalManDays: mdOf(rocketItems),
       status: "submitted",
+      scores: { techScore: 92, commScore: 74, portfolioScore: 88 },
       createdAt: "2026-08-20T07:45:00.000Z",
+    },
+    {
+      id: "bid-care-lumen",
+      projectId: p2.id,
+      partnerId: "partner-lumen",
+      partnerName: "루멘랩스",
+      items: lumenItems,
+      totalAmount: sumOf(lumenItems),
+      totalManDays: mdOf(lumenItems),
+      status: "submitted",
+      scores: { techScore: 78, commScore: 91, portfolioScore: 70 },
+      createdAt: "2026-08-21T02:10:00.000Z",
     },
   ];
 
@@ -361,6 +420,8 @@ export function createProjectFromSpec(
     bids: [],
     contract: null,
     milestones: [],
+    disputeReason: null,
+    subscription: null,
     createdAt: nowIso(),
   };
   let next: DomainState = {
@@ -445,6 +506,7 @@ export function submitBid(
       `공수와 단가가 입력되지 않은 태스크가 ${missingCount}개 있습니다.`
     );
 
+  const profile = PARTNER_POOL.find((p) => p.id === actor.id);
   const bid: Bid = {
     id: newId("bid"),
     projectId,
@@ -454,6 +516,15 @@ export function submitBid(
     totalAmount,
     totalManDays,
     status: "submitted",
+    // 프로필 실적 기반 정성 점수 — Supabase 연동 시 developer_profiles에서 로드
+    scores:
+      profile !== undefined
+        ? {
+            techScore: Math.min(95, 60 + profile.completedProjects * 2),
+            commScore: 82,
+            portfolioScore: Math.min(95, 55 + profile.completedProjects * 2),
+          }
+        : { techScore: 82, commScore: 85, portfolioScore: 78 },
     createdAt: nowIso(),
   };
   const updated: Project = {
@@ -566,7 +637,7 @@ export function depositEscrow(
   const prevPhase = project.milestones.find(
     (m) => m.phase === milestone.phase - 1
   );
-  if (prevPhase !== undefined && prevPhase.status !== "released")
+  if (prevPhase !== undefined && !isMilestoneClosed(prevPhase.status))
     throw new DomainError("이전 마일스톤 정산이 완료된 후 예치할 수 있습니다.");
 
   const { updated, before, after } = updateMilestone(project, milestoneId, {
@@ -683,7 +754,9 @@ export function approveInspection(
   const { updated, before, after } = updateMilestone(project, milestoneId, {
     status: "released",
   });
-  const allReleased = updated.milestones.every((m) => m.status === "released");
+  const allReleased = updated.milestones.every((m) =>
+    isMilestoneClosed(m.status)
+  );
   const finalProject: Project = allReleased
     ? { ...updated, status: "completed" }
     : updated;
@@ -725,6 +798,266 @@ export function rejectInspection(
     "MILESTONE_INSPECTION_REJECTED",
     { phase: before.phase, status: before.status },
     { phase: after.phase, status: after.status, reason: reason.trim() }
+  );
+  setState(next);
+}
+
+/* ------------------------------------------------------------------ */
+/* 분쟁 및 운영사 강제 조정                                             */
+/* ------------------------------------------------------------------ */
+
+/** 계약 당사자(의뢰자·파트너)가 분쟁을 신고한다 */
+export function raiseDispute(
+  actor: ActorInfo,
+  projectId: string,
+  reason: string
+) {
+  if (reason.trim().length < 10)
+    throw new DomainError("분쟁 사유를 10자 이상 입력해주세요.");
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.contract === null)
+    throw new DomainError("계약이 체결된 프로젝트만 분쟁을 신고할 수 있습니다.");
+  const isParty =
+    project.clientId === actor.id || project.contract.partnerId === actor.id;
+  if (!isParty)
+    throw new DomainError("계약 당사자만 분쟁을 신고할 수 있습니다.");
+
+  const updated: Project = {
+    ...project,
+    status: "disputed",
+    disputeReason: reason.trim(),
+  };
+  let next = replaceProject(current, updated);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "DISPUTE_RAISED",
+    { project_status: project.status },
+    { project_status: "disputed", reason: reason.trim() }
+  );
+  setState(next);
+}
+
+export type OverrideAction = "SETTLE" | "REFUND";
+
+/**
+ * 운영사(admin) 전용 강제 조정.
+ * 감사 로그를 근거로 교착된 마일스톤을 강제 정산하거나 환불한다.
+ * 조정 사유는 10자 이상 필수이며 감사 로그에 그대로 보존된다.
+ */
+export function adminOverrideMilestone(
+  actor: ActorInfo,
+  projectId: string,
+  milestoneId: string,
+  action: OverrideAction,
+  reason: string
+) {
+  if (actor.role !== "admin")
+    throw new DomainError("운영 관리자만 강제 조정을 실행할 수 있습니다.");
+  if (reason.trim().length < 10)
+    throw new DomainError("조정 사유를 10자 이상 입력해주세요.");
+
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  const milestone = project.milestones.find((m) => m.id === milestoneId);
+  if (milestone === undefined)
+    throw new DomainError("마일스톤을 찾을 수 없습니다.");
+  if (isMilestoneClosed(milestone.status))
+    throw new DomainError("이미 정산이 종료된 마일스톤입니다.");
+
+  const nextStatus =
+    action === "SETTLE" ? "override_settled" : "override_refunded";
+  const { updated, before, after } = updateMilestone(project, milestoneId, {
+    status: nextStatus,
+  });
+  // 모든 마일스톤 처리가 끝나면 분쟁 상태를 해제한다
+  const allClosed = updated.milestones.every((m) => isMilestoneClosed(m.status));
+  const finalProject: Project = allClosed
+    ? { ...updated, status: "completed" }
+    : updated;
+
+  let next = replaceProject(current, finalProject);
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    action === "SETTLE" ? "ADMIN_OVERRIDE_SETTLE" : "ADMIN_OVERRIDE_REFUND",
+    { phase: before.phase, status: before.status },
+    {
+      phase: after.phase,
+      status: after.status,
+      amount: after.amount,
+      reason: reason.trim(),
+    }
+  );
+  setState(next);
+}
+
+/* ------------------------------------------------------------------ */
+/* AS 구독 라이프사이클                                                 */
+/* ------------------------------------------------------------------ */
+
+function addMonth(iso: string): string {
+  const date = new Date(iso);
+  date.setMonth(date.getMonth() + 1);
+  return date.toISOString();
+}
+
+/**
+ * AS 구독 시작 — 빌링키 등록 후 첫 달 결제까지 한 번에 처리한다.
+ * 빌링키와 마스킹 카드 표기만 저장하며 카드 원본 정보는 다루지 않는다.
+ */
+export function startSubscription(
+  actor: ActorInfo,
+  projectId: string,
+  tier: AsSubscriptionTier,
+  billingKey: string,
+  cardLabel: string,
+  transactionId: string
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("의뢰자만 AS 구독을 신청할 수 있습니다.");
+  if (project.contract === null)
+    throw new DomainError("계약이 체결된 프로젝트만 AS를 구독할 수 있습니다.");
+  if (
+    project.subscription !== null &&
+    project.subscription.status !== "terminated"
+  )
+    throw new DomainError("이미 진행 중인 구독이 있습니다.");
+
+  const plan = AS_TIER_PLANS.find((p) => p.tier === tier);
+  if (plan === undefined) throw new DomainError("알 수 없는 요금제입니다.");
+
+  const now = nowIso();
+  const firstPayment: AsPaymentLog = {
+    id: newId("pay"),
+    amount: plan.priceMonthly,
+    status: "success",
+    transactionId,
+    errorMessage: null,
+    paidAt: now,
+  };
+  const subscription: AsSubscription = {
+    id: newId("sub"),
+    tier,
+    status: "active",
+    billingKey,
+    cardLabel,
+    priceMonthly: plan.priceMonthly,
+    nextBillingDate: addMonth(now),
+    cancelledAt: null,
+    payments: [firstPayment],
+    createdAt: now,
+  };
+
+  let next = replaceProject(current, { ...project, subscription });
+  next = appendAudit(next, actor, projectId, "SUBSCRIPTION_STARTED", null, {
+    tier,
+    price_monthly: plan.priceMonthly,
+  });
+  next = appendAudit(next, actor, projectId, "SUBSCRIPTION_PAYMENT", null, {
+    amount: plan.priceMonthly,
+    status: "success",
+    transaction_id: transactionId,
+  });
+  setState(next);
+}
+
+/** 해지 예약 — 즉시 종료하지 않고 다음 결제일에 종료된다 */
+export function scheduleSubscriptionCancel(
+  actor: ActorInfo,
+  projectId: string
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  if (project.clientId !== actor.id)
+    throw new DomainError("의뢰자만 구독을 해지할 수 있습니다.");
+  const subscription = project.subscription;
+  if (subscription === null || subscription.status === "terminated")
+    throw new DomainError("진행 중인 구독이 없습니다.");
+  if (subscription.status === "active_scheduled_cancel")
+    throw new DomainError("이미 해지가 예약되어 있습니다.");
+
+  const updated: AsSubscription = {
+    ...subscription,
+    status: "active_scheduled_cancel",
+    cancelledAt: nowIso(),
+  };
+  let next = replaceProject(current, { ...project, subscription: updated });
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "SUBSCRIPTION_CANCEL_SCHEDULED",
+    { status: subscription.status },
+    { status: updated.status, ends_at: subscription.nextBillingDate }
+  );
+  setState(next);
+}
+
+/**
+ * 정기 결제 웹훅 처리 — PG사가 보내오는 결제 결과를 반영한다.
+ * 성공: 다음 결제일 1개월 연장 (해지 예약이면 종료)
+ * 실패: 구독을 일시 중지하고 실패 로그를 남긴다
+ */
+export function applySubscriptionPayment(
+  actor: ActorInfo,
+  projectId: string,
+  result: { success: boolean; transactionId: string; errorMessage?: string }
+) {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+  const subscription = project.subscription;
+  if (subscription === null) throw new DomainError("구독 정보가 없습니다.");
+
+  const log: AsPaymentLog = {
+    id: newId("pay"),
+    amount: subscription.priceMonthly,
+    status: result.success ? "success" : "failed",
+    transactionId: result.transactionId,
+    errorMessage: result.errorMessage ?? null,
+    paidAt: nowIso(),
+  };
+
+  let updated: AsSubscription;
+  if (!result.success) {
+    updated = {
+      ...subscription,
+      status: "paused",
+      payments: [log, ...subscription.payments],
+    };
+  } else if (subscription.status === "active_scheduled_cancel") {
+    updated = {
+      ...subscription,
+      status: "terminated",
+      payments: [log, ...subscription.payments],
+    };
+  } else {
+    updated = {
+      ...subscription,
+      status: "active",
+      nextBillingDate: addMonth(subscription.nextBillingDate),
+      payments: [log, ...subscription.payments],
+    };
+  }
+
+  let next = replaceProject(current, { ...project, subscription: updated });
+  next = appendAudit(
+    next,
+    actor,
+    projectId,
+    "SUBSCRIPTION_PAYMENT",
+    { status: subscription.status },
+    {
+      status: updated.status,
+      amount: log.amount,
+      payment: log.status,
+      transaction_id: log.transactionId,
+    }
   );
   setState(next);
 }

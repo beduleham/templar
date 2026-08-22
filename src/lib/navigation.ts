@@ -3,6 +3,7 @@ import {
   Gavel,
   KanbanSquare,
   LayoutDashboard,
+  Scale,
   Sparkles,
   Wrench,
 } from "lucide-react";
@@ -57,6 +58,13 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     tone: "slate",
     roles: ["client", "partner", "admin"],
   },
+  {
+    title: "분쟁 조정",
+    href: "/admin/disputes",
+    icon: Scale,
+    tone: "coral",
+    roles: ["admin"],
+  },
 ];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -76,6 +84,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/bids": "입찰 및 계약",
   "/projects": "프로젝트 공정판",
   "/subscriptions": "AS 및 구독 관리",
+  "/admin/disputes": "분쟁 조정",
 };
 
 export function getPageTitle(pathname: string): string {

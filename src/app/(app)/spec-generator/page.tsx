@@ -6,15 +6,18 @@ import { FileUp, Sparkles, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ArchitectureMap } from "@/components/architecture-map";
+import { DraftUploader } from "@/components/spec/draft-uploader";
+import { GenerationLoading } from "@/components/spec/generation-loading";
 import { MarkdownView } from "@/components/spec/markdown-view";
+import { ParsingAnimation } from "@/components/spec/parsing-animation";
 import { TaskTree } from "@/components/spec/task-tree";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useLoadingProgress } from "@/lib/use-loading-progress";
 import {
-  GENERATION_STAGES,
   SPEC_QUESTIONS,
   generateSpecFromAnswers,
   type GeneratedSpec,
@@ -22,7 +25,10 @@ import {
 } from "@/lib/domain/spec-engine";
 import { createProjectFromSpec } from "@/lib/domain/store";
 
-type Step = "intro" | "qna" | "generating" | "result";
+type Step = "intro" | "qna" | "upload" | "parsing" | "generating" | "result";
+
+const GENERATION_MS = 4200;
+const PARSING_MS = 5200;
 
 /**
  * 대화형 AI 스펙 생성기.
@@ -38,26 +44,39 @@ export default function SpecGeneratorPage() {
   const [questionIndex, setQuestionIndex] = React.useState(0);
   const [answers, setAnswers] = React.useState<QnaAnswer[]>([]);
   const [input, setInput] = React.useState("");
-  const [stageIndex, setStageIndex] = React.useState(0);
+  const [fileName, setFileName] = React.useState("");
   const [result, setResult] = React.useState<GeneratedSpec | null>(null);
+  const [ready, setReady] = React.useState(false);
 
   const question = SPEC_QUESTIONS[questionIndex];
+  const isBusy = step === "generating" || step === "parsing";
+  const { progress, message } = useLoadingProgress(
+    isBusy,
+    ready,
+    step === "parsing" ? PARSING_MS : GENERATION_MS
+  );
 
-  const startGeneration = React.useCallback((finalAnswers: QnaAnswer[]) => {
-    setStep("generating");
-    setStageIndex(0);
-    let stage = 0;
-    const timer = setInterval(() => {
-      stage += 1;
-      if (stage < GENERATION_STAGES.length) {
-        setStageIndex(stage);
-      } else {
-        clearInterval(timer);
+  // 생성이 끝나면(=ready) 결과 화면으로 넘어간다
+  React.useEffect(() => {
+    if (step === "generating" && progress >= 100) {
+      const timer = setTimeout(() => setStep("result"), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [step, progress]);
+
+  const runGeneration = React.useCallback(
+    (finalAnswers: QnaAnswer[], nextStep: "generating" | "parsing") => {
+      setReady(false);
+      setStep(nextStep);
+      // 실제 LLM 호출을 대체하는 비동기 생성 — 완료 신호를 받으면 진행률이 100%로 점프한다
+      const timer = setTimeout(() => {
         setResult(generateSpecFromAnswers(finalAnswers));
-        setStep("result");
-      }
-    }, 1400);
-  }, []);
+        setReady(true);
+      }, nextStep === "parsing" ? PARSING_MS : GENERATION_MS);
+      return () => clearTimeout(timer);
+    },
+    []
+  );
 
   const submitAnswer = (answer: string) => {
     const trimmed = answer.trim();
@@ -74,26 +93,26 @@ export default function SpecGeneratorPage() {
     if (questionIndex + 1 < SPEC_QUESTIONS.length) {
       setQuestionIndex(questionIndex + 1);
     } else {
-      startGeneration(nextAnswers);
+      runGeneration(nextAnswers, "generating");
     }
   };
 
   const handleUpload = (file: File) => {
-    // 기획 초안 Mock 파싱 — 실제 구현에서는 Supabase Storage 업로드 + 텍스트 추출
+    // 기획 초안 파싱 — 실제 구현에서는 Storage 업로드 + 텍스트 추출로 대체
     const baseName = file.name.replace(/\.[^.]+$/, "");
     const uploaded: QnaAnswer[] = [
       { questionId: "service", question: "서비스", answer: baseName },
       { questionId: "users", question: "사용자", answer: "기획 초안에 정의된 사용자" },
-      { questionId: "features", question: "기능", answer: "핵심 기능, 회원 관리, 데이터 조회" },
+      { questionId: "features", question: "기능", answer: "핵심 기능, 회원 관리, 결제" },
       { questionId: "auth", question: "가입", answer: "이메일 가입" },
-      { questionId: "payment", question: "결제", answer: "아니요" },
+      { questionId: "payment", question: "결제", answer: "네, 필요해요" },
       { questionId: "data", question: "데이터", answer: "문서에 정의된 데이터" },
       { questionId: "admin", question: "관리", answer: "현황 대시보드" },
       { questionId: "timeline", question: "기한", answer: "3개월" },
     ];
-    toast.success(`'${file.name}' 분석을 시작합니다.`);
+    setFileName(file.name);
     setAnswers(uploaded);
-    startGeneration(uploaded);
+    runGeneration(uploaded, "parsing");
   };
 
   const saveProject = () => {
@@ -104,6 +123,15 @@ export default function SpecGeneratorPage() {
     );
     toast.success("프로젝트가 생성되고 입찰이 시작됐어요.");
     router.push(`/bids/view?id=${project.id}`);
+  };
+
+  const restart = () => {
+    setStep("intro");
+    setAnswers([]);
+    setQuestionIndex(0);
+    setResult(null);
+    setReady(false);
+    setFileName("");
   };
 
   if (role === "partner") {
@@ -147,24 +175,49 @@ export default function SpecGeneratorPage() {
               질문에 하나씩 답하며 만들어요
             </p>
           </button>
-          <label className="bg-card block cursor-pointer rounded-[28px] p-7 shadow-sm transition-transform duration-200 active:scale-[0.98]">
+          <button
+            type="button"
+            onClick={() => setStep("upload")}
+            className="bg-card rounded-[28px] p-7 text-left shadow-sm transition-transform duration-200 active:scale-[0.98]"
+            data-testid="start-upload"
+          >
             <FileUp className="text-vivid-blue size-7" />
             <p className="mt-4 text-lg font-extrabold">기획 초안 업로드</p>
             <p className="text-muted-foreground mt-1 text-[13px] font-medium">
               PDF·DOCX·TXT 문서를 분석해요
             </p>
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt"
-              className="sr-only"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file !== undefined) handleUpload(file);
-              }}
-            />
-          </label>
+          </button>
         </div>
       </div>
+    );
+  }
+
+  if (step === "upload") {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <div className="mb-6 text-center">
+          <h2 className="text-2xl font-extrabold tracking-tight">
+            기획 초안을 올려주세요
+          </h2>
+          <p className="text-muted-foreground mt-1.5 text-[15px] font-medium">
+            문서를 분석해 개발 명세와 설계도를 자동으로 만들어 드려요.
+          </p>
+        </div>
+        <DraftUploader onAccepted={handleUpload} />
+        <Button variant="secondary" className="mt-5" onClick={restart}>
+          다른 방법으로 시작하기
+        </Button>
+      </div>
+    );
+  }
+
+  if (step === "parsing") {
+    return (
+      <ParsingAnimation
+        fileName={fileName}
+        progress={progress}
+        onDone={() => setStep("result")}
+      />
     );
   }
 
@@ -227,23 +280,7 @@ export default function SpecGeneratorPage() {
   }
 
   if (step === "generating") {
-    return (
-      <div className="mx-auto flex max-w-md flex-col items-center pt-16 text-center">
-        <span className="bg-vivid-purple flex size-14 animate-pulse items-center justify-center rounded-2xl text-white shadow-md">
-          <Sparkles className="size-7" />
-        </span>
-        <p className="mt-6 text-lg font-extrabold" data-testid="generation-stage">
-          {GENERATION_STAGES[stageIndex]}
-        </p>
-        <Progress
-          value={((stageIndex + 1) / GENERATION_STAGES.length) * 100}
-          className="mt-5"
-        />
-        <p className="text-muted-foreground mt-3 text-sm font-medium">
-          최대 30초가 걸릴 수 있어요. 잠시만 기다려주세요.
-        </p>
-      </div>
-    );
+    return <GenerationLoading progress={progress} message={message} />;
   }
 
   if (result === null) return null;
@@ -260,12 +297,7 @@ export default function SpecGeneratorPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => {
-            setStep("intro");
-            setAnswers([]);
-            setQuestionIndex(0);
-            setResult(null);
-          }}>
+          <Button variant="secondary" onClick={restart}>
             다시 만들기
           </Button>
           <Button onClick={saveProject} data-testid="save-project">

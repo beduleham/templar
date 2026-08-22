@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import { ArchitectureMap } from "@/components/architecture-map";
 import { NdaGate } from "@/components/nda/nda-gate";
 import { AuditLogList } from "@/components/project/audit-log-list";
+import { DisputeButton } from "@/components/project/dispute-button";
 import { KanbanBoard } from "@/components/project/kanban-board";
 import { MilestoneTracker } from "@/components/project/milestone-tracker";
 import { MarkdownView } from "@/components/spec/markdown-view";
@@ -74,6 +75,9 @@ function ProjectDetailView() {
             {project.status === "bidding" && (
               <Badge variant="purple">입찰 진행 중</Badge>
             )}
+            {project.status === "disputed" && (
+              <Badge variant="coral">분쟁 조정 중</Badge>
+            )}
           </div>
           {project.contract !== null && (
             <p className="text-muted-foreground mt-1 text-sm font-semibold">
@@ -83,13 +87,28 @@ function ProjectDetailView() {
             </p>
           )}
         </div>
-        <Button asChild variant="secondary" size="sm">
-          <Link href="/projects">
-            <ArrowLeft className="size-4" />
-            목록
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <DisputeButton project={project} actor={actor} />
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/projects">
+              <ArrowLeft className="size-4" />
+              목록
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {project.status === "disputed" && project.disputeReason !== null && (
+        <div className="bg-vivid-coral/10 mt-4 rounded-2xl p-4">
+          <p className="text-vivid-coral text-sm font-bold">
+            분쟁 조정이 진행 중이에요
+          </p>
+          <p className="text-muted-foreground mt-1 text-sm font-medium">
+            신고 사유: {project.disputeReason} · 운영사가 감사 로그를 검토해
+            대금을 정산하거나 환불합니다.
+          </p>
+        </div>
+      )}
 
       {!canView ? (
         <div className="mt-6">

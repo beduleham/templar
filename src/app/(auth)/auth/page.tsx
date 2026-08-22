@@ -26,7 +26,7 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="bg-card text-card-foreground w-full max-w-sm rounded-xl border p-8 shadow-sm">
+    <div className="bg-card text-card-foreground w-full max-w-sm rounded-3xl border p-8 shadow-[0_8px_40px_rgba(0,0,0,0.06)] lg:p-10">
       <div className="flex items-baseline gap-2">
         <span className="text-xl font-bold tracking-tight">아칸</span>
         <span className="text-muted-foreground text-xs font-medium">Archon</span>

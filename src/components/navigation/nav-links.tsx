@@ -28,10 +28,10 @@ export function NavLinks({ role, onNavigate }: NavLinksProps) {
             onClick={onNavigate}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              "flex items-center gap-3 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors duration-200",
               isActive
                 ? "bg-accent text-accent-foreground font-semibold"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             )}
           >
             <Icon className="size-4 shrink-0" />

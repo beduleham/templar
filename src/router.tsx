@@ -1,6 +1,8 @@
 import { createBrowserRouter, createHashRouter } from 'react-router-dom'
 import AppShell from './components/layout/AppShell'
 import RootRedirect from './components/RootRedirect'
+import CrashProbe from './components/shared/CrashProbe'
+import RouteErrorFallback from './components/shared/RouteErrorFallback'
 import OrdersPage from './pages/supplier/OrdersPage'
 import ProductsPage from './pages/supplier/ProductsPage'
 import SupplierDashboardPage from './pages/supplier/SupplierDashboardPage'
@@ -18,6 +20,7 @@ const createRouter = __USE_HASH_ROUTER__ ? createHashRouter : createBrowserRoute
 export const router = createRouter([
   {
     element: <AppShell />,
+    errorElement: <RouteErrorFallback />,
     children: [
       { path: '/', element: <RootRedirect /> },
       { path: '/teacher/dashboard', element: <TeacherDashboardPage /> },
@@ -28,6 +31,8 @@ export const router = createRouter([
       { path: '/supplier/dashboard', element: <SupplierDashboardPage /> },
       { path: '/supplier/products', element: <ProductsPage /> },
       { path: '/supplier/orders', element: <OrdersPage /> },
+      // 에러 바운더리 동작 검증용 시임 (링크되지 않는 내부 경로)
+      { path: '/__boom', element: <CrashProbe /> },
       // 정의되지 않은 경로는 역할별 대시보드로 보낸다.
       { path: '*', element: <RootRedirect /> },
     ],

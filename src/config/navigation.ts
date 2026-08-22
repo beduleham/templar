@@ -28,6 +28,12 @@ export const navItems: NavItem[] = [
     roles: ['TEACHER'],
   },
   {
+    title: '보육일지 및 평가',
+    path: '/teacher/journal',
+    icon: 'clipboard-check',
+    roles: ['TEACHER'],
+  },
+  {
     title: '공급업체 대시보드',
     path: '/supplier/dashboard',
     icon: 'store',

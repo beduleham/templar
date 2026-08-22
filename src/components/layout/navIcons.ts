@@ -1,4 +1,5 @@
 import {
+  ClipboardCheck,
   ClipboardList,
   FileSpreadsheet,
   LayoutDashboard,
@@ -12,6 +13,7 @@ export const navIcons: Record<string, LucideIcon> = {
   'layout-dashboard': LayoutDashboard,
   'notebook-pen': NotebookPen,
   'file-spreadsheet': FileSpreadsheet,
+  'clipboard-check': ClipboardCheck,
   store: Store,
   package: Package,
   'clipboard-list': ClipboardList,

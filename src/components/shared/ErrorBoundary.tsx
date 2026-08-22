@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { goHome } from '../../lib/exportGate'
 import { reportError } from '../../lib/monitoring'
 import ErrorFallbackCard from './ErrorFallbackCard'
 
@@ -31,7 +32,7 @@ export default class ErrorBoundary extends Component<
   handleRetry = () => {
     // 세션 데이터(localStorage)는 유지된 채 홈에서 앱을 다시 시작한다
     // (크래시를 유발한 URL을 그대로 리로드하지 않는다)
-    window.location.assign('/')
+    goHome()
   }
 
   render() {

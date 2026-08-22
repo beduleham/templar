@@ -9,7 +9,11 @@ import QuoteTable from '../../components/quotes/QuoteTable'
 import ReplaceProductModal from '../../components/quotes/ReplaceProductModal'
 import { useEstimate } from '../../hooks/useEstimate'
 import { downloadBlob } from '../../lib/download'
-import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
+import {
+  confirmAction,
+  EXPORT_DISABLED,
+  EXPORT_DISABLED_MESSAGE,
+} from '../../lib/exportGate'
 import { computeItem, computeTotals, formatKrw } from '../../lib/quotation'
 import { useDeliberationStore } from '../../store/useDeliberationStore'
 import {
@@ -245,7 +249,7 @@ export default function QuotesPage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm('견적을 확정하시겠습니까? 확정 후에는 수정할 수 없습니다.')) {
+                  if (confirmAction('견적을 확정하시겠습니까? 확정 후에는 수정할 수 없습니다.')) {
                     setConfirmed(true)
                   }
                 }}

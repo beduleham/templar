@@ -13,7 +13,11 @@ import PlanTable from '../../components/plan/PlanTable'
 import RecommendationPanel from '../../components/plan/RecommendationPanel'
 import SavedPlansList from '../../components/plan/SavedPlansList'
 import { downloadBlob } from '../../lib/download'
-import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
+import {
+  confirmAction,
+  EXPORT_DISABLED,
+  EXPORT_DISABLED_MESSAGE,
+} from '../../lib/exportGate'
 import {
   planTypeLabels,
   updateActivity,
@@ -52,7 +56,7 @@ export default function PlanPage() {
   useEffect(() => {
     if (blocker.state !== 'blocked') return
     if (
-      window.confirm('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')
+      confirmAction('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')
     ) {
       blocker.proceed()
     } else {

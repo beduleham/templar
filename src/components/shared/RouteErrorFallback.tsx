@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useRouteError } from 'react-router-dom'
+import { goHome } from '../../lib/exportGate'
 import { reportError } from '../../lib/monitoring'
 import ErrorFallbackCard from './ErrorFallbackCard'
 
@@ -11,5 +12,5 @@ export default function RouteErrorFallback() {
     reportError('route-error', error)
   }, [error])
 
-  return <ErrorFallbackCard onRetry={() => window.location.assign('/')} />
+  return <ErrorFallbackCard onRetry={goHome} />
 }

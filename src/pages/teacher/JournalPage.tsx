@@ -12,7 +12,11 @@ import { generateJournalDraft } from '../../api/journalGenerator'
 import { getJournalByDate, saveJournal } from '../../api/journalStorage'
 import { listPlans } from '../../api/planStorage'
 import { downloadBlob } from '../../lib/download'
-import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
+import {
+  confirmAction,
+  EXPORT_DISABLED,
+  EXPORT_DISABLED_MESSAGE,
+} from '../../lib/exportGate'
 import {
   activitiesForDate,
   formatJournalDate,
@@ -75,7 +79,7 @@ export default function JournalPage() {
   )
   useEffect(() => {
     if (blocker.state !== 'blocked') return
-    if (window.confirm('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')) {
+    if (confirmAction('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')) {
       blocker.proceed()
     } else {
       blocker.reset()
@@ -190,7 +194,7 @@ export default function JournalPage() {
               onChange={(e) => {
                 if (
                   dirty &&
-                  !window.confirm('저장되지 않은 변경사항이 있습니다. 날짜를 변경하시겠습니까?')
+                  !confirmAction('저장되지 않은 변경사항이 있습니다. 날짜를 변경하시겠습니까?')
                 ) {
                   return
                 }

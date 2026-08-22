@@ -17,7 +17,11 @@ import {
   type DeliberationReportResponse,
 } from '../../lib/deliberation'
 import { downloadBlob } from '../../lib/download'
-import { EXPORT_DISABLED, EXPORT_DISABLED_MESSAGE } from '../../lib/exportGate'
+import {
+  confirmAction,
+  EXPORT_DISABLED,
+  EXPORT_DISABLED_MESSAGE,
+} from '../../lib/exportGate'
 import { formatKrw } from '../../lib/quotation'
 import { useDeliberationStore } from '../../store/useDeliberationStore'
 
@@ -51,7 +55,7 @@ export default function DeliberationPage() {
   )
   useEffect(() => {
     if (blocker.state !== 'blocked') return
-    if (window.confirm('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')) {
+    if (confirmAction('저장되지 않은 변경사항이 있습니다. 이동하시겠습니까?')) {
       blocker.proceed()
     } else {
       blocker.reset()

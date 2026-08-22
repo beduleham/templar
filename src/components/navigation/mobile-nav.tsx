@@ -36,10 +36,17 @@ export function MobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="w-72 p-0">
         <SheetHeader className="px-6 pt-6">
-          <SheetTitle className="flex items-baseline gap-2 text-left">
-            <span className="text-lg font-bold tracking-tight">아칸</span>
-            <span className="text-muted-foreground text-xs font-medium">
-              Archon
+          <SheetTitle className="flex items-center gap-2.5 text-left">
+            <span className="bg-vivid-blue flex size-8 items-center justify-center rounded-xl text-[15px] font-extrabold text-white shadow-sm">
+              아
+            </span>
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-lg font-extrabold tracking-tight">
+                아칸
+              </span>
+              <span className="text-muted-foreground text-xs font-medium">
+                Archon
+              </span>
             </span>
           </SheetTitle>
           <SheetDescription className="text-left">

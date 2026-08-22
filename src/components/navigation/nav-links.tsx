@@ -4,7 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
-import { filterNavigationByRole, type UserRole } from "@/lib/navigation";
+import {
+  filterNavigationByRole,
+  type UserRole,
+  type VividTone,
+} from "@/lib/navigation";
+
+const TONE_STYLES: Record<VividTone, string> = {
+  blue: "bg-vivid-blue",
+  purple: "bg-vivid-purple",
+  mint: "bg-vivid-mint",
+  coral: "bg-vivid-coral",
+  slate: "bg-muted-foreground",
+};
 
 interface NavLinksProps {
   role: UserRole;
@@ -16,7 +28,7 @@ export function NavLinks({ role, onNavigate }: NavLinksProps) {
   const items = filterNavigationByRole(role);
 
   return (
-    <nav className="flex flex-col gap-1 px-3" aria-label="주요 메뉴">
+    <nav className="flex flex-col gap-1.5 px-3" aria-label="주요 메뉴">
       {items.map((item) => {
         const isActive =
           pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -28,13 +40,21 @@ export function NavLinks({ role, onNavigate }: NavLinksProps) {
             onClick={onNavigate}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-xl px-3.5 py-2 text-sm font-medium transition-colors duration-200",
+              "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-semibold transition-all duration-200 active:scale-[0.97]",
               isActive
-                ? "bg-accent text-accent-foreground font-semibold"
+                ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-secondary hover:text-foreground"
             )}
           >
-            <Icon className="size-4 shrink-0" />
+            <span
+              className={cn(
+                "flex size-8 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition-transform duration-200",
+                TONE_STYLES[item.tone],
+                !isActive && "opacity-85 saturate-[0.9]"
+              )}
+            >
+              <Icon className="size-4" />
+            </span>
             {item.title}
           </Link>
         );

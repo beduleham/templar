@@ -13,12 +13,17 @@ export function Sidebar() {
   const role = user?.role ?? "guest";
 
   return (
-    <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r backdrop-blur-xl lg:flex">
-      <div className="flex h-16 items-center px-6">
-        <Link href="/dashboard" className="flex items-baseline gap-2">
-          <span className="text-lg font-bold tracking-tight">아칸</span>
-          <span className="text-muted-foreground text-xs font-medium">
-            Archon
+    <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r lg:flex">
+      <div className="flex h-16 items-center px-5">
+        <Link href="/dashboard" className="flex items-center gap-2.5">
+          <span className="bg-vivid-blue flex size-8 items-center justify-center rounded-xl text-[15px] font-extrabold text-white shadow-sm">
+            아
+          </span>
+          <span className="flex items-baseline gap-1.5">
+            <span className="text-lg font-extrabold tracking-tight">아칸</span>
+            <span className="text-muted-foreground text-xs font-medium">
+              Archon
+            </span>
           </span>
         </Link>
       </div>

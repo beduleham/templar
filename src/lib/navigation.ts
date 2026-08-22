@@ -9,10 +9,14 @@ import {
 
 export type UserRole = "client" | "partner" | "admin" | "guest";
 
+/** 벤토 스타일 메뉴 아이콘 스쿼클에 쓰는 비비드 톤 */
+export type VividTone = "blue" | "purple" | "mint" | "coral" | "slate";
+
 export interface NavigationItem {
   title: string;
   href: string;
   icon: ComponentType<{ className?: string }>;
+  tone: VividTone;
   /** 해당 메뉴를 볼 수 있는 권한 역할 */
   roles: UserRole[];
 }
@@ -22,30 +26,35 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     title: "대시보드",
     href: "/dashboard",
     icon: LayoutDashboard,
+    tone: "blue",
     roles: ["client", "partner", "admin", "guest"],
   },
   {
     title: "AI 스펙 생성",
     href: "/spec-generator",
     icon: Sparkles,
+    tone: "purple",
     roles: ["client", "admin"],
   },
   {
     title: "입찰 및 계약",
     href: "/bids",
     icon: Gavel,
+    tone: "mint",
     roles: ["client", "partner", "admin"],
   },
   {
     title: "프로젝트 공정판",
     href: "/projects",
     icon: KanbanSquare,
+    tone: "coral",
     roles: ["client", "partner", "admin"],
   },
   {
     title: "AS 및 구독 관리",
     href: "/subscriptions",
     icon: Wrench,
+    tone: "slate",
     roles: ["client", "partner", "admin"],
   },
 ];

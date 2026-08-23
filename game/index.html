@@ -396,6 +396,8 @@ const Sprites = {
    화면에서 즉시 구분되어야 하므로 크기·테두리·이름표를 함께 바꾼다. */
 // 성장 속도를 한 곳에서 조절한다. 낮출수록 같은 시각에 더 약한 상태로 싸우게 된다.
 const XP_RATE = .5;
+// 초반 전리품 가산 — 시작 시점에 확률이 (1 + 이 값)배가 되고 아래 초 동안 직업 기본값으로 수렴한다
+const EARLY_GEM_BONUS = 1.6, EARLY_GEM_SECONDS = 180;
 
 const SHRINE_MIN_LEVEL = 8;
 
@@ -1187,7 +1189,10 @@ function killEnemy(e, elem) {
   // 모든 적이 보석을 떨구면 화면이 보석으로 덮이고, 처치 수가 곧 경험치가 된다.
   // 확률로 바꾸면 '무엇을 잡느냐'가 의미를 갖는다 — 등급이 붙은 적과 보스는 반드시 떨군다.
   const sure = e.boss || e.sigilKey || (e.rank && e.rank.key !== "common");
-  if (sure || Math.random() < player.stats.gemChance)
+  // 초반 가산 — 무기가 아직 1레벨인 구간에서 확률까지 낮으면 빌드가 시작을 못 한다.
+  // 3분에 걸쳐 직업 기본값으로 돌아온다.
+  const early = 1 + EARLY_GEM_BONUS * Math.max(0, 1 - Game.time / EARLY_GEM_SECONDS);
+  if (sure || Math.random() < player.stats.gemChance * early)
     spawnGem(e.x, e.y, (e.xp !== undefined ? e.xp : e.type.xp) * (e.rank ? e.rank.xp : 1));
   if (e.sigilKey) {
     // 제단의 파수꾼 — 봉인을 지키던 자

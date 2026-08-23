@@ -140,6 +140,130 @@ const Sfx = {
   dead()    { [400, 330, 260, 180].forEach((f, i) => setTimeout(() => this.play(f, .3, "sawtooth", .8), i * 130)); },
 };
 
+/* ---------- 배경음악 ----------
+   에셋을 쓰지 않는 게 이 프로젝트의 규칙이라 음악도 WebAudio 로 합성한다.
+   setInterval 로 음을 찍으면 타이밍이 흔들려 박자가 무너지므로,
+   오디오 클럭 기준으로 미리(lookahead) 예약하는 방식으로 만든다.
+
+   구성은 층(layer)으로 나눈다. 같은 곡을 상황에 따라 두껍게/얇게 연주해
+   시작 화면과 전투, 보스전이 같은 세계로 들리게 한다.
+     드럼 · 베이스   항상
+     아르페지오      전투부터
+     리드 멜로디     전투부터 (보스전에는 옥타브 위로)
+     긴장 패드       보스전 */
+const Music = {
+  ctx: null, gain: null, on: true,
+  step: 0, nextTime: 0, timer: null, mode: "menu",
+  bpm: 152,
+
+  // Am - F - C - G : 단조로 시작해 장조로 풀리는, 달리는 느낌의 진행
+  prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
+  // 리드 멜로디 (16분음표 격자, null 은 쉼표)
+  lead: [76, null, 74, 72, null, 72, 74, null, 76, null, 79, null, 77, null, 74, null],
+
+  mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); },
+
+  start(mode) {
+    this.mode = mode || "menu";
+    if (!Sfx.ctx) Sfx.init();
+    if (!Sfx.ctx) return;
+    this.ctx = Sfx.ctx;
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    if (this.timer) return;                       // 이미 돌고 있으면 모드만 바꾼다
+    if (!this.gain) {
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = .0;
+      this.gain.connect(this.ctx.destination);
+    }
+    this.nextTime = this.ctx.currentTime + .1;
+    this.timer = setInterval(() => this.schedule(), 25);
+    this.fade(this.vol());
+  },
+  stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } this.fade(0); },
+  fade(v) {
+    if (!this.gain || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.gain.gain.cancelScheduledValues(t);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, t);
+    this.gain.gain.linearRampToValueAtTime(Sfx.on ? v : 0, t + .5);
+  },
+  setMode(m) { if (this.mode !== m) { this.mode = m; this.fade(this.vol()); } },
+  vol() { return this.mode === "boss" ? .19 : this.mode === "play" ? .16 : .12; },
+
+  // 오디오 클럭보다 조금 앞서서 예약해 둔다
+  schedule() {
+    if (!this.ctx) return;
+    const spb = 60 / this.bpm / 4;                // 16분음표 한 칸
+    while (this.nextTime < this.ctx.currentTime + .12) {
+      this.tick(this.step, this.nextTime, spb);
+      this.step = (this.step + 1) % 64;
+      this.nextTime += spb;
+    }
+  },
+
+  tone(t, freq, dur, type, vol, dest) {
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + .008);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g); g.connect(dest || this.gain);
+    o.start(t); o.stop(t + dur + .02);
+  },
+  noise(t, dur, vol, hp) {
+    const n = Math.floor(this.ctx.sampleRate * dur);
+    const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const f = this.ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = hp || 2000;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(this.gain);
+    src.start(t);
+  },
+
+  tick(i, t, spb) {
+    const bar = Math.floor(i / 16) % 4;
+    const chord = this.prog[bar];
+    const beat = i % 16;
+    const full = this.mode === "play" || this.mode === "boss";
+    const boss = this.mode === "boss";
+
+    // 킥 — 네 박자를 끌고 간다
+    if (beat % 4 === 0) {
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(140, t);
+      o.frequency.exponentialRampToValueAtTime(45, t + .12);
+      g.gain.setValueAtTime(.9, t);
+      g.gain.exponentialRampToValueAtTime(.0001, t + .18);
+      o.connect(g); g.connect(this.gain); o.start(t); o.stop(t + .2);
+    }
+    // 스네어 · 하이햇
+    if (beat === 4 || beat === 12) this.noise(t, .12, .28, 1400);
+    if (full && beat % 2 === 1) this.noise(t, .03, .07, 6000);
+
+    // 베이스 — 8분음표로 밀어붙인다
+    if (beat % 2 === 0) {
+      const root = chord[0] - 12;
+      this.tone(t, this.mtof(beat % 8 === 6 ? root + 7 : root), spb * 1.7, "sawtooth", .16);
+    }
+    // 아르페지오
+    if (full) {
+      const n = chord[(i % 3)] + (beat >= 8 ? 12 : 0);
+      this.tone(t, this.mtof(n), spb * 1.3, "square", .045);
+    }
+    // 리드 — 보스전에서는 한 옥타브 위로 올려 급해진다
+    if (full) {
+      const m = this.lead[beat];
+      if (m !== null) this.tone(t, this.mtof(m + (boss ? 12 : 0) + (bar === 3 ? 2 : 0)), spb * 2.2, "triangle", .075);
+    }
+    // 보스전 긴장 패드
+    if (boss && beat === 0)
+      this.tone(t, this.mtof(chord[0] - 24), spb * 15, "sawtooth", .05);
+  },
+};
+
 /* ---------- 입력 ---------- */
 const keys = new Set();
 const mouse = { x: W / 2, y: H / 2, down: false, clicked: false };
@@ -1958,7 +2082,9 @@ const Game = {
   },
 
   onKey(k) {
-    if (k === "m") { Sfx.on = !Sfx.on; return; }
+    // 브라우저는 사용자 입력 전에는 소리를 못 내게 막는다 — 첫 키에서 깨운다
+    Sfx.init(); Music.start(this.state === "playing" ? "play" : "menu");
+    if (k === "m") { Sfx.on = !Sfx.on; Music.fade(Sfx.on ? Music.vol() : 0); return; }
     if (k === "n") { this.showNames = !this.showNames; return; }   // 몬스터 이름표
     if (this.state === "intro") {
       if (k === "tab") { this.state = "altar"; return; }
@@ -2213,6 +2339,12 @@ function update(dt) {
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
   updateResource(dt);
   Mission.update(dt);
+  // 음악은 상황을 따라간다 — 보스가 살아 있으면 두꺼워진다
+  {
+    let bossAlive = false;
+    for (const e of enemies) if (e.active && e.boss) { bossAlive = true; break; }
+    Music.setMode(bossAlive ? "boss" : "play");
+  }
   if (Game.itemCd > 0) Game.itemCd = Math.max(0, Game.itemCd - dt);
   if (Game.heartCd > 0) Game.heartCd = Math.max(0, Game.heartCd - dt);
 
@@ -2713,6 +2845,7 @@ function hurtPlayer(raw, tag) {
 
 // 제단의 '부활'을 한 번 쓰거나, 없으면 게임 오버
 function onPlayerDown() {
+  Music.setMode("menu");
   if (Meta.lv("rebirth") > 0 && !Game.usedRebirth) {
     Game.usedRebirth = true;
     player.hp = player.stats.maxHp * .5;
@@ -5442,6 +5575,7 @@ function drawIntro() {
   ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by + 43);
 
   if (mouse.clicked) {
+    Sfx.init(); Music.start("menu");
     if (hoverStart) { Game.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
     if (hoverAltar) { Game.introFrom = "intro"; Game.state = "altar"; return; }
   }

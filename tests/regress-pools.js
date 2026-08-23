@@ -11,11 +11,16 @@ const { chromium } = require('playwright');
   const r = await pg.evaluate(() => {
     Game.time = 600; player.level = 42;
     player.base.maxHp = 1e7; recomputeStats(); player.hp = 1e7;
+    // 이 테스트가 보는 것은 '풀이 가득 찼을 때의 동작'이지 드랍 확률이 아니다.
+    // 확률이 도입된 뒤로는 100% 로 고정해야 풀을 실제로 포화시킬 수 있다.
+    const forceDrop = () => { player.stats.gemChance = 1; };
+    forceDrop();
     const log = [];
     let xpBefore = 0;
     for (let n = 0; n < 1400; n++) {
       const a = Math.random()*6.28, r2 = 600 + Math.random()*900;
       const e = Game.spawnEnemy('bat', player.x + Math.cos(a)*r2, player.y + Math.sin(a)*r2);
+      forceDrop();
       if (e) { e.hp = 1; killEnemy(e, 'physical'); }
     }
     const sumXp = () => gems.reduce((a,g) => a + (g.active ? g.value : 0), 0);
@@ -24,6 +29,7 @@ const { chromium } = require('playwright');
     // 포화 상태에서 추가 처치가 경험치를 남기는가 (총량 기준)
     xpBefore = sumXp();
     const e2 = Game.spawnEnemy('brute', player.x + 40, player.y);
+    forceDrop();
     if (e2) killEnemy(e2, 'physical');
     const gained = sumXp() - xpBefore;
     log.push('포화 상태에서 추가 처치 → 경험치 총량 +' + gained + (gained > 0 ? '  OK' : '  실패'));
@@ -42,6 +48,7 @@ const { chromium } = require('playwright');
     // 징표가 밀려나지 않는지: 이후 대량 처치
     for (let n = 0; n < 400; n++) {
       const e = Game.spawnEnemy('bat', player.x + rnd(-900,900), player.y + rnd(-900,900));
+      forceDrop();
       if (e) { e.hp = 1; killEnemy(e, 'physical'); }
     }
     const s3 = pickups.filter(p=>p.active && p.kind==='sigil').length;

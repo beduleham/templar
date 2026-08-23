@@ -35,7 +35,12 @@ const W = 1280, H = 720;          // 논리 해상도 (실제 크기는 CSS로 �
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
-const ADV_LV1 = 10, ADV_LV2 = 22, ADV_LV3 = 34;   // 전직 레벨 (1차 · 2차 · 3차 각성)
+const ADV_LV1 = 8, ADV_LV2 = 16, ADV_LV3 = 26;    // 전직 레벨 (1차 · 2차 · 3차 각성)
+// 레벨만으로 열면 경험치 배율을 조절할 때마다 전직 시점이 같이 흔들린다.
+// 판 전체 길이(RUN_TIME)의 1/4 · 2/4 · 3/4 지점을 함께 요구해, 성장 속도와 무관하게
+// 한 판 안에서 늘 같은 리듬으로 열리게 한다. 15분 기준 3:45 · 7:30 · 11:15.
+const ADV_AT = [.25, .5, .75];
+const advTime = tier => RUN_TIME * ADV_AT[tier - 1];
 // 조합은 두 속성 무기를 이 레벨까지 올려야 열리고(COMBO_LEVEL),
 // 둘 다 최대치가 되면 '완성'되어 효과가 강해진다(COMBO_MASTER).
 //   1로 두면 무기를 모으기만 하는 게 최적이 되어 강화할 이유가 사라지고,
@@ -395,9 +400,10 @@ const Sprites = {
    같은 종류라도 등급이 다르면 다른 상대가 된다.
    화면에서 즉시 구분되어야 하므로 크기·테두리·이름표를 함께 바꾼다. */
 // 성장 속도를 한 곳에서 조절한다. 낮출수록 같은 시각에 더 약한 상태로 싸우게 된다.
-const XP_RATE = .5;
+const XP_RATE = .6;
 // 초반 전리품 가산 — 시작 시점에 확률이 (1 + 이 값)배가 되고 아래 초 동안 직업 기본값으로 수렴한다
 const EARLY_GEM_BONUS = 1.6, EARLY_GEM_SECONDS = 180;
+const GEM_REF = .15;   // 이 확률에서 기대 경험치가 기본값과 같아진다
 
 const SHRINE_MIN_LEVEL = 8;
 
@@ -416,13 +422,13 @@ function rollRank(t) {
 }
 
 const ENEMY_TYPES = {
-  bat:    { name: "박쥐", r: 11, hp: 14,  speed: 88, dmg: 9,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
-  slime:  { name: "슬라임", r: 15, hp: 33,  speed: 54, dmg: 11,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
-  ghost:  { name: "유령", r: 13, hp: 44,  speed: 74, dmg: 14, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
-  zombie: { name: "좀비", r: 16, hp: 72,  speed: 48, dmg: 17, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
-  brute:  { name: "괴수", r: 23, hp: 160, speed: 40, dmg: 25, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
-  reaper: { name: "사신", r: 18, hp: 245, speed: 62, dmg: 30, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
-  hound:  { name: "사냥개", r: 13, hp: 96,  speed: 248, dmg: 17, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
+  bat:    { name: "박쥐", r: 11, hp: 12,  speed: 88, dmg: 8,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
+  slime:  { name: "슬라임", r: 15, hp: 29,  speed: 54, dmg: 10,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
+  ghost:  { name: "유령", r: 13, hp: 38,  speed: 74, dmg: 12, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
+  zombie: { name: "좀비", r: 16, hp: 62,  speed: 48, dmg: 15, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
+  brute:  { name: "괴수", r: 23, hp: 138, speed: 40, dmg: 22, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
+  reaper: { name: "사신", r: 18, hp: 210, speed: 62, dmg: 26, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
+  hound:  { name: "사냥개", r: 13, hp: 84,  speed: 248, dmg: 15, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
 
   // ── 행동이 다른 것들 — 스탯이 아니라 대응 방법이 달라야 다양한 것이다
   archer: { name: "사수", r: 14, hp: 48,  speed: 44, dmg: 12, xp: 4,  color: "#7ad0b0", shape: "humanoid", sprite: "archer",
@@ -1189,11 +1195,24 @@ function killEnemy(e, elem) {
   // 모든 적이 보석을 떨구면 화면이 보석으로 덮이고, 처치 수가 곧 경험치가 된다.
   // 확률로 바꾸면 '무엇을 잡느냐'가 의미를 갖는다 — 등급이 붙은 적과 보스는 반드시 떨군다.
   const sure = e.boss || e.sigilKey || (e.rank && e.rank.key !== "common");
-  // 초반 가산 — 무기가 아직 1레벨인 구간에서 확률까지 낮으면 빌드가 시작을 못 한다.
-  // 3분에 걸쳐 직업 기본값으로 돌아온다.
-  const early = 1 + EARLY_GEM_BONUS * Math.max(0, 1 - Game.time / EARLY_GEM_SECONDS);
-  if (sure || Math.random() < player.stats.gemChance * early)
-    spawnGem(e.x, e.y, (e.xp !== undefined ? e.xp : e.type.xp) * (e.rank ? e.rank.xp : 1));
+  const base = (e.xp !== undefined ? e.xp : e.type.xp) * (e.rank ? e.rank.xp : 1);
+  if (sure) {
+    spawnGem(e.x, e.y, base);
+  } else {
+    // 초반 가산 — 무기가 아직 1레벨인 구간에 확률까지 낮으면 빌드가 시작을 못 한다.
+    const early = 1 + EARLY_GEM_BONUS * Math.max(0, 1 - Game.time / EARLY_GEM_SECONDS);
+    const chance = Math.min(1, player.stats.gemChance * early);
+    if (Math.random() < chance) {
+      // 드물게 떨구되 한 알이 크다.
+      //   확률만 내리면 성장이 그대로 굶는다 — 실제로 10%대로 내렸더니 전사가 4분 동안
+      //   1레벨에 묶인 채 적이 68 → 244 마리로 불어나 죽었다. 낮은 확률은 '적게 주는 것'이
+      //   아니라 '뭉쳐서 주는 것'이어야 한다.
+      //   다만 확률을 완전히 상쇄하면 직업 특성이 사라지므로, 기준(GEM_REF)보다 확률이
+      //   높은 직업이 총량에서도 조금 유리하도록 지수 0.4 만큼만 남긴다.
+      //   기대 경험치 = 기본값 × (확률 / GEM_REF)^0.4 → 성기사 0.88배 · 추적자 1.14배.
+      spawnGem(e.x, e.y, base / chance * Math.pow(chance / GEM_REF, .4));
+    }
+  }
   if (e.sigilKey) {
     // 제단의 파수꾼 — 봉인을 지키던 자
     lmState.set(e.sigilKey, "done");
@@ -1644,7 +1663,7 @@ const Game = {
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
   usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0,
   showNames: true,
-  lmFlash: 0, lmFlashText: "", advancePending: 0, slowmo: 0, whiteFlash: 0,
+  lmFlash: 0, lmFlashText: "", advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
@@ -1663,6 +1682,14 @@ const Game = {
       if (player.level < lv || player.advance.length >= tier) continue;
       const opts = advanceOptions(tier);
       if (!opts.length) continue;
+      // 시간 관문 — 레벨을 아무리 빨리 올려도 판의 1/4 · 2/4 · 3/4 전에는 열리지 않는다
+      if (this.time < advTime(tier)) {
+        this.advancePending = 0;
+        this.advanceWaitT = advTime(tier) - this.time;
+        this.advanceWaitTier = tier;
+        return false;
+      }
+      this.advanceWaitT = 0;
       if (player.sigils < 1) { this.advancePending = tier; return false; }
       this.advancePending = 0;
       this.choices = opts;
@@ -1672,6 +1699,7 @@ const Game = {
       return true;
     }
     this.advancePending = 0;
+    this.advanceWaitT = 0;
     return false;
   },
 
@@ -1691,7 +1719,7 @@ const Game = {
     player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
     player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.shrinesOpened = 0;
+    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -1833,7 +1861,7 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * 1.30 + Math.pow(m, 2.4) * .044, spd: 1 + m * .055, dmg: 1 + m * .34 };
+    return { hp: 1 + m * 1.10 + Math.pow(m, 2.4) * .036, spd: 1 + m * .05, dmg: 1 + m * .28 };
   },
   targetCount() {
     return Math.min(440, Math.floor(38 + this.time / 60 * 32));
@@ -1942,6 +1970,9 @@ function update(dt) {
   player.hurtFlash = Math.max(0, player.hurtFlash - dt);
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
   updateResource(dt);
+  // 시간 관문이 풀리는 순간을 놓치지 않게 — 다음 레벨업까지 기다릴 필요가 없다
+  if (Game.advanceWaitT > 0 && Game.time >= advTime(Game.advanceWaitTier)) Game.checkAdvance();
+
   // 지형지물 — 근처 칸만 실체화하고 닿으면 발동
   updateLandmarks();
   updateObstacles();
@@ -3340,7 +3371,7 @@ const CLASSES = [
     key: "paladin", name: "성기사", icon: "🛡️", color: "#ffd36e",
     tagline: "멈춰 서서 파고든다",
     start: "aura",
-    gemChance: .07,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
+    gemChance: .11,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
     desc: "군중 한가운데로 파고들어 버티는 직업. 체력이 압도적으로 높고 느리다.",
     mods: { maxHp: 150, speed: -.08, armor: .12, regen: .4 },
     // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
@@ -3437,7 +3468,7 @@ const CLASSES = [
     key: "warrior", name: "전사", icon: "⚔️", color: "#ff8a5c",
     tagline: "쇠사슬 플레일 · 휘둘러 쓸어버린다",
     start: "whip",
-    gemChance: .10,
+    gemChance: .16,
     desc: "광역 근접 타격에 특화. 공격 범위와 체력이 높다.",
     mods: { maxHp: 25, area: .15, damage: .1, speed: -.03 },
     // 처치로만 차고 가만있으면 빠진다 → 몰아쳐야 유지된다
@@ -3459,7 +3490,7 @@ const CLASSES = [
     key: "rogue", name: "추적자", icon: "🗡️", color: "#8ef0b0",
     tagline: "투척 단검 · 빠르게 파고든다",
     start: "dagger",
-    gemChance: .135,  // 약탈에 능하다 — 같은 수를 잡아도 두 배 가까이 건진다
+    gemChance: .21,  // 약탈에 능하다 — 같은 수를 잡아도 두 배 가까이 건진다
     desc: "이동과 공격 속도가 빠르고 치명타 확률이 높다. 물몸.",
     mods: { maxHp: -20, speed: .14, cooldown: -.12, crit: .15 },
     // 안 맞은 시간에 비례해 찬다 → 무피격 유지가 곧 보상
@@ -3491,7 +3522,7 @@ const CLASSES = [
     key: "mage", name: "마법사", icon: "🔮", color: "#9bb8ff",
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
-    gemChance: .095,
+    gemChance: .15,
     desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
     mods: { maxHp: -8, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
@@ -4547,7 +4578,18 @@ function drawHUD() {
     ctx.fillText("🔰 수호 " + player.buffWard.toFixed(1) + "초", W - 16, by2); by2 += 20;
   }
 
-  // 전직 대기 — 레벨은 됐는데 징표가 없을 때
+  // 전직 대기 — 레벨은 됐는데 아직 때가 아닐 때
+  if (Game.advanceWaitT > 0 && !Game.advancePending) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.globalAlpha = .55 + Math.sin(performance.now() / 420) * .2;
+    ctx.font = "800 16px " + FONT; ctx.fillStyle = "#c9a3ff";
+    const w = Math.max(0, Math.ceil(Game.advanceWaitT));
+    ctx.fillText("⏳ " + ["1차", "2차", "3차"][Game.advanceWaitTier - 1] + " 각성까지 "
+      + Math.floor(w / 60) + ":" + String(w % 60).padStart(2, "0"), W / 2, 108);
+    ctx.globalAlpha = 1;
+  }
+
+  // 전직 대기 — 때는 됐는데 징표가 없을 때
   if (Game.advancePending) {
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const a = .65 + Math.sin(performance.now() / 320) * .3;

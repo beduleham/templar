@@ -35,7 +35,7 @@ const { chromium } = require('playwright');
     if (g) { g.sigilKey = 'test'; killEnemy(g, 'physical'); }
     const s1 = pickups.filter(p=>p.active && p.kind==='sigil').length;
     log.push('파수꾼 → 징표 ' + s1 + '개' + (s1 > 0 ? '  OK' : '  실패'));
-    const bo = Game.spawnEnemy('boss', player.x + 90, player.y);
+    const bo = Game.spawnEnemy('boss1', player.x + 90, player.y);
     if (bo) killEnemy(bo, 'physical');
     const s2 = pickups.filter(p=>p.active && p.kind==='sigil').length;
     log.push('보스 → 징표 누적 ' + s2 + '개' + (s2 > s1 ? '  OK' : '  실패'));

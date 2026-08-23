@@ -85,11 +85,15 @@ const rndInt = (a, b) => Math.floor(rnd(a, b + 1));
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const dist2 = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
 
-// 타일 장식용 결정적 해시 (같은 좌표는 항상 같은 값)
+// 좌표 기반 결정적 해시 (같은 좌표는 항상 같은 값). 0~1 균등 분포.
+// 주의: 곱셈을 그냥 `*` 로 하면 결과가 2^53 을 넘어 하위 비트가 날아가고,
+// 분포가 [0, 0.5) 에 갇힌다. 실제로 그 버그 때문에 배경 장식도 지형지물도
+// 한 번도 생성되지 않았다. 32비트 정수 곱셈(Math.imul)을 써야 한다.
 function hash2(x, y) {
-  let h = x * 374761393 + y * 668265263;
-  h = (h ^ (h >> 13)) * 1274126177;
-  return ((h ^ (h >> 16)) >>> 0) / 4294967296;
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 /* ---------- 사운드 (에셋 없이 합성) ---------- */
@@ -204,6 +208,78 @@ class SpatialHash {
   }
 }
 
+/* ---------- 소모품 ----------
+   주워서 소지품(3칸)에 넣고 Q 로 쓴다. 언제 쓰느냐가 판단이 되도록
+   즉발형과 지속형을 섞어 둔다. */
+const CONSUMABLES = {
+  bomb: { name: "화염병", icon: "💣", color: "#ff8a3c",
+    desc: "주변을 크게 폭발시킨다",
+    use(p) {
+      spawnWave({ x: p.x, y: p.y, maxR: 420 * p.stats.area,
+        dmg: (120 + p.level * 14) * p.stats.damage, life: .5,
+        color: "#ff8a3c", element: "fire" });
+      cam.shake = 16; Sfx.play(120, .4, "sawtooth", 1, -60);
+    } },
+  sand: { name: "시간의 모래", icon: "⏳", color: "#9ce0c0",
+    desc: "6초간 화면의 모든 적이 느려진다",
+    use(p) {
+      for (const e of enemies) if (e.active) e.slow = Math.max(e.slow, 6);
+      spawnWave({ x: p.x, y: p.y, maxR: 900, dmg: 0, life: .8, color: "#9ce0c0", element: "frost" });
+      Sfx.play(300, .6, "sine", .8, -160);
+    } },
+  fury: { name: "광란의 물약", icon: "🧪", color: "#ff6b4a",
+    desc: "12초간 공격 속도 +60%",
+    use(p) { p.buffFury = 12; Sfx.play(440, .3, "square", .8, 300); } },
+  ward: { name: "수호의 부적", icon: "🔰", color: "#8fd0ff",
+    desc: "8초간 받는 피해 -60%",
+    use(p) { p.buffWard = 8; p.iframe = Math.max(p.iframe, .5); Sfx.play(520, .35, "triangle", .8, 200); } },
+  soul: { name: "영혼석", icon: "💠", color: "#c9a3ff",
+    desc: "경험치를 크게 얻는다",
+    use(p) {
+      p.xp += p.xpNext * .55;
+      spawnNumber(p.x, p.y - 40, "경험치 +", "#c9a3ff", 20);
+      Sfx.play(880, .3, "triangle", .9, 400);
+    } },
+};
+const CONSUMABLE_KEYS = Object.keys(CONSUMABLES);
+const MAX_ITEMS = 3;
+
+/* ---------- 맵의 지형지물 ----------
+   무한 평지에서는 어디로 갈 이유가 없다. 월드를 격자로 나눠 칸마다
+   결정적으로(해시로) 지형지물을 놓아, 돌아다닐 목적을 만든다.
+   시드가 좌표이므로 저장할 필요가 없고, 멀어졌다 돌아와도 같은 자리에 있다. */
+const LM_CELL = 760;
+const lmState = new Map();     // "cx,cy" -> "done" | "fighting"
+const landmarks = [];          // 지금 근처에 있는 것만 실체화
+
+const LM_TYPES = {
+  chest:    { name: "보물 상자",   icon: "🧰", color: "#e8c96a", r: 20 },
+  shrine:   { name: "봉인된 제단", icon: "⛩️", color: "#c9a3ff", r: 26 },
+  monolith: { name: "고대 비석",   icon: "🗿", color: "#8fd0ff", r: 24 },
+};
+
+function updateLandmarks() {
+  landmarks.length = 0;
+  const cx0 = Math.floor(player.x / LM_CELL), cy0 = Math.floor(player.y / LM_CELL);
+  for (let cx = cx0 - 2; cx <= cx0 + 2; cx++) {
+    for (let cy = cy0 - 2; cy <= cy0 + 2; cy++) {
+      const h = hash2(cx, cy);
+      if (h < .80) continue;                       // 칸의 20% 정도에만 놓인다
+      const key = cx + "," + cy;
+      if (lmState.get(key) === "done") continue;
+      const type = h > .97 ? "monolith" : h > .90 ? "shrine" : "chest";
+      const T = LM_TYPES[type];
+      landmarks.push({
+        key, type, T,
+        x: cx * LM_CELL + LM_CELL * (.18 + hash2(cx + 31, cy) * .64),
+        y: cy * LM_CELL + LM_CELL * (.18 + hash2(cx, cy + 31) * .64),
+        r: T.r,
+        fighting: lmState.get(key) === "fighting",
+      });
+    }
+  }
+}
+
 /* ---------- 스프라이트 레이어 ----------
    지금은 이미지 에셋이 하나도 없어서 전부 도형으로 그린다.
    나중에 아틀라스 1장 + 프레임 정의만 넣으면 그림만 갈아끼울 수 있도록,
@@ -250,6 +326,7 @@ const ENEMY_TYPES = {
   brute:  { r: 23, hp: 115, speed: 40, dmg: 20, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
   reaper: { r: 18, hp: 175, speed: 62, dmg: 24, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
   hound:  { r: 13, hp: 70,  speed: 248, dmg: 14, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
+  guardian: { r: 32, hp: 900, speed: 36, dmg: 30, xp: 60, color: "#c9a3ff", shape: "boss", sprite: "guardian" },
   boss:   { r: 40, hp: 2100, speed: 44, dmg: 30, xp: 120, color: "#ff3b6b", shape: "boss", sprite: "boss", boss: true },
 };
 
@@ -747,14 +824,70 @@ function killEnemy(e, elem) {
   }
   spawnParticles(e.x, e.y, e.boss ? 40 : 8, e.type.color, e.boss ? 320 : 150, .6, e.boss ? 6 : 3.5);
   spawnGem(e.x, e.y, e.type.xp);
+  if (e.sigilKey) {
+    // 제단의 파수꾼 — 봉인을 지키던 자
+    lmState.set(e.sigilKey, "done");
+    e.sigilKey = null;
+    giveSigil(e.x, e.y);
+    givePickupItem(pick(CONSUMABLE_KEYS), e.x + 46, e.y);
+    cam.shake = 16;
+    Game.lmFlash = 3; Game.lmFlashText = "파수꾼을 쓰러뜨렸다";
+  }
   if (e.boss) {
     cam.shake = 16; Sfx.boss();
     spawnPickup(e.x, e.y, "vacuum");
     spawnPickup(e.x + 40, e.y, "heart");
+    giveSigil(e.x - 40, e.y);          // 보스도 징표를 준다 — 전직 경로가 하나뿐이면 막힌다
   } else if (Math.random() < .012) {
     spawnPickup(e.x, e.y, Math.random() < .75 ? "heart" : "vacuum");
   }
   Sfx.hit();
+}
+
+/* 지형지물에 닿았을 때 — 이동에 목적을 주는 지점 */
+function touchLandmark(lm) {
+  if (lm.type === "chest") {
+    lmState.set(lm.key, "done");
+    const key = pick(CONSUMABLE_KEYS);
+    givePickupItem(key, lm.x, lm.y);
+    spawnParticles(lm.x, lm.y, 26, "#e8c96a", 240, .8, 4);
+    Sfx.play(660, .25, "triangle", .8, 340);
+  } else if (lm.type === "shrine" && !lm.fighting) {
+    // 제단은 그냥 주는 게 아니라 지키는 자가 있다
+    lmState.set(lm.key, "fighting");
+    const g = Game.spawnEnemy("guardian", lm.x + rnd(-40, 40), lm.y + rnd(-40, 40));
+    if (g) { g.sigilKey = lm.key; g.maxHp = g.hp = g.hp * 1.2; }
+    for (let i = 0; i < 10; i++) {
+      const a = rnd(TAU);
+      Game.spawnEnemy(pick(Game.currentTypes()), lm.x + Math.cos(a) * 180, lm.y + Math.sin(a) * 180);
+    }
+    Game.lmFlash = 3; Game.lmFlashText = "봉인이 풀렸다 — 파수꾼을 쓰러뜨려라";
+    cam.shake = 14; Sfx.boss();
+  } else if (lm.type === "monolith") {
+    lmState.set(lm.key, "done");
+    // 이번 판 한정 영구 강화 — 찾아간 대가
+    const rolls = [
+      ["damage", .08, "모든 피해 +8%"],
+      ["area", .10, "공격 범위 +10%"],
+      ["speed", .07, "이동 속도 +7%"],
+      ["cooldown", -.07, "공격 쿨다운 -7%"],
+    ];
+    const r = pick(rolls);
+    player.monolith = player.monolith || {};
+    player.monolith[r[0]] = (player.monolith[r[0]] || 0) + r[1];
+    recomputeStats();
+    Game.lmFlash = 3; Game.lmFlashText = "고대 비석 — " + r[2];
+    spawnParticles(lm.x, lm.y, 30, "#8fd0ff", 260, .9, 4);
+    Sfx.play(300, .5, "triangle", .9, 500);
+  }
+}
+
+function givePickupItem(key, x, y) {
+  spawnPickup(x, y, "item:" + key);
+}
+
+function giveSigil(x, y) {
+  spawnPickup(x, y, "sigil");
 }
 
 /* ---------- 플레이어 ---------- */
@@ -769,6 +902,7 @@ const player = {
   base: { maxHp: 100, speed: 208 },
   // 직업 자원 · 조합 · 전용 특성
   res: 0, noHit: 0, combos: new Set(), mastered: new Set(), traits: [], advance: [],
+  items: [], sigils: 0, buffFury: 0, buffWard: 0,
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
   dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
@@ -809,6 +943,14 @@ function updateResource(dt) {
   if (R.decay) d -= R.decay;
   if (R.noHitPerSec && player.noHit > 1.6) d += R.noHitPerSec;
   if (d) player.res = clamp(player.res + d * dt, 0, RES_MAX);
+}
+
+function useItem() {
+  if (Game.state !== "playing" || !player.items.length) return;
+  const key = player.items.shift();
+  const C = CONSUMABLES[key];
+  C.use(player);
+  spawnNumber(player.x, player.y - 30, C.icon + " " + C.name, C.color, 18);
 }
 
 function useSkill() {
@@ -939,6 +1081,14 @@ function recomputeStats() {
     if (m.xpGain)   s.xpGain *= 1 + m.xpGain;
   }
   for (const p of player.passives) PASSIVES[p.key].apply(s, p.level);
+  // 고대 비석 — 이번 판 동안만 남는 보정
+  const M = player.monolith;
+  if (M) {
+    if (M.damage) s.damage *= 1 + M.damage;
+    if (M.area) s.area *= 1 + M.area;
+    if (M.speed) s.speed *= 1 + M.speed;
+    if (M.cooldown) s.cooldown *= 1 + M.cooldown;
+  }
   // 제단(영구 강화)은 마지막에 곱한다
   s.maxHp  *= 1 + .08 * Meta.lv("vigor");
   s.damage *= 1 + .05 * Meta.lv("edge");
@@ -1006,6 +1156,7 @@ function applyAdvanceEffects(p, dt, moving) {
 }
 
 function applyAdvance(a) {
+  player.sigils = Math.max(0, player.sigils - 1);   // 징표를 소비한다
   player.advance.push(a);
   recomputeStats();
   player.hp = Math.min(player.stats.maxHp, player.hp + (a.mods && a.mods.maxHp > 0 ? a.mods.maxHp : 0));
@@ -1034,6 +1185,7 @@ const Game = {
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
   usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0,
+  lmFlash: 0, lmFlashText: "", advancePending: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
@@ -1042,6 +1194,26 @@ const Game = {
     this.soulsEarned = Math.floor(this.kills / 8) + Math.floor(this.time / 10) + (this.state === "won" ? 150 : 0);
     Meta.souls += this.soulsEarned;
     Meta.save();
+  },
+
+  // 레벨과 징표가 모두 갖춰졌을 때만 전직 화면을 연다.
+  // 징표는 제단의 파수꾼이나 보스에게서 나오므로, 맵을 돌아다닐 이유가 된다.
+  checkAdvance() {
+    if (this.state === "advance" || this.state === "dead" || this.state === "won") return false;
+    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2]]) {
+      if (player.level < lv || player.advance.length >= tier) continue;
+      const opts = advanceOptions(tier);
+      if (!opts.length) continue;
+      if (player.sigils < 1) { this.advancePending = tier; return false; }
+      this.advancePending = 0;
+      this.choices = opts;
+      this.state = "advance";
+      this.hover = -1;
+      Sfx.levelup();
+      return true;
+    }
+    this.advancePending = 0;
+    return false;
   },
 
   reset() {
@@ -1056,6 +1228,9 @@ const Game = {
     player.carnage = 0; player.carnageTimer = 0; player.leechBudget = 0;
     player.dash = 0; player.dashHit.clear();
     player.traits.length = 0; player.advance.length = 0; this.advanceFlash = 0;
+    player.items.length = 0; player.sigils = 0; player.buffFury = 0; player.buffWard = 0;
+    player.monolith = null;
+    lmState.clear(); landmarks.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -1089,6 +1264,7 @@ const Game = {
     }
     if ((this.state === "dead" || this.state === "won") && (k === " " || k === "enter" || k === "r")) return this.reset();
     if (this.state === "playing" && (k === " " || k === "shift")) { useSkill(); return; }
+    if (this.state === "playing" && (k === "q" || k === "e")) { useItem(); return; }
     if (this.state === "playing" && (k === "escape" || k === "p")) { this.state = "paused"; return; }
     if (this.state === "paused" && (k === "escape" || k === "p")) { this.state = "playing"; return; }
     if (this.state === "levelup" || this.state === "advance") {
@@ -1105,19 +1281,8 @@ const Game = {
     // 곡선을 세워 한 판의 상한을 40대 초반으로 낮춘다 — 무엇을 포기할지 고르게 만드는 게 핵심이다.
     player.xpNext = Math.floor(5 + (player.level - 1) * 5.5 + Math.pow(player.level, 2) * .55);
     player.hp = Math.min(player.stats.maxHp, player.hp + 3);
-    // 전직 관문 — 여기서만은 무기·특성이 아니라 '앞으로 무엇이 될지'를 고른다
-    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2]]) {
-      if (player.level >= lv && player.advance.length < tier) {
-        const opts = advanceOptions(tier);
-        if (opts.length) {
-          this.choices = opts;
-          this.state = "advance";
-          this.hover = -1;
-          Sfx.levelup();
-          return;
-        }
-      }
-    }
+    // 전직 관문 — 레벨만으로는 열리지 않는다. 징표를 찾아와야 한다.
+    if (this.checkAdvance()) return;
     this.choices = this.rollChoices();
     this.state = "levelup";
     this.hover = -1;
@@ -1212,7 +1377,7 @@ const Game = {
     e.maxHp = e.hp = T.hp * (e.boss ? Math.max(1, d.hp * .7) : d.hp);
     e.spd = T.speed * d.spd * rnd(.92, 1.08);
     e.dmg = T.dmg * d.dmg;
-    e.flash = 0; e.wob = rnd(TAU); e.slow = 0; e.burn = 0; e.burnDps = 0;
+    e.flash = 0; e.wob = rnd(TAU); e.slow = 0; e.burn = 0; e.burnDps = 0; e.sigilKey = null;
     return e;
   },
 
@@ -1292,6 +1457,14 @@ function update(dt) {
   player.hurtFlash = Math.max(0, player.hurtFlash - dt);
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
   updateResource(dt);
+  // 지형지물 — 근처 칸만 실체화하고 닿으면 발동
+  updateLandmarks();
+  for (const lm of landmarks) {
+    const rr = lm.r + player.r + 6;
+    if (dist2(lm.x, lm.y, player.x, player.y) < rr * rr) touchLandmark(lm);
+  }
+  if (player.buffFury > 0) player.buffFury -= dt;
+  if (player.buffWard > 0) player.buffWard -= dt;
   // 흡혈은 초당 상한을 둬서 무한 회복이 되지 않게 한다
   player.leechBudget = Math.min(s.maxHp * .05, player.leechBudget + s.maxHp * .05 * dt);
   if (player.carnageTimer > 0) player.carnageTimer -= dt;
@@ -1320,6 +1493,8 @@ function update(dt) {
   }
   if (player.cls && player.cls.stance) player.cls.stance.update(player, dt, moving);
   if (player.advance.length) applyAdvanceEffects(player, dt, moving);
+  if (player.buffFury > 0) player.dynCd *= .4;      // 광란의 물약
+  if (player.buffWard > 0) player.dynArmor *= .4;   // 수호의 부적
 
   /* 3. 무기 */
   for (const w of player.weapons) {
@@ -1543,9 +1718,24 @@ function update(dt) {
         const heal = Math.round(s.maxHp * .3);
         player.hp = Math.min(s.maxHp, player.hp + heal);
         spawnNumber(player.x, player.y - 26, "+" + heal, "#5fe08a", 18);
-      } else {
+      } else if (pk.kind === "vacuum") {
         for (const g of gems) if (g.active) g.pulled = true;      // 화면의 모든 보석을 끌어옴
         spawnNumber(player.x, player.y - 26, "영혼 흡수!", "#9be7ff", 18);
+      } else if (pk.kind === "sigil") {
+        player.sigils++;
+        spawnNumber(player.x, player.y - 30, "🔯 전직의 징표!", "#ffd34d", 21);
+        Game.lmFlash = 3; Game.lmFlashText = "전직의 징표를 얻었다 (" + player.sigils + "개)";
+        Game.checkAdvance();
+      } else if (pk.kind.startsWith("item:")) {
+        const key = pk.kind.slice(5), C = CONSUMABLES[key];
+        if (player.items.length < MAX_ITEMS) {
+          player.items.push(key);
+          spawnNumber(player.x, player.y - 26, C.icon + " " + C.name, C.color, 17);
+        } else {
+          // 소지품이 가득 차 있으면 그 자리에서 쓴다 — 주웠는데 사라지면 억울하다
+          C.use(player);
+          spawnNumber(player.x, player.y - 26, C.icon + " 즉시 사용", C.color, 17);
+        }
       }
       Sfx.play(1046, .12, "sine", .8, 400);
     }
@@ -1617,12 +1807,12 @@ function drawBackground() {
     const sx = tx * T - cam.x, sy = ty * T - cam.y;
     ctx.fillStyle = (tx + ty) % 2 === 0 ? "#15152400" : "#1a1a2b40";
     ctx.fillRect(sx, sy, T, T);
-    if (h > .93) {          // 묘비
+    if (h > .965) {         // 묘비
       ctx.fillStyle = "#2b2b3d";
       const gx = sx + h * 40, gy = sy + hash2(ty, tx) * 40;
       ctx.fillRect(gx, gy, 14, 20);
       ctx.beginPath(); ctx.arc(gx + 7, gy, 7, Math.PI, 0); ctx.fill();
-    } else if (h > .86) {   // 풀
+    } else if (h > .915) {  // 풀
       ctx.strokeStyle = "#1f2a1f"; ctx.lineWidth = 2;
       const gx = sx + h * 60, gy = sy + hash2(ty * 3, tx) * 60;
       ctx.beginPath();
@@ -1904,11 +2094,70 @@ function drawWorld() {
     if (!pk.active) continue;
     const sx = pk.x - cam.x, sy = pk.y - cam.y + Math.sin(pk.bob) * 3;
     ctx.save();
-    ctx.globalAlpha = .3; ctx.fillStyle = pk.kind === "heart" ? "#ff5b7a" : "#7fd2ff";
-    ctx.beginPath(); ctx.arc(sx, sy, 22, 0, TAU); ctx.fill();
+    const isItem = pk.kind.startsWith("item:");
+    const C = isItem ? CONSUMABLES[pk.kind.slice(5)] : null;
+    const glow = pk.kind === "heart" ? "#ff5b7a" : pk.kind === "sigil" ? "#ffd34d"
+               : C ? C.color : "#7fd2ff";
+    ctx.globalAlpha = .3; ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(sx, sy, pk.kind === "sigil" ? 28 : 22, 0, TAU); ctx.fill();
     ctx.globalAlpha = 1;
-    ctx.font = "26px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(pk.kind === "heart" ? "🍗" : "🧲", sx, sy);
+    ctx.font = (pk.kind === "sigil" ? "30px " : "26px ") + FONT;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(pk.kind === "heart" ? "🍗" : pk.kind === "sigil" ? "🔯" : C ? C.icon : "🧲", sx, sy);
+    ctx.restore();
+  }
+
+  // 지형지물 — 적보다 아래에 깔린다
+  for (const lm of landmarks) {
+    const sx = lm.x - cam.x, sy = lm.y - cam.y;
+    if (sx < -80 || sx > W + 80 || sy < -80 || sy > H + 80) continue;
+    const pulse = .6 + Math.sin(Game.time * 2 + lm.x * .01) * .25;
+    ctx.save();
+    // 바닥 표식
+    ctx.globalAlpha = .22 * pulse;
+    ctx.fillStyle = lm.T.color;
+    ctx.beginPath(); ctx.ellipse(sx, sy + lm.r * .5, lm.r * 1.7, lm.r * .8, 0, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    if (lm.type === "chest") {
+      ctx.fillStyle = "#6b4a26";
+      ctx.fillRect(sx - 18, sy - 6, 36, 20);
+      ctx.fillStyle = "#8a6234";
+      ctx.beginPath(); ctx.arc(sx, sy - 6, 18, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = "#e8c96a";
+      ctx.fillRect(sx - 18, sy - 8, 36, 4);
+      ctx.fillRect(sx - 4, sy - 4, 8, 10);
+    } else if (lm.type === "shrine") {
+      ctx.fillStyle = "#4a4560";
+      ctx.fillRect(sx - 24, sy - 30, 8, 44);
+      ctx.fillRect(sx + 16, sy - 30, 8, 44);
+      ctx.fillRect(sx - 28, sy - 38, 56, 10);
+      // 봉인 문양
+      ctx.globalAlpha = lm.fighting ? .25 : .55 + Math.sin(Game.time * 3) * .25;
+      ctx.strokeStyle = "#c9a3ff"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(sx, sy - 10, 13, 0, TAU); ctx.stroke();
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = Game.time * .6 + i / 5 * TAU;
+        ctx.moveTo(sx, sy - 10);
+        ctx.lineTo(sx + Math.cos(a) * 13, sy - 10 + Math.sin(a) * 13);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = "#3f4a5c";
+      ctx.beginPath();
+      ctx.moveTo(sx - 14, sy + 14); ctx.lineTo(sx - 10, sy - 34);
+      ctx.lineTo(sx + 10, sy - 34); ctx.lineTo(sx + 14, sy + 14);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = .5 + Math.sin(Game.time * 2.2) * .3;
+      ctx.strokeStyle = "#8fd0ff"; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const yy = sy - 24 + i * 12;
+        ctx.beginPath(); ctx.moveTo(sx - 6, yy); ctx.lineTo(sx + 6, yy - 4); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
   }
 
@@ -3016,6 +3265,93 @@ function drawHUD() {
     }
   }
 
+  // 화면 밖 지형지물 방향 표시 — 어디로 갈지 모르면 돌아다닐 수 없다
+  for (const lm of landmarks) {
+    const sx = lm.x - cam.x, sy = lm.y - cam.y;
+    const m = 46;
+    if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
+    const d = Math.hypot(lm.x - player.x, lm.y - player.y);
+    if (d > 1500) continue;
+    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    const ang = Math.atan2(sy - player.sy, sx - player.sx);
+    ctx.save();
+    ctx.globalAlpha = clamp(1.4 - d / 1500, .3, .95);
+    ctx.translate(ax, ay);
+    ctx.rotate(ang);
+    ctx.fillStyle = lm.T.color;
+    ctx.beginPath();
+    ctx.moveTo(14, 0); ctx.lineTo(-6, -8); ctx.lineTo(-6, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.rotate(-ang);
+    ctx.font = "17px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(lm.T.icon, 0, -20);
+    ctx.font = "700 9px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
+    ctx.fillText(Math.round(d / 10) + "m", 0, 18);
+    ctx.restore();
+  }
+
+  // 소지품 (Q 로 사용)
+  {
+    const bw = 40, gap = 6;
+    const bx0 = W - 16 - (bw * MAX_ITEMS + gap * (MAX_ITEMS - 1));
+    for (let i = 0; i < MAX_ITEMS; i++) {
+      const bx = bx0 + i * (bw + gap), by = H - 54;
+      const key = player.items[i], C = key ? CONSUMABLES[key] : null;
+      ctx.fillStyle = C ? "rgba(24,22,38,.92)" : "rgba(10,10,20,.5)";
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, bw, 8); ctx.fill();
+      ctx.strokeStyle = C ? (i === 0 ? C.color : C.color + "66") : "rgba(255,255,255,.1)";
+      ctx.lineWidth = C && i === 0 ? 2 : 1; ctx.stroke();
+      if (C) {
+        ctx.font = "21px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(C.icon, bx + bw / 2, by + bw / 2);
+      }
+    }
+    ctx.font = "600 10px " + FONT; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillStyle = player.items.length ? "rgba(255,255,255,.6)" : "rgba(255,255,255,.25)";
+    ctx.fillText("Q 사용", W - 16, H - 66);
+    if (player.items.length) {
+      const C0 = CONSUMABLES[player.items[0]];
+      ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.fillText(C0.name, W - 16, H - 6);
+    }
+  }
+
+  // 징표 · 버프
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.font = "700 14px " + FONT;
+  ctx.fillStyle = player.sigils > 0 ? "#ffd34d" : "rgba(255,255,255,.28)";
+  ctx.fillText("🔯 " + player.sigils, W - 16, 68);
+  let by2 = 90;
+  if (player.buffFury > 0) {
+    ctx.font = "700 12px " + FONT; ctx.fillStyle = "#ff6b4a";
+    ctx.fillText("🧪 광란 " + player.buffFury.toFixed(1) + "s", W - 16, by2); by2 += 20;
+  }
+  if (player.buffWard > 0) {
+    ctx.font = "700 12px " + FONT; ctx.fillStyle = "#8fd0ff";
+    ctx.fillText("🔰 수호 " + player.buffWard.toFixed(1) + "s", W - 16, by2); by2 += 20;
+  }
+
+  // 전직 대기 — 레벨은 됐는데 징표가 없을 때
+  if (Game.advancePending) {
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const a = .65 + Math.sin(performance.now() / 320) * .3;
+    ctx.globalAlpha = a;
+    ctx.font = "800 17px " + FONT; ctx.fillStyle = "#ffd34d";
+    ctx.fillText("⛩️ 전직 가능 — 전직의 징표가 필요하다", W / 2, 74);
+    ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
+    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, 94);
+    ctx.globalAlpha = 1;
+  }
+
+  // 지형지물 알림
+  if (Game.lmFlash > 0 && !overlay) {
+    ctx.globalAlpha = Math.min(1, Game.lmFlash / 3 * 1.6);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "800 20px " + FONT; ctx.fillStyle = "#ffe9a8";
+    ctx.fillText(Game.lmFlashText, W / 2, 206);
+    ctx.globalAlpha = 1;
+  }
+
   // 능동 스킬
   if (player.cls) {
     const C = player.cls, ready = player.res >= curSkill().cost;
@@ -3087,7 +3423,7 @@ function drawHUD() {
     ctx.globalAlpha = clamp((8 - Game.time) / 3, 0, 1);
     ctx.textAlign = "center"; ctx.font = "600 15px " + FONT;
     ctx.fillStyle = "rgba(255,255,255,.75)";
-    ctx.fillText("WASD 이동  ·  공격은 자동  ·  SPACE 로 직업 스킬  ·  ESC 일시정지", W / 2, H - 100);
+    ctx.fillText("WASD 이동  ·  공격은 자동  ·  SPACE 직업 스킬  ·  Q 아이템  ·  맵의 🧰⛩️🗿 을 찾아라", W / 2, H - 100);
     ctx.globalAlpha = 1;
   }
 }
@@ -3578,6 +3914,7 @@ function frame(now) {
   if (Game.comboFlash > 0) Game.comboFlash = Math.max(0, Game.comboFlash - dt);
   if (Game.advanceFlash > 0) Game.advanceFlash = Math.max(0, Game.advanceFlash - dt);
   if (Game.houndWarn > 0) Game.houndWarn = Math.max(0, Game.houndWarn - dt);
+  if (Game.lmFlash > 0) Game.lmFlash = Math.max(0, Game.lmFlash - dt);
 
   acc += dt;
   let guard = 0;

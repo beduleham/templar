@@ -1892,7 +1892,7 @@ const Game = {
     return { hp: 1 + m * .85 + Math.pow(m, 2.4) * .021, spd: 1 + m * .045, dmg: 1 + m * .13 };
   },
   targetCount() {
-    return Math.min(440, Math.floor(34 + this.time / 60 * 26));
+    return Math.min(340, Math.floor(30 + this.time / 60 * 16));
   },
 
   spawnEnemy(typeKey, forceX, forceY, forceRank) {
@@ -1936,7 +1936,7 @@ const Game = {
     for (const e of enemies) if (e.active) alive++;
     const want = this.targetCount();
     if (alive < want) {
-      this.spawnAcc += dt * (10 + this.time / 60 * 6);
+      this.spawnAcc += dt * (9 + this.time / 60 * 4);
       while (this.spawnAcc >= 1 && alive < want) {
         this.spawnAcc -= 1; alive++;
         this.spawnEnemy(pick(this.currentTypes()));

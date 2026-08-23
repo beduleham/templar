@@ -1913,7 +1913,11 @@ const Game = {
     e.rank = rank;
     e.xp = T.xp;                 // 개체별 값 — 분열체 자식처럼 깎이는 경우가 있다
     e.r = T.r * rank.r;
-    e.maxHp = e.hp = T.hp * rank.hp * (e.boss ? Math.max(1, d.hp * .7) : d.hp);
+    // 보스는 기본 체력이 이미 크다(3,200~9,000). 시간 배수를 그대로 곱하면 두 번 커져서
+    // 5분 보스가 20,000 이 되고, 레벨 12짜리 화력으로는 시간 안에 못 잡는다.
+    // 실측: 물량을 고친 뒤에도 성기사 외 세 직업이 5:05 전후에 몰려 죽었다(= 보스 등장 시각).
+    // 지수를 씌워 후반 보스는 여전히 커지되 초반 보스가 벽이 되지 않게 한다.
+    e.maxHp = e.hp = T.hp * rank.hp * (e.boss ? Math.max(1, Math.pow(d.hp, .72)) : d.hp);
     e.spd = T.speed * d.spd * rnd(.92, 1.08) * (rank === RANKS.rare ? .92 : 1);
     e.dmg = T.dmg * rank.dmg * d.dmg;
     e.t1 = rnd(.4, 1.6); e.state = 0; e.gen = 0; e.hasteT = 0; e.phase = 0;

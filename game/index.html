@@ -394,25 +394,27 @@ const Sprites = {
 /* ---------- 몬스터 등급 ----------
    같은 종류라도 등급이 다르면 다른 상대가 된다.
    화면에서 즉시 구분되어야 하므로 크기·테두리·이름표를 함께 바꾼다. */
+const SHRINE_MIN_LEVEL = 8;
+
 const RANKS = {
   common: { key: "common", name: "",     hp: 1,    dmg: 1,    xp: 1,  r: 1,    ring: null,      drop: 0 },
-  elite:  { key: "elite",  name: "정예", hp: 5.5,  dmg: 1.45, xp: 7,  r: 1.24, ring: "#ffd34d", drop: .35 },
-  rare:   { key: "rare",   name: "희귀", hp: 15,   dmg: 1.9,  xp: 20, r: 1.5,  ring: "#c9a3ff", drop: 1 },
+  elite:  { key: "elite",  name: "정예", hp: 5.5,  dmg: 1.45, xp: 4,  r: 1.24, ring: "#ffd34d", drop: .35 },
+  rare:   { key: "rare",   name: "희귀", hp: 15,   dmg: 1.9,  xp: 10,  r: 1.5,  ring: "#c9a3ff", drop: 1 },
 };
 
 // 등급 추첨 — 시간이 갈수록 상위 등급이 섞인다
 function rollRank(t) {
   const m = t / 60;
-  if (m >= 6 && Math.random() < Math.min(.09, (m - 6) * .012)) return RANKS.rare;
-  if (m >= 2 && Math.random() < Math.min(.24, (m - 2) * .022)) return RANKS.elite;
+  if (m >= 4 && Math.random() < Math.min(.10, (m - 4) * .013)) return RANKS.rare;
+  if (m >= 1 && Math.random() < Math.min(.26, (m - 1) * .024)) return RANKS.elite;
   return RANKS.common;
 }
 
 const ENEMY_TYPES = {
-  bat:    { r: 11, hp: 7,   speed: 84, dmg: 6,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
-  slime:  { r: 15, hp: 16,  speed: 50, dmg: 8,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
-  ghost:  { r: 13, hp: 22,  speed: 70, dmg: 10, xp: 2,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
-  zombie: { r: 16, hp: 38,  speed: 46, dmg: 13, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
+  bat:    { r: 11, hp: 10,  speed: 88, dmg: 7,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
+  slime:  { r: 15, hp: 24,  speed: 54, dmg: 9,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
+  ghost:  { r: 13, hp: 32,  speed: 74, dmg: 11, xp: 2,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
+  zombie: { r: 16, hp: 52,  speed: 48, dmg: 14, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
   brute:  { r: 23, hp: 115, speed: 40, dmg: 20, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
   reaper: { r: 18, hp: 175, speed: 62, dmg: 24, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
   hound:  { r: 13, hp: 70,  speed: 248, dmg: 14, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
@@ -426,7 +428,7 @@ const ENEMY_TYPES = {
         if (e.t1 <= 0) {
           e.t1 = 2.1;
           const a = Math.atan2(player.y - e.y, player.x - e.x);
-          spawnEShot(e.x, e.y, Math.cos(a) * 230, Math.sin(a) * 230, e.dmg * .8, "#7ad0b0");
+          spawnEShot(e.x, e.y, Math.cos(a) * 230, Math.sin(a) * 230, e.dmg * .6, "#7ad0b0");
         }
         return d > 300;          // 너무 붙으면 물러선다
       }
@@ -462,8 +464,8 @@ const ENEMY_TYPES = {
     // 분열체: 죽으면 갈라진다. 광역이 좋다가도 갑자기 수가 불어난다
     onDeath(e) {
       if (e.gen >= 2) return;
-      for (let i = 0; i < 3; i++) {
-        const a = i / 3 * TAU;
+      for (let i = 0; i < 2; i++) {
+        const a = i / 2 * TAU;
         const c = Game.spawnEnemy("splitter", e.x + Math.cos(a) * 26, e.y + Math.sin(a) * 26, e.rank);
         if (c) {
           c.gen = e.gen + 1;
@@ -506,7 +508,7 @@ const ENEMY_TYPES = {
 
   shield: { r: 20, hp: 110, speed: 38, dmg: 18, xp: 6, color: "#8a9ab0", shape: "humanoid", sprite: "shield",
     shieldHp: 260 },
-  guardian: { r: 32, hp: 900, speed: 36, dmg: 30, xp: 60, color: "#c9a3ff", shape: "boss", sprite: "guardian" },
+  guardian: { r: 32, hp: 900, speed: 36, dmg: 26, xp: 60, color: "#c9a3ff", shape: "boss", sprite: "guardian" },
   /* ── 보스 3종 — 스탯만 큰 적이 아니라 각자 다른 문제를 낸다 ── */
   boss1: { r: 42, hp: 3200, speed: 42, dmg: 34, xp: 140, color: "#8ac94a", shape: "boss", sprite: "boss1",
     boss: true, title: "역병 군주", bossStyle: "plague",
@@ -601,11 +603,11 @@ const BOSS_ORDER = ["boss1", "boss2", "boss3"];
 // 분(minute)마다 등장하는 적 구성
 const SPAWN_TABLE = [
   { t: 0,   types: ["bat"] },
-  { t: 55,  types: ["bat", "slime"] },
-  { t: 110, types: ["bat", "slime", "splitter"] },
-  { t: 170, types: ["slime", "ghost", "splitter"] },
-  { t: 230, types: ["ghost", "zombie", "archer"] },
-  { t: 290, types: ["zombie", "archer", "bomber"] },
+  { t: 30,  types: ["bat", "slime"] },
+  { t: 70,  types: ["bat", "slime", "splitter"] },
+  { t: 115, types: ["slime", "ghost", "splitter"] },
+  { t: 165, types: ["ghost", "zombie", "splitter"] },
+  { t: 205, types: ["zombie", "archer", "bomber"] },
   { t: 350, types: ["zombie", "bomber", "charger"] },
   { t: 410, types: ["brute", "charger", "archer"] },
   { t: 470, types: ["brute", "shield", "bomber"] },
@@ -1206,10 +1208,18 @@ function touchLandmark(lm) {
     spawnParticles(lm.x, lm.y, 26, "#e8c96a", 240, .8, 4);
     Sfx.play(660, .25, "triangle", .8, 340);
   } else if (lm.type === "shrine" && !lm.fighting) {
+    // 봉인은 아직 준비되지 않은 자에게 열리지 않는다.
+    // 파수꾼은 접촉 피해만으로 1레벨 물몸을 두 대에 죽인다 — 시작 5초에 밟아 죽는 건 '선택'이 아니다.
+    if (player.level < SHRINE_MIN_LEVEL) {
+      Game.lmFlash = 2.2;
+      Game.lmFlashText = "봉인이 너무 단단하다 — 레벨 " + SHRINE_MIN_LEVEL + " 이상 필요";
+      return;
+    }
     // 제단은 그냥 주는 게 아니라 지키는 자가 있다
     lmState.set(lm.key, "fighting");
     const g = Game.spawnEnemy("guardian", lm.x + rnd(-40, 40), lm.y + rnd(-40, 40));
-    if (g) { g.sigilKey = lm.key; g.maxHp = g.hp = g.hp * 1.2; }
+    // 첫 제단이 가장 무르고, 뒤로 갈수록 단단해진다 (전직 단계와 보조를 맞춘다)
+    if (g) { g.sigilKey = lm.key; g.maxHp = g.hp = g.hp * (1 + .55 * Game.shrinesOpened); Game.shrinesOpened++; }
     for (let i = 0; i < 10; i++) {
       const a = rnd(TAU);
       Game.spawnEnemy(pick(Game.currentTypes()), lm.x + Math.cos(a) * 180, lm.y + Math.sin(a) * 180);
@@ -1651,7 +1661,7 @@ const Game = {
     player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
     player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0;
+    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.shrinesOpened = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -1696,15 +1706,27 @@ const Game = {
 
   /* --- 레벨업 --- */
   levelUp() {
-    player.level++;
-    player.xp -= player.xpNext;
-    // 15분에 레벨 70 이 나오면 무기·패시브가 전부 최대치가 되어 아무것도 플레이어에게 닿지 못한다.
-    // 곡선을 세워 한 판의 상한을 40대 초반으로 낮춘다 — 무엇을 포기할지 고르게 만드는 게 핵심이다.
-    player.xpNext = Math.floor(5 + (player.level - 1) * 5.5 + Math.pow(player.level, 2) * .55);
-    player.hp = Math.min(player.stats.maxHp, player.hp + 3);
-    // 전직 관문 — 레벨만으로는 열리지 않는다. 징표를 찾아와야 한다.
-    if (this.checkAdvance()) return;
-    this.choices = this.rollChoices();
+    // 한 번의 호출로 여러 레벨이 올라갈 수 있다. 고를 게 없는 레벨은 화면을 띄우지 않고
+    // 조용히 넘긴다 — 안 그러면 후반에 회복 카드만 뜨는 창이 끝없이 이어져 게임이 멈춘 것처럼 보인다.
+    for (let guard = 0; guard < 400; guard++) {
+      player.level++;
+      player.xp -= player.xpNext;
+      // 2차 곡선만으로는 후반을 못 막는다 — 15분에 30만 마리를 잡으면 경험치가 수백만이 들어와
+      // 레벨이 300을 넘어가고 모든 무기·패시브가 최대치가 된다(= 고를 게 없어진다).
+      // 25레벨까지는 기존 페이스를 그대로 두고, 그 뒤부터 등비로 꺾어 한 판을 50~70에 묶는다.
+      const tail = Math.pow(1.12, Math.max(0, player.level - 25));
+      player.xpNext = Math.floor((5 + (player.level - 1) * 5.5 + Math.pow(player.level, 2) * .55) * tail);
+      player.hp = Math.min(player.stats.maxHp, player.hp + 3);
+      // 전직 관문 — 레벨만으로는 열리지 않는다. 징표를 찾아와야 한다.
+      if (this.checkAdvance()) return;
+      this.choices = this.rollChoices();
+      // 고를 게 남아 있으면 여기서 멈추고 선택 화면을 띄운다
+      if (!this.choices.every(c => c.type === "heal")) break;
+      // 전부 회복 카드 = 더 배울 게 없다. 회복만 주고 넘어간다.
+      player.hp = Math.min(player.stats.maxHp, player.hp + 40);
+      spawnNumber(player.x, player.y - 30, "Lv" + player.level, "#ffe37a", 17);
+      if (player.xp < player.xpNext) return;
+    }
     this.state = "levelup";
     this.hover = -1;
     Sfx.levelup();
@@ -1775,10 +1797,10 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * .82 + Math.pow(m, 2.6) * .036, spd: 1 + m * .045, dmg: 1 + m * .36 };
+    return { hp: 1 + m * .95 + Math.pow(m, 2.4) * .022, spd: 1 + m * .05, dmg: 1 + m * .3 };
   },
   targetCount() {
-    return Math.min(440, Math.floor(30 + this.time / 60 * 28));
+    return Math.min(440, Math.floor(38 + this.time / 60 * 28));
   },
 
   spawnEnemy(typeKey, forceX, forceY, forceRank) {
@@ -1789,7 +1811,7 @@ const Game = {
     if (forceX !== undefined) { x = forceX; y = forceY; }
     else {
       // 화면 바깥 링에서 스폰 (플레이어가 보는 곳에서 튀어나오지 않게)
-      const a = rnd(TAU), rad = rnd(760, 900);
+      const a = rnd(TAU), rad = rnd(720, 830);
       x = player.x + Math.cos(a) * rad;
       y = player.y + Math.sin(a) * rad;
     }
@@ -1821,17 +1843,17 @@ const Game = {
     for (const e of enemies) if (e.active) alive++;
     const want = this.targetCount();
     if (alive < want) {
-      this.spawnAcc += dt * (8 + this.time / 60 * 6);
+      this.spawnAcc += dt * (10 + this.time / 60 * 6);
       while (this.spawnAcc >= 1 && alive < want) {
         this.spawnAcc -= 1; alive++;
         this.spawnEnemy(pick(this.currentTypes()));
       }
     } else this.spawnAcc = 0;
 
-    // 7분 이후 45초마다 사냥개 무리 — 플레이어보다 빨라서 계속 도망만 칠 수 없다
+    // 3분 이후 30초마다 사냥개 무리(8마리 → 최대 22마리) — 플레이어보다 빨라서 계속 도망만 칠 수 없다
     const ht = Math.floor(this.time), pht = Math.floor(this.time - dt);
-    if (ht !== pht && this.time >= 240 && ht % 32 === 0) {
-      const a = rnd(TAU), n = 8 + Math.floor((this.time - 240) / 55);
+    if (ht !== pht && this.time >= 190 && ht % 30 === 0) {
+      const a = rnd(TAU), n = 8 + Math.floor((this.time - 190) / 50);
       for (let i = 0; i < n; i++) {
         const aa = a + rnd(-.7, .7), rad = rnd(820, 980);
         this.spawnEnemy("hound", player.x + Math.cos(aa) * rad, player.y + Math.sin(aa) * rad);
@@ -2123,7 +2145,10 @@ function update(dt) {
       if (dist2(e.x, e.y, player.x, player.y) < rr * rr) { count++; if (e.dmg > worst) worst = e.dmg; }
     }
     if (count > 0) {
-      const crowd = Math.min(4.2, 1 + .34 * (count - 1));
+      // 포위 위협은 90초에 걸쳐 서서히 켠다. 시작 직후엔 무기 레벨이 0이라
+      // 4.2배를 그대로 받으면 체력이 낮은 직업이 20초 안에 죽는다.
+      const ramp = Math.min(1, Game.time / 90);
+      const crowd = Math.min(4.2, 1 + .34 * (count - 1) * ramp);
       hurtPlayer(worst * crowd, count > 2 ? " ×" + count : "");
       if (Game.state === "dead") return;
     }
@@ -2246,8 +2271,10 @@ function hurtPlayer(raw, tag) {
   const base = raw * player.stats.armor;
   const reduced = base * player.dynArmor;      // 방벽 등 자세로 줄인 값
   // 한 대에 풀피가 날아가면 대응할 기회 없이 억울하게 죽는다.
-  // 최대 체력의 45% 로 상한을 둬서 풀피에서는 항상 최소 두 대를 버틴다.
-  let dmg = Math.min(reduced, player.stats.maxHp * .45);
+  // 최대 체력의 28% 로 상한을 둬서 풀피에서 최소 네 대를 버틴다.
+  // 45% 로 뒀더니 체력 80 인 추적자만 파수꾼 접촉 두 대(=60)에 무너졌다.
+  // 위협은 '한 대'가 아니라 '계속 맞는 것'에서 나와야 한다.
+  let dmg = Math.min(reduced, player.stats.maxHp * .28);
   const blocked = base - reduced;
   // 3차 각성의 방패 — 한 대를 통째로 무시한다
   if (player.shieldOn > 0) {
@@ -2820,6 +2847,13 @@ function drawWorld() {
       }
       ctx.stroke();
       ctx.globalAlpha = 1;
+      // 아직 못 여는 제단이면 미리 알려준다 — 닿고 나서야 알면 헛걸음이 된다
+      if (!lm.fighting && player.level < SHRINE_MIN_LEVEL) {
+        ctx.font = "bold 12px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#c9a3ff";
+        ctx.fillText("🔒 Lv" + SHRINE_MIN_LEVEL, sx, sy - 48);
+      }
     } else {
       ctx.fillStyle = "#3f4a5c";
       ctx.beginPath();
@@ -3372,7 +3406,7 @@ const CLASSES = [
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
     desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
-    mods: { maxHp: -25, damage: .2, area: .1, xpGain: .2, speed: -.15 },
+    mods: { maxHp: -20, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
     stanceName: "영창",
     stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",

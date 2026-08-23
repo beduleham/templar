@@ -1676,7 +1676,7 @@ const Game = {
     player.monolith = null;
     lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.shrinesOpened = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
-    player.channel = 0; player.meltTimer = 0;
+    player.channel = 0; player.meltTimer = 0; player.frostVeil = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
     this.comboFlash = 0; resetCombos(); this.slowmo = 0; this.whiteFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
@@ -1944,7 +1944,7 @@ function update(dt) {
   for (const e of enemies) if (e.active) hash.insert(e);
 
   /* 2-b. 직업 자세 · 전직 효과 — 매 프레임 다시 계산되는 배수 */
-  player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
+  player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1; player.frostVeil = 0;
   player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
   player.dynCrit = 0; player.dynCritMul = 2; player.dynProjSpeed = 1;
   player.dynHoming = 0; player.dynBurnAmp = 1;
@@ -2177,7 +2177,15 @@ function update(dt) {
     if (!p.active) continue;
     p.life -= dt;
     if (p.life <= 0) { p.active = false; continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt;
+    // 서리 장막 — 영창 2단계부터 날아오는 탄도 얼어붙는다.
+    // 사수는 430px 밖에서 쏘는데 영창의 냉기는 160px 까지밖에 안 닿는다.
+    // 즉 마법사의 유일한 방어 수단이 자기 천적에게는 원리상 닿지 않았다.
+    // 계측하면 마법사가 받는 피해의 대부분이 적 탄이었다 — 멈춰 있는 자세를 벌하는 게
+    // 설계 의도지만, 대응할 방법이 아예 없으면 그건 벌이 아니라 사고다.
+    let veil = 1;
+    if (player.frostVeil > 0 && dist2(p.x, p.y, player.x, player.y) < player.frostVeil * player.frostVeil)
+      veil = .45;
+    p.x += p.vx * veil * dt; p.y += p.vy * veil * dt;
     const rr = p.r + player.r;
     if (dist2(p.x, p.y, player.x, player.y) < rr * rr) {
       p.active = false;
@@ -3457,6 +3465,7 @@ const CLASSES = [
         // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨
         // 마법사가 다시 한 대도 안 맞게 된다(측정으로 확인). 그래서 미는 대신 얼린다 —
         // 적은 늦게 올 뿐 반드시 도착한다. 마법사의 속성이 냉기라 테마도 맞는다.
+        p.frostVeil = st >= 2 ? (95 + 34 * st) * p.stats.area : 0;
         if (st > 0) {
           const R = (75 + 28 * st) * p.stats.area;
           const found = hash.query(p.x, p.y, R, scratch3);

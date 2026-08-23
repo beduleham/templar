@@ -3506,14 +3506,24 @@ const CLASSES = [
     resource: { name: "신앙", color: "#ffd36e", onHurt: 26, perSec: 2.2, hint: "피격 시 충전" },
     skill: {
       name: "심판의 빛", icon: "🌟", cost: 60,
-      desc: "주변을 정화하는 폭발. 잠시 무적이 된다.",
+      desc: "바라보는 방향으로 빛의 창을 내지른다. 잠시 무적이 된다.",
+      // 사방 폭발이면 방향을 고를 이유가 없어 '어디를 보고 있는가'가 무의미해진다.
+      // 성기사는 방패를 앞세워 밀고 들어가는 직업이므로, 넓이 대신 길이를 준다.
+      // 발밑 반경 300 원형 → 전방으로 뻗는 좁고 긴 빛(사거리 520).
       use(p) {
-        spawnWave({ x: p.x, y: p.y, maxR: 300 * p.stats.area,
-          dmg: 130 * p.stats.damage + p.level * 15, life: .5,
-          color: "#ffd9a0", element: "holy" });
+        const base = Math.atan2(p.faceY, p.faceX);
+        const dmg = 150 * p.stats.damage + p.level * 18;
+        for (let i = -1; i <= 1; i++)
+          spawnSlash(p, base + i * .19, dmg, 520 * p.stats.area, 1.8, "holy");
+        // 발밑은 밀어내는 정도만 남긴다
+        spawnWave({ x: p.x, y: p.y, maxR: 120 * p.stats.area,
+          dmg: dmg * .4, life: .35, color: "#ffd9a0", element: "holy" });
         p.iframe = Math.max(p.iframe, 1.6);
         cam.shake = 14;
-        spawnParticles(p.x, p.y, 40, "#ffe9b8", 340, .8, 5);
+        for (let i = 0; i < 26; i++) {
+          const a = base + rnd(-.3, .3), d = rnd(60, 480);
+          spawnParticles(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 2, "#ffe9b8", 200, .5, 4);
+        }
         Sfx.play(320, .5, "triangle", 1, 620);
       },
     },
@@ -3611,9 +3621,11 @@ const CLASSES = [
         // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨
         // 마법사가 다시 한 대도 안 맞게 된다(측정으로 확인). 그래서 미는 대신 얼린다 —
         // 적은 늦게 올 뿐 반드시 도착한다. 마법사의 속성이 냉기라 테마도 맞는다.
-        p.frostVeil = st >= 2 ? (95 + 34 * st) * p.stats.area : 0;
+        // 사방 효과는 반경이 곧 넓이의 제곱이라 조금만 키워도 화면을 덮는다.
+        // 마법사는 '초반에 약한 대신 키우면 강한' 직업이므로 기본 반경을 절반 이하로 줄인다.
+        p.frostVeil = st >= 2 ? (42 + 15 * st) * p.stats.area : 0;
         if (st > 0) {
-          const R = (75 + 28 * st) * p.stats.area;
+          const R = (34 + 12 * st) * p.stats.area;
           const found = hash.query(p.x, p.y, R, scratch3);
           for (let i = 0; i < found.length; i++) {
             const e = found[i];
@@ -4324,14 +4336,14 @@ const ADVANCES = [
     mods: { damage: 1.2, area: .5, cooldown: -.34, maxHp: 500 },
     stanceMod: { alwaysMaxChannel: true, maxStageBonus: 3, elemAmpAll: .5, channelHeal: .02 },
     skill: skWave("천체 붕괴", "☄️", 46, "하늘이 무너져 화면 전체를 삼킨다.",
-      { r: 900, dmg: 1000, perLv: 62, elem: "arcane", color: "#b9c8ff", iframe: 3, healPct: .5, shake: 26 }) },
+      { r: 420, dmg: 1000, perLv: 62, elem: "arcane", color: "#b9c8ff", iframe: 3, healPct: .5, shake: 26 }) },
   { key: "frostsov", from: "mage", tier: 4, name: "서리의 지배자", icon: "❄️", color: "#a8e8ff",
     tagline: "모든 것이 멈춘다",
     desc: "주변이 얼어붙고, 얼어붙은 적에게 주는 피해가 크게 오른다.",
     mods: { damage: .95, area: .7, maxHp: 700, cooldown: -.24 },
     stanceMod: { alwaysMaxChannel: true, frostAmp: 2.4, elemAmpAll: .3, slowAll: .5 },
     skill: skWave("절대 영도", "🧊", 44, "모든 것을 얼려붙이고 산산이 부순다.",
-      { r: 840, dmg: 880, perLv: 54, elem: "frost", color: "#a8e8ff", iframe: 3, healPct: .4, shake: 22 }) },
+      { r: 390, dmg: 880, perLv: 54, elem: "frost", color: "#a8e8ff", iframe: 3, healPct: .4, shake: 22 }) },
   { key: "starcaller", from: "mage", tier: 4, name: "별을 부르는 자", icon: "✨", color: "#ffd9a8",
     tagline: "하늘이 답한다",
     desc: "쉬지 않고 별이 떨어진다. 쿨다운이 극단적으로 짧아진다.",

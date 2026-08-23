@@ -2385,13 +2385,13 @@ const CLASSES = [
         }
         const st = Math.floor(p.channel);
         const effSt = Math.min(st, 3) + Math.max(0, st - 3) * .45;   // 4단계부터 체감 감소
-        p.dynDmg *= 1 + .35 * effSt + .2 * traitLv("overchannel") * (st >= maxStage ? 1 : 0);
+        p.dynDmg *= 1 + .26 * effSt + .18 * traitLv("overchannel") * (st >= maxStage ? 1 : 0);
         if (advVal("channelHeal", 0) && st > 0)
           p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * advVal("channelHeal", 0) * st * dt);
-        p.dynCd *= Math.max(.4, 1 - .14 * effSt);
+        p.dynCd *= Math.max(.58, 1 - .09 * effSt);   // 피해와 연사를 동시에 몰아주면 곱셈이 폭주한다
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
-        p.dynMagnet *= 1 + Math.min(4.5, 1.5 * st);   // 화면 전체를 빨아들이지 않도록 상한
+        p.dynMagnet *= 1 + Math.min(2.4, .8 * st);   // 흡인이 세면 레벨이 다른 직업의 두 배가 된다
 
         // 적이 수백 마리인 판에서 '주변에 적이 없을 때'를 기다리면 영창은 영영 못 쓴다.
         // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨
@@ -2473,8 +2473,8 @@ const ADVANCES = [
   { key: "elementalist", from: "mage", tier: 1, name: "원소술사", icon: "🌈", color: "#8fd0ff",
     tagline: "네 원소를 한 손에",
     desc: "영창 최대 단계가 하나 늘고, 속성 피해가 증폭된다. 불꽃 파도를 얻는다.",
-    mods: { damage: .18, area: .12 },
-    stanceMod: { maxStageBonus: 1, elemAmp: .3 },
+    mods: { damage: .12, area: .12 },
+    stanceMod: { maxStageBonus: 1, elemAmp: .16 },
     grant: "flame",
     skill: skStrike("원소 강림", "🌠", 50, "적들에게 원소를 내리꽂는다.",
       { n: 5, dmg: 120, elem: "storm", color: "#8fd0ff", splash: 110 }),
@@ -2512,8 +2512,8 @@ const ADVANCES = [
   { key: "archmage", from: "elementalist", tier: 2, name: "대마법사", icon: "🔮", color: "#b39dff",
     tagline: "한 걸음도 물러서지 않는다",
     desc: "영창 최대 단계 +2. 최대 단계에서 모든 발사체가 관통한다. 화력의 정점.",
-    mods: { damage: .4, area: .18 },
-    stanceMod: { maxStageBonus: 2, pierceAtMax: 3, elemAmp: .45 },
+    mods: { damage: .24, area: .18 },
+    stanceMod: { maxStageBonus: 2, pierceAtMax: 3, elemAmp: .24 },
     skill: skStrike("메테오", "☄️", 60, "하늘에서 운석이 쏟아진다.",
       { n: 9, dmg: 200, perLv: 20, elem: "fire", color: "#ff8a3c", splash: 150 }),
     traits: [

@@ -1810,10 +1810,10 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * .95 + Math.pow(m, 2.4) * .022, spd: 1 + m * .05, dmg: 1 + m * .3 };
+    return { hp: 1 + m * .95 + Math.pow(m, 2.4) * .030, spd: 1 + m * .055, dmg: 1 + m * .40 };
   },
   targetCount() {
-    return Math.min(440, Math.floor(38 + this.time / 60 * 28));
+    return Math.min(440, Math.floor(38 + this.time / 60 * 32));
   },
 
   spawnEnemy(typeKey, forceX, forceY, forceRank) {

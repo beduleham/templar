@@ -840,7 +840,7 @@ const Game = {
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0,
-  usedRebirth: false, soulsEarned: 0, houndWarn: 0,
+  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
@@ -920,7 +920,27 @@ const Game = {
   },
 
   rollChoices() {
-    const weaponPool = [], passivePool = [], traitPool = [];
+    // 직업 전용 특성을 일반 카드와 같은 슬롯에서 경쟁시키면, 특성이 있는 직업만
+    // 무기 강화를 덜 받아 화력이 뒤처진다(측정으로 확인). 그래서 트랙을 분리한다 —
+    // 3레벨마다 한 번은 특성만 나오는 판이고, 나머지는 무기·능력만 나온다.
+    const list = (player.cls && TRAITS[player.cls.key]) || [];
+    const traitPool = [];
+    for (const t of list) {
+      const lv = traitLv(t.key);
+      if (lv < t.max) traitPool.push({ type: "trait", key: t.key, level: lv + 1, isNew: lv === 0 });
+    }
+    const take = arr => arr.length ? arr.splice(Math.floor(rnd(arr.length)), 1)[0] : null;
+
+    if (player.level % 3 === 0 && traitPool.length) {
+      this.traitPick = true;
+      const out = [];
+      while (out.length < 3 && traitPool.length) out.push(take(traitPool));
+      while (out.length < 3) out.push({ type: "heal" });
+      return out;
+    }
+    this.traitPick = false;
+
+    const weaponPool = [], passivePool = [];
     for (const key in WEAPONS) {
       const owned = player.weapons.find(w => w.key === key);
       if (owned) { if (owned.level < MAX_LEVEL) weaponPool.push({ type: "weapon", key, level: owned.level + 1 }); }
@@ -931,26 +951,15 @@ const Game = {
       if (owned) { if (owned.level < MAX_LEVEL) passivePool.push({ type: "passive", key, level: owned.level + 1 }); }
       else if (player.passives.length < MAX_PASSIVES) passivePool.push({ type: "passive", key, level: 1, isNew: true });
     }
-    // 직업 전용 특성 — 이 직업으로만 뽑을 수 있다
-    const list = (player.cls && TRAITS[player.cls.key]) || [];
-    for (const t of list) {
-      const lv = traitLv(t.key);
-      if (lv < t.max) traitPool.push({ type: "trait", key: t.key, level: lv + 1, isNew: lv === 0 });
-    }
 
     const out = [];
-    const take = arr => arr.length ? arr.splice(Math.floor(rnd(arr.length)), 1)[0] : null;
-    // 1) 화력이 고사하지 않도록 무기를 최소 1개 보장
+    // 화력이 고사하지 않도록 무기를 최소 1개 보장
     if (weaponPool.length) out.push(take(weaponPool));
-    // 2) 직업 정체성이 매 판 드러나도록 전용 특성을 최소 1개 보장
-    if (traitPool.length) out.push(take(traitPool));
-    // 3) 나머지는 셋을 섞어서
-    const rest = weaponPool.concat(passivePool, traitPool);
+    const rest = weaponPool.concat(passivePool);
     while (out.length < 3 && rest.length) {
       const c = take(rest);
       if (c && !out.includes(c)) out.push(c);
     }
-    // 더 뽑을 게 없으면 회복 옵션으로 채운다
     while (out.length < 3) out.push({ type: "heal" });
     return out;
   },
@@ -1831,13 +1840,13 @@ const TRAITS = {
   paladin: [
     { key: "bulwark", name: "강철 방벽", icon: "🛡️", max: 3,
       desc: "방벽이 더 빨리 서고, 더 많이 막고, 더 많이 회복한다.",
-      detail: l => "전개 " + (.6 - .15 * l).toFixed(2) + "초 · 피해 감소 " + Math.round((.5 + .08 * l) * 100) + "%~ · 초당 회복 " + ((.012 + .005 * l) * 100).toFixed(1) + "%~" },
+      detail: l => "전개 " + (.6 - .15 * l).toFixed(2) + "초 · 피해 감소 " + Math.round((.52 + .08 * l) * 100) + "%~ · 초당 회복 " + ((.015 + .005 * l) * 100).toFixed(1) + "%~" },
     { key: "taunt", name: "도발", icon: "📢", max: 2,
       desc: "방벽을 세우면 주변의 적이 끌려온다. 더 둘러싸일수록 강해진다.",
       detail: l => "흡인력 " + l + "단계" },
     { key: "crusade", name: "성전", icon: "✝️", max: 3,
       desc: "곁에 붙은 적 하나마다 피해가 오른다.",
-      detail: l => "적 1마리당 피해 +" + (5 + 2 * l) + "%" },
+      detail: l => "적 1마리당 피해 +" + (6 + 2.5 * l) + "%" },
     { key: "thorns", name: "가시 갑옷", icon: "🌵", max: 3,
       desc: "방벽으로 막은 피해를 주변의 적에게 되돌린다.",
       detail: l => "반사 " + (40 * l) + "%" },
@@ -1924,11 +1933,11 @@ const CLASSES = [
     key: "paladin", name: "성기사", icon: "🛡️", color: "#ffd36e",
     tagline: "멈춰 서서 파고든다",
     start: "aura",
-    desc: "군중 한가운데로 파고들어 버티는 직업. 느리지만 둘러싸일수록 강해진다.",
-    mods: { maxHp: 40, speed: -.08, armor: .12, regen: .4 },
+    desc: "군중 한가운데로 파고들어 버티는 직업. 체력이 압도적으로 높고 느리다.",
+    mods: { maxHp: 150, speed: -.08, armor: .12, regen: .4 },
     // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
     stanceName: "진영",
-    stanceHint: "멈추면 방벽 · 곁의 적이 많을수록 피해도 방어도 회복도 오른다",
+    stanceHint: "멈추면 방벽(방어·회복·연사) · 곁의 적이 많을수록 피해 증가",
     stance: {
       update(p, dt, moving) {
         const bl = traitLv("bulwark");
@@ -1945,15 +1954,18 @@ const CLASSES = [
           if (e.active && dist2(e.x, e.y, p.x, p.y) < R * R) n++;
         }
         p.press = Math.min(14, n);
-        p.dynDmg *= 1 + (.05 + .02 * traitLv("crusade")) * p.press;
+        p.dynDmg *= 1 + (.06 + .025 * traitLv("crusade")) * p.press;
 
         if (on) {
           // 방패벽은 밀집할수록 더 잘 막는다. '둘러싸일수록 강해진다'는 규칙이
           // 피해에만 걸리고 방어에는 안 걸리면, 파고들라는 설계가 그냥 자살 명령이 된다.
-          p.dynArmor *= 1 - Math.min(.8, .5 + .08 * bl + .016 * p.press);
+          p.dynArmor *= 1 - Math.min(.88, .52 + .08 * bl + .02 * p.press);
+          // 접전 보너스는 적이 몰려야 나오므로 초반엔 사실상 0이다.
+          // 방벽 자체에 쿨다운 감소를 붙여 '자리를 지키면 꾸준히 때린다'는 기본값을 준다.
+          p.dynCd *= .72;
           // 자리를 지키면 체력이 돌아온다 — 파고들기 → 버티기 → 회복의 리듬
           p.hp = Math.min(p.stats.maxHp,
-            p.hp + p.stats.maxHp * (.012 + .005 * bl + .0013 * p.press) * dt);
+            p.hp + p.stats.maxHp * (.015 + .005 * bl + .0018 * p.press) * dt);
           // 도발: 방벽 중에는 적을 끌어당긴다 — 더 둘러싸일수록 이득이라는 규칙과 맞물린다
           const tl = traitLv("taunt");
           if (tl > 0) {
@@ -2063,7 +2075,7 @@ const CLASSES = [
     mods: { maxHp: -25, damage: .2, area: .1, xpGain: .2 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
     stanceName: "영창",
-    stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·경험치 흡인이 함께 오른다",
+    stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",
     stance: {
       update(p, dt, moving) {
         const maxStage = 3 + traitLv("deepMana");
@@ -2079,7 +2091,21 @@ const CLASSES = [
         p.dynCd *= Math.max(.28, 1 - .18 * st);
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
-        p.dynMagnet *= 1 + .7 * st;
+        p.dynMagnet *= 1 + 1.9 * st;
+
+        // 적이 수백 마리인 판에서 '주변에 적이 없을 때'를 기다리면 영창은 영영 못 쓴다.
+        // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨
+        // 마법사가 다시 한 대도 안 맞게 된다(측정으로 확인). 그래서 미는 대신 얼린다 —
+        // 적은 늦게 올 뿐 반드시 도착한다. 마법사의 속성이 냉기라 테마도 맞는다.
+        if (st > 0) {
+          const R = (90 + 40 * st) * p.stats.area;
+          const found = hash.query(p.x, p.y, R, scratch3);
+          for (let i = 0; i < found.length; i++) {
+            const e = found[i];
+            if (!e.active) continue;
+            if (dist2(e.x, e.y, p.x, p.y) < R * R) e.slow = Math.max(e.slow, .3);
+          }
+        }
         // 비전 과부하: 깊게 영창하면 발사체가 더 꿰뚫는다
         if (st >= 3) p.dynPierce += 2 * traitLv("overload");
 
@@ -2523,10 +2549,13 @@ function drawAltar() {
 function drawLevelUp() {
   ctx.fillStyle = "rgba(6,6,14,.78)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "800 42px " + FONT; ctx.fillStyle = "#ffd34d";
-  ctx.fillText("LEVEL UP!", W / 2, 108);
+  const tp = Game.traitPick && player.cls;
+  ctx.font = "800 42px " + FONT;
+  ctx.fillStyle = tp ? player.cls.color : "#ffd34d";
+  ctx.fillText(tp ? player.cls.name + " 특성" : "LEVEL UP!", W / 2, 108);
   ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText("레벨 " + player.level + " · 하나를 선택하세요", W / 2, 142);
+  ctx.fillText(tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
+                  : "레벨 " + player.level + " · 하나를 선택하세요", W / 2, 142);
 
   const cw = 300, ch = 300, gap = 26;
   const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = 190;

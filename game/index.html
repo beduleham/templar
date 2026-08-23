@@ -3424,7 +3424,7 @@ const CLASSES = [
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
     desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
-    mods: { maxHp: -20, damage: .2, area: .1, xpGain: .2, speed: -.15 },
+    mods: { maxHp: -8, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
     stanceName: "영창",
     stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",
@@ -3463,7 +3463,8 @@ const CLASSES = [
           for (let i = 0; i < found.length; i++) {
             const e = found[i];
             if (!e.active) continue;
-            if (dist2(e.x, e.y, p.x, p.y) < R * R) e.slow = Math.max(e.slow, .3);
+            // 0.3 은 '조금 느려질 뿐'이라 자리를 벌어주지 못했다 — 영창이 성립하려면 실제로 붙잡아야 한다
+            if (dist2(e.x, e.y, p.x, p.y) < R * R) e.slow = Math.max(e.slow, .3 + .08 * st);
           }
         }
         // 비전 과부하: 깊게 영창하면 발사체가 더 꿰뚫는다

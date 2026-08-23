@@ -686,10 +686,11 @@ const COMBOS = [
 const WEAPONS = {
   dagger: {
     name: "투척 단검", icon: "🗡️", element: "physical", desc: "가장 가까운 적에게 단검을 던진다. 관통.",
-    cd: [1.0, .9, .82, .75, .68, .62, .56, .5],
-    dmg: [12, 16, 21, 27, 35, 45, 58, 74],
+    cd: [1.15, 1.05, .95, .85, .74, .64, .55, .46],
+    dmg: [8, 12, 17, 25, 36, 51, 71, 98],
     count: [1, 1, 2, 2, 3, 3, 4, 5],
-    pierce: [1, 1, 1, 2, 2, 2, 3, 3],
+    pierce: [1, 1, 1, 2, 2, 3, 3, 4],
+    size: [5, 6, 7, 8, 10, 12, 15, 19],
     fire(p, w) {
       const n = this.count[w.level - 1], dmg = this.dmg[w.level - 1] * p.stats.damage;
       const targets = nearestEnemies(p.x, p.y, 900, n);
@@ -701,7 +702,7 @@ const WEAPONS = {
         const sp = 520 * p.stats.projSpeed;
         spawnProjectile({
           x: p.x, y: p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-          r: 7 * p.stats.area, dmg, pierce: this.pierce[w.level - 1], life: 1.6,
+          r: this.size[w.level - 1] * p.stats.area, dmg, pierce: this.pierce[w.level - 1], life: 1.6,
           kind: "dagger", angle: ang, color: "#ffe9a8", element: "physical",
         });
       }
@@ -711,9 +712,9 @@ const WEAPONS = {
 
   aura: {
     name: "성역", icon: "✨", element: "holy", desc: "몸 주위에 신성한 결계를 둘러 접근한 적을 태운다.",
-    cd: [.55, .5, .46, .42, .38, .34, .3, .26],
-    dmg: [9, 12, 16, 21, 27, 35, 45, 58],
-    radius: [78, 90, 102, 114, 128, 142, 158, 176],
+    cd: [.62, .57, .52, .47, .42, .37, .32, .27],
+    dmg: [6, 9, 13, 18, 26, 36, 50, 70],
+    radius: [54, 60, 68, 79, 93, 111, 134, 164],
     fire(p, w) {
       const R = this.radius[w.level - 1] * p.stats.area;
       const dmg = this.dmg[w.level - 1] * p.stats.damage;
@@ -747,9 +748,10 @@ const WEAPONS = {
 
   whip: {
     name: "쇠사슬 플레일", icon: "⛓️", element: "physical", desc: "바라보는 방향으로 넓게 후려친다.",
-    cd: [1.25, 1.15, 1.05, .95, .88, .8, .72, .65],
-    dmg: [22, 30, 39, 51, 66, 85, 110, 142],
+    cd: [1.4, 1.3, 1.2, 1.08, .96, .85, .74, .62],
+    dmg: [15, 21, 30, 42, 59, 82, 114, 158],
     count: [1, 1, 2, 2, 2, 3, 3, 4],
+    len: [92, 102, 115, 132, 155, 185, 222, 268],
     fire(p, w) {
       // 전직: 검성의 이중 참격 / 마검성의 무한의 검
       const extra = (advVal("doubleSlash", false) ? 1 : 0) + traitLv("endlessBlade");
@@ -758,7 +760,7 @@ const WEAPONS = {
       for (let i = 0; i < n; i++) {
         // 앞 → 뒤 → 앞위 → 뒤아래 순으로 부채꼴을 추가
         const ang = base + (i % 2 === 1 ? Math.PI : 0) + (i >= 2 ? (i % 2 ? .5 : -.5) : 0);
-        spawnSlash(p, ang, dmg, 150 * p.stats.area, .9, "physical");
+        spawnSlash(p, ang, dmg, this.len[w.level - 1] * p.stats.area, .9, "physical");
       }
       Sfx.shoot();
     },
@@ -825,9 +827,9 @@ const WEAPONS = {
   orbit: {
     name: "수호 성서", icon: "📖", element: "holy", desc: "몸 주위를 도는 성서가 닿는 적을 친다.",
     cd: [0, 0, 0, 0, 0, 0, 0, 0],           // 항시 발동 (update에서 처리)
-    dmg: [17, 23, 30, 39, 51, 66, 86, 111],
-    count: [2, 2, 3, 3, 4, 4, 5, 6],
-    radius: [86, 92, 98, 104, 112, 120, 128, 138],
+    dmg: [16, 23, 33, 47, 67, 95, 135, 192],
+    count: [2, 2, 3, 4, 4, 5, 6, 8],
+    radius: [56, 62, 70, 80, 93, 109, 128, 152],
     passiveUpdate(p, w, dt) {
       w.angle = (w.angle || 0) + dt * 2.4;
       // 전직: 야수 조련사 — 궤도가 늘어난다
@@ -877,9 +879,11 @@ const WEAPONS = {
 
   flame: {
     name: "불꽃 파도", icon: "🔥", element: "fire", desc: "바라보는 방향으로 화염을 뿜어 화상을 입힌다.",
-    cd: [1.4, 1.3, 1.2, 1.1, 1.0, .92, .84, .75],
-    dmg: [14, 19, 25, 33, 43, 56, 73, 94],
-    count: [4, 5, 6, 7, 8, 9, 11, 13],
+    cd: [1.55, 1.44, 1.32, 1.2, 1.07, .95, .84, .72],
+    dmg: [9, 13, 18, 25, 35, 49, 68, 95],
+    count: [3, 4, 5, 6, 8, 10, 12, 15],
+    reach: [.62, .7, .78, .88, 1.0, 1.14, 1.3, 1.5],   // 뿜는 거리
+    size: [.7, .78, .86, .95, 1.05, 1.18, 1.34, 1.55],
     fire(p, w) {
       const n = this.count[w.level - 1], dmg = this.dmg[w.level - 1] * p.stats.damage;
       const base = Math.atan2(p.faceY, p.faceX);
@@ -888,7 +892,8 @@ const WEAPONS = {
         const sp = rnd(230, 340) * p.stats.projSpeed;
         spawnProjectile({
           x: p.x, y: p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-          r: rnd(9, 15) * p.stats.area, dmg, pierce: 3, life: rnd(.45, .7),
+          r: rnd(9, 15) * this.size[w.level - 1] * p.stats.area, dmg, pierce: 3,
+          life: rnd(.45, .7) * this.reach[w.level - 1],
           kind: "flame", angle: ang, color: "#ff9a3c", element: "fire",
         });
       }
@@ -898,9 +903,9 @@ const WEAPONS = {
 
   scythe: {
     name: "피의 낫", icon: "🩸", element: "blood", desc: "사방으로 피의 파동을 퍼뜨린다. 적중 시 체력을 조금 회복.",
-    cd: [2.4, 2.2, 2.0, 1.85, 1.7, 1.55, 1.4, 1.25],
-    dmg: [30, 40, 53, 69, 90, 117, 152, 197],
-    radius: [180, 200, 220, 245, 270, 300, 330, 365],
+    cd: [2.6, 2.4, 2.2, 2.0, 1.82, 1.64, 1.46, 1.28],
+    dmg: [20, 28, 39, 55, 77, 108, 152, 214],
+    radius: [92, 106, 124, 146, 174, 208, 250, 300],
     fire(p, w) {
       spawnWave({
         x: p.x, y: p.y, maxR: this.radius[w.level - 1] * p.stats.area,
@@ -3644,7 +3649,8 @@ const CLASSES = [
           p.meltTimer -= dt;
           if (p.meltTimer <= 0) {
             p.meltTimer = 1.8 - .3 * ml;
-            spawnWave({ x: p.x, y: p.y, maxR: 240 * p.stats.area,
+            // 반경 240 고정이면 특성을 키워도 체감이 없다 — 단계에 묶는다
+            spawnWave({ x: p.x, y: p.y, maxR: (104 + 46 * ml) * p.stats.area,
               dmg: (60 + p.level * 9) * p.stats.damage * p.dynDmg, life: .4,
               color: "#bcd0ff", element: "frost" });
             Sfx.play(420, .25, "triangle", .7, 300);

@@ -2071,8 +2071,8 @@ const CLASSES = [
     key: "mage", name: "마법사", icon: "🔮", color: "#9bb8ff",
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
-    desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 매우 약하다.",
-    mods: { maxHp: -25, damage: .2, area: .1, xpGain: .2 },
+    desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
+    mods: { maxHp: -25, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
     stanceName: "영창",
     stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",
@@ -2087,11 +2087,11 @@ const CLASSES = [
           p.channel = Math.min(maxStage, p.channel + dt * rate);
         }
         const st = Math.floor(p.channel);
-        p.dynDmg *= 1 + .5 * st;
-        p.dynCd *= Math.max(.28, 1 - .18 * st);
+        p.dynDmg *= 1 + .35 * st;
+        p.dynCd *= Math.max(.4, 1 - .14 * st);
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
-        p.dynMagnet *= 1 + 1.0 * st;
+        p.dynMagnet *= 1 + 1.5 * st;
 
         // 적이 수백 마리인 판에서 '주변에 적이 없을 때'를 기다리면 영창은 영영 못 쓴다.
         // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨

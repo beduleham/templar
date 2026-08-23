@@ -764,20 +764,29 @@ const WEAPONS = {
     },
   },
 
+  /* 마법 계열(마법 화살 · 천벌의 번개)은 '늦게 피는' 곡선을 쓴다.
+     다른 무기는 레벨마다 1.3배씩 고르게 오르는데, 그러면 숫자만 커지고
+     체감은 1레벨이나 8레벨이나 같다. 마법사는 키운 만큼 달라져야 하는 직업이라
+     탄 크기 · 관통 · 발 수까지 레벨에 묶어 후반에 비약하게 만든다.
+     대신 1~3레벨은 다른 무기보다 확실히 약하다 — 그게 대가다. */
   orb: {
-    name: "마법 화살", icon: "🔮", element: "frost", desc: "적을 스스로 쫓아가는 마력탄.",
-    cd: [1.8, 1.65, 1.5, 1.35, 1.2, 1.1, 1.0, .9],
-    dmg: [26, 34, 45, 59, 77, 100, 130, 168],
+    name: "마법 화살", icon: "🔮", element: "frost", desc: "적을 쫓는 마력탄. 키울수록 커지고 꿰뚫는다.",
+    cd: [2.1, 1.95, 1.8, 1.6, 1.35, 1.15, .95, .78],
+    dmg: [16, 22, 30, 42, 60, 86, 124, 178],
     count: [1, 1, 1, 2, 2, 3, 3, 4],
+    size: [8, 9, 10, 12, 15, 19, 24, 30],          // 탄이 눈에 띄게 커진다
+    pierce: [1, 1, 1, 1, 2, 2, 3, 4],
     fire(p, w) {
-      const n = this.count[w.level - 1], dmg = this.dmg[w.level - 1] * p.stats.damage;
+      const L = w.level - 1;
+      const n = this.count[L], dmg = this.dmg[L] * p.stats.damage;
       const targets = nearestEnemies(p.x, p.y, 1200, n);
       for (let i = 0; i < n; i++) {
         const ang = rnd(TAU), sp = 240 * p.stats.projSpeed;
         spawnProjectile({
           x: p.x, y: p.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-          r: 11 * p.stats.area, dmg, pierce: 1, life: 4,
-          kind: "orb", angle: ang, color: "#9be7ff", element: "frost", homing: 6.5, target: targets[i] || targets[0] || null,
+          r: this.size[L] * p.stats.area, dmg, pierce: this.pierce[L], life: 4,
+          kind: "orb", angle: ang, color: "#9be7ff", element: "frost",
+          homing: 6.5 + L * .9, target: targets[i] || targets[0] || null,
         });
       }
       Sfx.shoot();
@@ -786,23 +795,26 @@ const WEAPONS = {
 
   bolt: {
     name: "천벌의 번개", icon: "⚡", element: "storm", desc: "무작위 적에게 번개를 내리친다. 주변에도 피해.",
-    cd: [3.2, 2.95, 2.7, 2.45, 2.2, 2.0, 1.8, 1.6],
-    dmg: [58, 76, 100, 131, 171, 223, 290, 376],
-    count: [1, 2, 2, 3, 4, 5, 6, 8],
+    cd: [3.8, 3.5, 3.2, 2.85, 2.45, 2.05, 1.65, 1.3],
+    dmg: [34, 46, 62, 86, 120, 170, 240, 330],
+    count: [1, 1, 2, 2, 3, 4, 5, 7],
+    splash: [36, 40, 45, 52, 62, 74, 88, 105],     // 반경은 넓이가 제곱으로 붙으므로 완만하게
     fire(p, w) {
-      const n = this.count[w.level - 1], dmg = this.dmg[w.level - 1] * p.stats.damage;
+      const L = w.level - 1;
+      const n = this.count[L], dmg = this.dmg[L] * p.stats.damage;
       const pool = nearestEnemies(p.x, p.y, 700, n * 3);
       if (!pool.length) return;
+      const R = this.splash[L] * p.stats.area;
       for (let i = 0; i < n; i++) {
         const e = pool[Math.floor(rnd(pool.length))];
         if (!e || !e.active) continue;
         damageEnemy(e, dmg, e.x, e.y - 60, 0, "storm");
         spawnBolt(e.x, e.y);
-        // 낙뢰 지점 주변 스플래시
-        const near = hash.query(e.x, e.y, 55 * p.stats.area, scratch2);
+        // 낙뢰 지점 주변 스플래시 — 반경이 레벨에 따라 커진다
+        const near = hash.query(e.x, e.y, R, scratch2);
         for (let j = 0; j < near.length; j++) {
           const o = near[j];
-          if (o !== e && o.active && dist2(o.x, o.y, e.x, e.y) < 3025 * p.stats.area * p.stats.area)
+          if (o !== e && o.active && dist2(o.x, o.y, e.x, e.y) < R * R)
             damageEnemy(o, dmg * .45, e.x, e.y, 60, "storm");
         }
       }

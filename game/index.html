@@ -3633,17 +3633,21 @@ const CLASSES = [
     skill: {
       name: "비전 폭발", icon: "✳️", cost: 55,
       desc: "주변의 적들에게 유도 마력탄을 쏟아붓는다.",
+      // 다른 직업 스킬은 단발(파동)이나 경로 판정인데 이것만 '탄 14발 × 관통 2' 였다.
+      // 실질 타격 수가 30~40배라 1레벨부터 과했다.
+      // 발 수와 관통을 레벨에 묶어, 처음엔 약하고 키울수록 강해지게 바꾼다.
       use(p) {
-        const targets = nearestEnemies(p.x, p.y, 900, 14);
-        const n = Math.max(10, targets.length);
+        const n = clamp(6 + Math.floor(p.level / 4), 6, 16);
+        const pierce = p.level >= 20 ? 2 : 1;
+        const targets = nearestEnemies(p.x, p.y, 900, n);
         for (let i = 0; i < n; i++) {
           const t = targets[i % Math.max(1, targets.length)];
           const a = t ? Math.atan2(t.y - p.y, t.x - p.x) + rnd(-.2, .2) : rnd(TAU);
           const sp = 330 * p.stats.projSpeed;
           spawnProjectile({
             x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-            r: 12 * p.stats.area, dmg: 75 * p.stats.damage + p.level * 10,
-            pierce: 2, life: 2.2, kind: "orb", angle: a,
+            r: 12 * p.stats.area, dmg: 38 * p.stats.damage + p.level * 9,
+            pierce, life: 2.2, kind: "orb", angle: a,
             color: "#bcd0ff", element: "frost", homing: 8, target: t || null,
           });
         }

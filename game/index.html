@@ -1804,7 +1804,7 @@ const Game = {
       // 레벨당 최대 체력이 오르므로 여기서 다시 계산한다.
       // 오른 만큼은 그대로 채워준다 — 레벨업이 곧 한 숨 돌릴 여유가 되게.
       recomputeStats();
-      player.hp = Math.min(player.stats.maxHp, player.hp + 3);
+      player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * .06);
       // 전직 관문 — 레벨만으로는 열리지 않는다. 징표를 찾아와야 한다.
       if (this.checkAdvance()) return;
       this.choices = this.rollChoices();
@@ -1889,7 +1889,7 @@ const Game = {
     // 전직을 시간 관문(3:45 · 7:30 · 11:15)으로 옮기면서 플레이어의 힘이 크게 뒤로 밀렸는데
     // 적 곡선은 '1분대에 1차 전직을 마친 플레이어' 기준 그대로였다.
     // 그래서 계단을 옮겨도 벽은 따라 움직이기만 했다(3:36 → 4:35). 곡선 자체를 낮춘다.
-    return { hp: 1 + m * .85 + Math.pow(m, 2.4) * .021, spd: 1 + m * .045, dmg: 1 + m * .18 };
+    return { hp: 1 + m * .85 + Math.pow(m, 2.4) * .021, spd: 1 + m * .045, dmg: 1 + m * .13 };
   },
   targetCount() {
     return Math.min(440, Math.floor(34 + this.time / 60 * 26));

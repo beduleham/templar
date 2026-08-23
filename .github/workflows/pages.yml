@@ -1,7 +1,15 @@
-# GitHub Pages 배포.
-# game/index.html 하나만 있으면 되는 게임이라 빌드 단계가 없다.
-# 다만 그 파일은 아티팩트로 올리려고 <!doctype> 없이 <meta> 부터 시작하므로,
-# 정식 페이지로 서빙할 때는 doctype 을 앞에 붙여 표준 모드로 렌더되게 한다.
+# 게임을 GitHub Pages 에 올린다.
+#
+# 이 저장소는 이미 ign8t 랜딩 페이지를 gh-pages 브랜치 루트로 서비스 중이다.
+# 그래서 두 가지를 지켜야 한다.
+#   1. actions/configure-pages 방식은 쓰지 않는다.
+#      이 저장소에서 이미 'Resource not accessible by integration' 으로 실패했고
+#      (deploy-pages.yml 의 이력에 남아 있다) 내가 같은 방식으로 다시 실패했다.
+#      검증된 peaceiris/actions-gh-pages 를 쓴다.
+#   2. gh-pages 루트를 덮으면 기존 랜딩 페이지가 지워진다.
+#      destination_dir 로 game/ 하위에만 올리고 keep_files 로 나머지를 보존한다.
+#
+# 결과 주소: https://beduleham.github.io/templar/game/
 name: Deploy game to GitHub Pages
 
 on:
@@ -14,11 +22,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# 배포는 한 번에 하나만. 진행 중인 게 있으면 최신 것으로 대체한다.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -26,26 +31,27 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
       - name: 사이트 구성
+        # game/index.html 은 아티팩트로 올리려고 <!doctype> 없이 <meta> 부터
+        # 시작한다. 그대로 서빙하면 quirks 모드로 렌더되므로 doctype 을 붙인다.
         run: |
           mkdir -p _site
           {
             printf '<!doctype html>\n'
             cat game/index.html
           } > _site/index.html
-          # 링크를 받은 사람이 어떤 주소로 들어와도 게임이 뜨게 한다
           cp _site/index.html _site/404.html
+          touch _site/.nojekyll
           ls -la _site
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: gh-pages 의 game/ 하위로 배포
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: _site
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          destination_dir: game
+          keep_files: true
+          commit_message: "deploy game: ${{ github.sha }}"

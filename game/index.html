@@ -280,6 +280,79 @@ function updateLandmarks() {
   }
 }
 
+/* ---------- 지형: 벽과 바위 ----------
+   길을 막는 것이 있어야 '어디로 갈지'가 판단이 된다.
+   충돌은 전부 원으로 처리한다 — 사각형은 모서리에 끼는 문제가 생기고,
+   적 수백 마리를 밀어내야 하므로 값이 싸야 한다. */
+const OBS_CELL = 265;
+const obsState = new Map();      // "cx,cy" -> "gone" | { hp, max }
+const obstacles = [];
+
+function updateObstacles() {
+  obstacles.length = 0;
+  const cx0 = Math.floor(player.x / OBS_CELL), cy0 = Math.floor(player.y / OBS_CELL);
+  for (let cx = cx0 - 4; cx <= cx0 + 4; cx++) {
+    for (let cy = cy0 - 4; cy <= cy0 + 4; cy++) {
+      const h = hash2(cx * 3 + 911, cy * 7 + 733);
+      if (h < .63) continue;
+      const key = cx + "," + cy;
+      const st0 = obsState.get(key);
+      if (st0 === "gone") continue;
+      const x = cx * OBS_CELL + OBS_CELL * (.2 + hash2(cx + 5, cy + 17) * .6);
+      const y = cy * OBS_CELL + OBS_CELL * (.2 + hash2(cx + 17, cy + 5) * .6);
+      if (Math.abs(x) < 260 && Math.abs(y) < 260) continue;          // 시작 지점은 비워둔다
+      let blocked = false;                                           // 지형지물을 막지 않는다
+      for (const lm of landmarks) if (dist2(lm.x, lm.y, x, y) < 130 * 130) { blocked = true; break; }
+      if (blocked) continue;
+      const wall = h > .915;
+      const r = wall ? 30 + hash2(cx, cy) * 18 : 15 + hash2(cy, cx) * 11;
+      let st = st0;
+      if (!st) {
+        const mx = wall ? Infinity : Math.round(200 + Game.time * 1.6);
+        st = { hp: mx, max: mx };
+        obsState.set(key, st);
+      }
+      obstacles.push({ key, wall, x, y, r, st, seed: h });
+    }
+  }
+}
+
+// 원 밀어내기 — 플레이어와 적 모두 같은 함수를 쓴다
+function pushOutOfObstacles(ent, radius) {
+  for (let i = 0; i < obstacles.length; i++) {
+    const o = obstacles[i];
+    let dx = ent.x - o.x, dy = ent.y - o.y;
+    const min = o.r + radius;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= min * min) continue;
+    // 정확히 중심에 겹치면 방향이 정해지지 않는다 — 임의 방향으로 밀어낸다.
+    // (지형이 엔티티 위에서 생성되면 실제로 발생한다)
+    if (d2 < .01) {
+      const a = (o.x + o.y) % TAU;
+      ent.x = o.x + Math.cos(a) * min;
+      ent.y = o.y + Math.sin(a) * min;
+      continue;
+    }
+    const d = Math.sqrt(d2);
+    const push = (min - d) / d;
+    ent.x += dx * push; ent.y += dy * push;
+  }
+}
+
+// 부술 수 있는 바위만 피해를 받는다
+function damageObstacle(o, dmg) {
+  if (o.wall) return false;
+  o.st.hp -= dmg;
+  spawnParticles(o.x, o.y, 2, "#8a8a9a", 90, .3, 2.5);
+  if (o.st.hp > 0) return false;
+  obsState.set(o.key, "gone");
+  spawnParticles(o.x, o.y, 18, "#9a9aaa", 220, .7, 4);
+  spawnGem(o.x, o.y, 3);
+  if (Math.random() < .22) givePickupItem(pick(CONSUMABLE_KEYS), o.x, o.y);
+  Sfx.throttled("rock", 90, () => Sfx.play(160, .18, "square", .5, -80));
+  return true;
+}
+
 /* ---------- 스프라이트 레이어 ----------
    지금은 이미지 에셋이 하나도 없어서 전부 도형으로 그린다.
    나중에 아틀라스 1장 + 프레임 정의만 넣으면 그림만 갈아끼울 수 있도록,
@@ -618,12 +691,28 @@ function alloc(pool) {
   return null;               // 풀이 가득 차면 스폰을 건너뛴다 (프레임 드랍 방지)
 }
 
+/* 놓치면 안 되는 것(경험치·징표)은 풀이 가득 찼다고 사라지면 안 된다.
+   빈 칸이 없으면 플레이어에게서 가장 먼 것을 밀어내고 그 칸을 쓴다.
+   keep(o) 가 true 인 항목은 절대 밀어내지 않는다. */
+function allocEvict(pool, keep) {
+  const free = alloc(pool);
+  if (free) return free;
+  let far = null, farD = -1;
+  for (let i = 0; i < pool.length; i++) {
+    const o = pool[i];
+    if (keep && keep(o)) continue;
+    const d = dist2(o.x, o.y, player.x, player.y);
+    if (d > farD) { farD = d; far = o; }
+  }
+  return far;
+}
+
 const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0 }));
 const projectiles= makePool(320, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 6, dmg: 0, pierce: 1, life: 0, kind: "", angle: 0, color: "#fff", homing: 0, target: null, hitIds: new Set(), spin: 0, element: "physical", maxLife: 1, retarget: 0 }));
 const slashes    = makePool(24,  () => ({ x: 0, y: 0, ang: 0, len: 0, life: 0, maxLife: 0, dmg: 0, hitIds: new Set(), element: "physical" }));
 const waves      = makePool(40,  () => ({ x: 0, y: 0, r: 0, maxR: 0, life: 0, maxLife: 1, dmg: 0, color: "#fff", element: "physical", heal: 0, hitIds: new Set() }));
 const gems       = makePool(700, () => ({ x: 0, y: 0, vx: 0, vy: 0, value: 1, tier: 0, pulled: false, bob: 0 }));
-const pickups    = makePool(24,  () => ({ x: 0, y: 0, kind: "heart", bob: 0 }));
+const pickups    = makePool(72,  () => ({ x: 0, y: 0, kind: "heart", bob: 0 }));
 const particles  = makePool(500, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, r: 3, color: "#fff", drag: .92 }));
 const numbers    = makePool(120, () => ({ x: 0, y: 0, vy: 0, life: 0, text: "", color: "#fff", size: 14 }));
 const bolts      = makePool(24,  () => ({ x: 0, y: 0, life: 0, seed: 0 }));
@@ -680,14 +769,26 @@ function spawnNumber(x, y, text, color, size = 14) {
   n.text = text; n.color = color; n.size = size;
 }
 function spawnGem(x, y, value) {
-  const g = alloc(gems); if (!g) return;
+  let g = alloc(gems);
+  if (!g) {
+    // 풀이 가득 차면 가장 먼(사실상 못 줍는) 보석을 재활용한다.
+    // 그냥 버리면 후반에 "처치해도 경험치가 안 나온다"가 된다.
+    g = allocEvict(gems, null);
+    if (!g) return;
+    value += g.value;                    // 총량은 보존한다
+  }
   g.active = true; g.x = x; g.y = y;
   const a = rnd(TAU); g.vx = Math.cos(a) * 60; g.vy = Math.sin(a) * 60;
   g.value = value; g.tier = value >= 40 ? 2 : value >= 8 ? 1 : 0;
   g.pulled = false; g.bob = rnd(TAU);
 }
 function spawnPickup(x, y, kind) {
-  const p = alloc(pickups); if (!p) return;
+  // 징표와 소모품은 진행에 직결되므로, 자리가 없으면 회복/자석을 밀어내고라도 놓는다.
+  const critical = kind === "sigil" || kind.startsWith("item:");
+  const p = critical
+    ? allocEvict(pickups, o => o.kind === "sigil")
+    : alloc(pickups);
+  if (!p) return;
   p.active = true; p.x = x; p.y = y; p.kind = kind; p.bob = rnd(TAU);
 }
 
@@ -1230,7 +1331,7 @@ const Game = {
     player.traits.length = 0; player.advance.length = 0; this.advanceFlash = 0;
     player.items.length = 0; player.sigils = 0; player.buffFury = 0; player.buffWard = 0;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0;
+    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -1459,6 +1560,8 @@ function update(dt) {
   updateResource(dt);
   // 지형지물 — 근처 칸만 실체화하고 닿으면 발동
   updateLandmarks();
+  updateObstacles();
+  pushOutOfObstacles(player, player.r);
   for (const lm of landmarks) {
     const rr = lm.r + player.r + 6;
     if (dist2(lm.x, lm.y, player.x, player.y) < rr * rr) touchLandmark(lm);
@@ -1533,6 +1636,19 @@ function update(dt) {
     if (p.kind === "dagger") p.angle = Math.atan2(p.vy, p.vx);
     else p.angle += p.spin * dt;
 
+    // 바위는 부술 수 있다 — 벽은 그대로 남는다
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (o.wall) continue;
+      const rr = p.r + o.r;
+      if (dist2(p.x, p.y, o.x, o.y) < rr * rr) {
+        damageObstacle(o, p.dmg * .8);
+        spawnParticles(p.x, p.y, 2, "#9a9aaa", 110, .25, 2.5);
+        if (--p.pierce <= 0) { p.active = false; break; }
+      }
+    }
+    if (!p.active) continue;
+
     const found = hash.query(p.x, p.y, p.r + 26, scratch);
     for (let i = 0; i < found.length; i++) {
       const e = found[i];
@@ -1578,6 +1694,15 @@ function update(dt) {
     if (wv.life <= 0) { wv.active = false; continue; }
     const t = 1 - wv.life / wv.maxLife;
     wv.r = wv.maxR * Math.sqrt(t);          // 처음엔 빠르게, 끝에선 천천히 퍼진다
+    for (let i = 0; i < obstacles.length; i++) {
+      const o = obstacles[i];
+      if (o.wall || wv.hitIds.has("o" + o.key)) continue;
+      const rr = wv.r + o.r;
+      if (dist2(o.x, o.y, wv.x, wv.y) < rr * rr) {
+        wv.hitIds.add("o" + o.key);
+        damageObstacle(o, wv.dmg * .6);
+      }
+    }
     const found = hash.query(wv.x, wv.y, wv.r + 30, scratch);
     for (let i = 0; i < found.length; i++) {
       const e = found[i];
@@ -1645,6 +1770,7 @@ function update(dt) {
     }
 
     e.x += (vx + e.kx) * dt; e.y += (vy + e.ky) * dt;
+    if (obstacles.length) pushOutOfObstacles(e, e.r);
     e.kx *= .86; e.ky *= .86;
     if (e.flash > 0) e.flash -= dt;
 
@@ -2104,6 +2230,67 @@ function drawWorld() {
     ctx.font = (pk.kind === "sigil" ? "30px " : "26px ") + FONT;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillText(pk.kind === "heart" ? "🍗" : pk.kind === "sigil" ? "🔯" : C ? C.icon : "🧲", sx, sy);
+    ctx.restore();
+  }
+
+  // 지형 — 벽과 바위
+  for (const o of obstacles) {
+    const sx = o.x - cam.x, sy = o.y - cam.y;
+    if (sx < -80 || sx > W + 80 || sy < -80 || sy > H + 80) continue;
+    ctx.save();
+    // 그림자
+    ctx.fillStyle = "rgba(0,0,0,.32)";
+    ctx.beginPath(); ctx.ellipse(sx, sy + o.r * .55, o.r * .95, o.r * .36, 0, 0, TAU); ctx.fill();
+    if (o.wall) {
+      // 부술 수 없는 석벽 — 각진 실루엣으로 구분한다
+      ctx.fillStyle = "#4a4a5c";
+      ctx.beginPath();
+      const n = 6;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU + o.seed * 6;
+        const rr = o.r * (.86 + hash2(i, Math.floor(o.x)) * .28);
+        const px = sx + Math.cos(a) * rr, py = sy + Math.sin(a) * rr * .92;
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#5f5f75"; ctx.lineWidth = 2; ctx.stroke();
+      // 벽돌 결
+      ctx.strokeStyle = "rgba(0,0,0,.25)"; ctx.lineWidth = 1;
+      for (let i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(sx - o.r * .7, sy + i * o.r * .4);
+        ctx.lineTo(sx + o.r * .7, sy + i * o.r * .4);
+        ctx.stroke();
+      }
+    } else {
+      // 부술 수 있는 바위 — 피해를 입으면 금이 간다
+      const f = clamp(o.st.hp / o.st.max, 0, 1);
+      ctx.fillStyle = f > .5 ? "#6b6b7d" : f > .2 ? "#7a6a62" : "#8a5f52";
+      ctx.beginPath();
+      const n = 7;
+      for (let i = 0; i < n; i++) {
+        const a = i / n * TAU + o.seed * 9;
+        const rr = o.r * (.8 + hash2(i * 3, Math.floor(o.y)) * .36);
+        const px = sx + Math.cos(a) * rr, py = sy + Math.sin(a) * rr * .88;
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.12)"; ctx.lineWidth = 1.5; ctx.stroke();
+      if (f < 1) {
+        ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(sx - o.r * .5, sy - o.r * .3);
+        ctx.lineTo(sx - o.r * .1, sy + o.r * .1);
+        ctx.lineTo(sx + o.r * .4, sy - o.r * .2);
+        ctx.stroke();
+        if (f < .5) {
+          ctx.beginPath();
+          ctx.moveTo(sx + o.r * .1, sy + o.r * .5);
+          ctx.lineTo(sx - o.r * .05, sy);
+          ctx.stroke();
+        }
+      }
+    }
     ctx.restore();
   }
 
@@ -3265,6 +3452,121 @@ function drawHUD() {
     }
   }
 
+  // ── 미니맵 — 어디에 뭐가 있는지 한눈에
+  {
+    const MM = 152, mx = W - MM - 16, my = H - MM - 76;
+    const RANGE = 2400, sc = (MM / 2 - 6) / RANGE;
+    ctx.save();
+    ctx.fillStyle = "rgba(8,8,16,.78)";
+    ctx.beginPath(); ctx.roundRect(mx, my, MM, MM, 10); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.roundRect(mx + 1, my + 1, MM - 2, MM - 2, 9); ctx.clip();
+    const ccx = mx + MM / 2, ccy = my + MM / 2;
+
+    // 적 밀도 — 전부 찍으면 무의미하므로 표본만
+    ctx.fillStyle = "rgba(255,120,120,.32)";
+    for (let i = 0; i < enemies.length; i += 4) {
+      const e = enemies[i];
+      if (!e.active || e.boss || e.sigilKey) continue;
+      const dx = (e.x - player.x) * sc, dy = (e.y - player.y) * sc;
+      if (Math.abs(dx) > MM / 2 || Math.abs(dy) > MM / 2) continue;
+      ctx.fillRect(ccx + dx - 1, ccy + dy - 1, 2, 2);
+    }
+    // 지형 — 벽만 옅게
+    ctx.fillStyle = "rgba(150,150,175,.30)";
+    for (const o of obstacles) {
+      if (!o.wall) continue;
+      const dx = (o.x - player.x) * sc, dy = (o.y - player.y) * sc;
+      if (Math.abs(dx) > MM / 2 - 3 || Math.abs(dy) > MM / 2 - 3) continue;
+      ctx.fillRect(ccx + dx - 2, ccy + dy - 2, 4, 4);
+    }
+    // 지형지물
+    for (const lm of landmarks) {
+      const dx = (lm.x - player.x) * sc, dy = (lm.y - player.y) * sc;
+      if (Math.abs(dx) > MM / 2 - 4 || Math.abs(dy) > MM / 2 - 4) continue;
+      ctx.fillStyle = lm.T.color;
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, lm.type === "shrine" ? 4 : 3, 0, TAU); ctx.fill();
+    }
+    // 징표·아이템
+    for (const pk of pickups) {
+      if (!pk.active) continue;
+      const dx = (pk.x - player.x) * sc, dy = (pk.y - player.y) * sc;
+      if (Math.abs(dx) > MM / 2 - 4 || Math.abs(dy) > MM / 2 - 4) continue;
+      const crit = pk.kind === "sigil";
+      ctx.fillStyle = crit ? "#ffd34d" : "rgba(255,255,255,.5)";
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, crit ? 4 : 2, 0, TAU); ctx.fill();
+    }
+    // 보스·파수꾼 — 가장 크게, 맥동
+    const bp = .6 + Math.sin(performance.now() / 180) * .4;
+    for (const e of enemies) {
+      if (!e.active || (!e.boss && !e.sigilKey)) continue;
+      const dx = clamp((e.x - player.x) * sc, -MM / 2 + 6, MM / 2 - 6);
+      const dy = clamp((e.y - player.y) * sc, -MM / 2 + 6, MM / 2 - 6);
+      ctx.globalAlpha = bp;
+      ctx.fillStyle = e.boss ? "#ff3b6b" : "#c9a3ff";
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, 6, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = e.boss ? "#ff3b6b" : "#c9a3ff"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, 9, 0, TAU); ctx.stroke();
+    }
+    // 플레이어
+    ctx.fillStyle = "#fff";
+    ctx.save(); ctx.translate(ccx, ccy); ctx.rotate(Math.atan2(player.faceY, player.faceX));
+    ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.font = "700 9px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
+    ctx.fillText(Math.round(RANGE / 10) + "m", mx + 6, my + MM - 9);
+  }
+
+  // ── 보스 체력바 — 살아 있는 동안 화면 위에
+  {
+    let boss = null;
+    for (const e of enemies) if (e.active && (e.boss || e.sigilKey)) { boss = e; if (e.boss) break; }
+    if (boss) {
+      const bw = 420, bx = W / 2 - bw / 2, by = 64;
+      const f = clamp(boss.hp / boss.maxHp, 0, 1);
+      ctx.fillStyle = "rgba(0,0,0,.6)";
+      ctx.beginPath(); ctx.roundRect(bx, by, bw, 16, 5); ctx.fill();
+      ctx.fillStyle = boss.boss ? "#ff3b6b" : "#c9a3ff";
+      ctx.beginPath(); ctx.roundRect(bx + 2, by + 2, (bw - 4) * f, 12, 4); ctx.fill();
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.font = "700 11px " + FONT; ctx.fillStyle = "#fff";
+      ctx.fillText((boss.boss ? "보스" : "제단의 파수꾼") + "  " + Math.ceil(boss.hp).toLocaleString("ko-KR"), W / 2, by + 8);
+      // 화면 밖이면 방향까지
+      const sx = boss.x - cam.x, sy = boss.y - cam.y;
+      if (sx < 0 || sx > W || sy < 0 || sy > H) {
+        const d = Math.round(Math.hypot(boss.x - player.x, boss.y - player.y) / 10);
+        ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
+        ctx.fillText(d + "m 떨어져 있음", W / 2, by + 28);
+      }
+    }
+  }
+
+  // 화면 밖 보스·파수꾼 방향 — 지형지물보다 강하게
+  for (const e of enemies) {
+    if (!e.active || (!e.boss && !e.sigilKey)) continue;
+    const sx = e.x - cam.x, sy = e.y - cam.y;
+    const m = 58;
+    if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
+    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    const ang = Math.atan2(sy - player.sy, sx - player.sx);
+    const col = e.boss ? "#ff3b6b" : "#c9a3ff";
+    ctx.save();
+    ctx.globalAlpha = .7 + Math.sin(performance.now() / 170) * .3;
+    ctx.translate(ax, ay); ctx.rotate(ang);
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(-8, -13); ctx.lineTo(-8, 13); ctx.closePath(); ctx.fill();
+    ctx.rotate(-ang);
+    ctx.font = "800 12px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = col;
+    ctx.fillText(e.boss ? "보스" : "파수꾼", 0, -26);
+    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.75)";
+    ctx.fillText(Math.round(Math.hypot(e.x - player.x, e.y - player.y) / 10) + "m", 0, 26);
+    ctx.restore();
+  }
+
   // 화면 밖 지형지물 방향 표시 — 어디로 갈지 모르면 돌아다닐 수 없다
   for (const lm of landmarks) {
     const sx = lm.x - cam.x, sy = lm.y - cam.y;
@@ -3337,9 +3639,9 @@ function drawHUD() {
     const a = .65 + Math.sin(performance.now() / 320) * .3;
     ctx.globalAlpha = a;
     ctx.font = "800 17px " + FONT; ctx.fillStyle = "#ffd34d";
-    ctx.fillText("⛩️ 전직 가능 — 전직의 징표가 필요하다", W / 2, 74);
+    ctx.fillText("⛩️ 전직 가능 — 전직의 징표가 필요하다", W / 2, 108);
     ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, 94);
+    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, 128);
     ctx.globalAlpha = 1;
   }
 

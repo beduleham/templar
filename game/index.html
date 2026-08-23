@@ -547,7 +547,7 @@ function spawnProjectile(o) {
   const p = alloc(projectiles); if (!p) return null;
   p.active = true;
   p.x = o.x; p.y = o.y; p.vx = o.vx; p.vy = o.vy; p.r = o.r; p.dmg = o.dmg;
-  p.pierce = o.pierce; p.life = o.life; p.kind = o.kind; p.angle = o.angle;
+  p.pierce = o.pierce + (player.dynPierce || 0); p.life = o.life; p.kind = o.kind; p.angle = o.angle;
   p.color = o.color; p.homing = o.homing || 0; p.target = o.target || null;
   p.element = o.element || "physical"; p.maxLife = o.life; p.retarget = 0;
   p.spin = o.kind === "dagger" ? 0 : rnd(-4, 4);
@@ -650,6 +650,8 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   if (C && C.has("shatter") && elem === "physical" && e.slow > 0) mul *= 1.45;
   // 조합: 학살 — 처치 누적 버프
   if (C && C.has("carnage")) mul *= 1 + player.carnage;
+  // 직업 자세(진영의 접전 스택 / 영창 단계)는 매 프레임 변하므로 여기서 곱한다
+  mul *= player.dynDmg;
 
   const crit = Math.random() < (s ? s.crit : .1);
   const final = dmg * mul * (crit ? 2 : 1);
@@ -716,8 +718,11 @@ const player = {
   passives: [],  // { key, level }
   stats: null,
   base: { maxHp: 100, speed: 208 },
-  // 직업 자원 · 조합
-  res: 0, noHit: 0, combos: new Set(),
+  // 직업 자원 · 조합 · 전용 특성
+  res: 0, noHit: 0, combos: new Set(), traits: [],
+  // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
+  dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
+  stillTime: 0, bulwark: 0, press: 0, channel: 0, meltTimer: 0, blocked: 0,
   carnage: 0, carnageTimer: 0, leechBudget: 0,
   dash: 0, dashX: 1, dashY: 0, dashDmg: 0, dashHit: new Set(),
 };
@@ -814,6 +819,12 @@ function addWeapon(key) {
   player.weapons.push({ key, level: 1, timer: 0, angle: 0, fx: 0 });
   recomputeCombos();
 }
+function addTrait(key) {
+  const t = player.traits.find(t => t.key === key);
+  if (t) t.level++;
+  else player.traits.push({ key, level: 1 });
+}
+
 function addPassive(key) {
   const p = player.passives.find(p => p.key === key);
   if (p) p.level++;
@@ -851,6 +862,11 @@ const Game = {
     player.noHit = 0; player.combos = new Set();
     player.carnage = 0; player.carnageTimer = 0; player.leechBudget = 0;
     player.dash = 0; player.dashHit.clear();
+    player.traits.length = 0;
+    player.stillTime = 0; player.bulwark = 0; player.press = 0;
+    player.channel = 0; player.meltTimer = 0;
+    player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
+    player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
     this.comboFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
     player.cls = CLASSES[selectedClass];
     recomputeStats();
@@ -904,31 +920,34 @@ const Game = {
   },
 
   rollChoices() {
-    const pool = [];
+    const weaponPool = [], passivePool = [], traitPool = [];
     for (const key in WEAPONS) {
       const owned = player.weapons.find(w => w.key === key);
-      if (owned) { if (owned.level < MAX_LEVEL) pool.push({ type: "weapon", key, level: owned.level + 1 }); }
-      else if (player.weapons.length < MAX_WEAPONS) pool.push({ type: "weapon", key, level: 1, isNew: true });
+      if (owned) { if (owned.level < MAX_LEVEL) weaponPool.push({ type: "weapon", key, level: owned.level + 1 }); }
+      else if (player.weapons.length < MAX_WEAPONS) weaponPool.push({ type: "weapon", key, level: 1, isNew: true });
     }
     for (const key in PASSIVES) {
       const owned = player.passives.find(p => p.key === key);
-      if (owned) { if (owned.level < MAX_LEVEL) pool.push({ type: "passive", key, level: owned.level + 1 }); }
-      else if (player.passives.length < MAX_PASSIVES) pool.push({ type: "passive", key, level: 1, isNew: true });
+      if (owned) { if (owned.level < MAX_LEVEL) passivePool.push({ type: "passive", key, level: owned.level + 1 }); }
+      else if (player.passives.length < MAX_PASSIVES) passivePool.push({ type: "passive", key, level: 1, isNew: true });
     }
-    const weaponPool = pool.filter(o => o.type === "weapon");
-    const passivePool = pool.filter(o => o.type === "passive");
+    // 직업 전용 특성 — 이 직업으로만 뽑을 수 있다
+    const list = (player.cls && TRAITS[player.cls.key]) || [];
+    for (const t of list) {
+      const lv = traitLv(t.key);
+      if (lv < t.max) traitPool.push({ type: "trait", key: t.key, level: lv + 1, isNew: lv === 0 });
+    }
+
     const out = [];
     const take = arr => arr.length ? arr.splice(Math.floor(rnd(arr.length)), 1)[0] : null;
-    // 화력이 고사하지 않도록 무기 옵션을 최소 1개 보장, 패시브는 최대 2개
+    // 1) 화력이 고사하지 않도록 무기를 최소 1개 보장
     if (weaponPool.length) out.push(take(weaponPool));
-    const rest = weaponPool.concat(passivePool.slice(0, 2 + (weaponPool.length ? 0 : 3)));
+    // 2) 직업 정체성이 매 판 드러나도록 전용 특성을 최소 1개 보장
+    if (traitPool.length) out.push(take(traitPool));
+    // 3) 나머지는 셋을 섞어서
+    const rest = weaponPool.concat(passivePool, traitPool);
     while (out.length < 3 && rest.length) {
       const c = take(rest);
-      if (c && !out.includes(c)) out.push(c);
-    }
-    const leftover = weaponPool.concat(passivePool);
-    while (out.length < 3 && leftover.length) {
-      const c = take(leftover);
       if (c && !out.includes(c)) out.push(c);
     }
     // 더 뽑을 게 없으면 회복 옵션으로 채운다
@@ -939,6 +958,7 @@ const Game = {
   applyChoice(c) {
     if (c.type === "weapon") addWeapon(c.key);
     else if (c.type === "passive") addPassive(c.key);
+    else if (c.type === "trait") addTrait(c.key);
     else player.hp = Math.min(player.stats.maxHp, player.hp + 40);
     this.state = "playing";
     // 레벨업 직후 경험치가 또 넘쳐 있으면 연속 레벨업
@@ -1046,9 +1066,12 @@ function update(dt) {
     player.y += player.dashY * 940 * dt;
     spawnParticles(player.x, player.y, 1, "#ff8a5c", 60, .3, 3);
   } else {
-    player.x += mv.x * player.base.speed * s.speed * dt;
-    player.y += mv.y * player.base.speed * s.speed * dt;
+    player.x += mv.x * player.base.speed * s.speed * player.dynSpeed * dt;
+    player.y += mv.y * player.base.speed * s.speed * player.dynSpeed * dt;
   }
+  // 정지 지속 시간 — 기사의 방벽과 마법사의 영창이 모두 여기에 걸린다
+  const moving = !!(mv.x || mv.y) || player.dash > 0;
+  player.stillTime = moving ? 0 : player.stillTime + dt;
   player.iframe = Math.max(0, player.iframe - dt);
   player.hurtFlash = Math.max(0, player.hurtFlash - dt);
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
@@ -1063,6 +1086,11 @@ function update(dt) {
   hash.clear();
   for (const e of enemies) if (e.active) hash.insert(e);
 
+  /* 2-b. 직업 자세 — 매 프레임 다시 계산되는 배수 */
+  player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
+  player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
+  if (player.cls && player.cls.stance) player.cls.stance.update(player, dt, moving);
+
   /* 3. 무기 */
   for (const w of player.weapons) {
     const def = WEAPONS[w.key];
@@ -1070,7 +1098,7 @@ function update(dt) {
     if (w.fx > 0) w.fx -= dt;
     w.timer -= dt;
     if (w.timer <= 0) {
-      w.timer += Math.max(.08, def.cd[w.level - 1] * s.cooldown);
+      w.timer += Math.max(.06, def.cd[w.level - 1] * s.cooldown * player.dynCd);
       def.fire(player, w);
     }
   }
@@ -1230,21 +1258,26 @@ function update(dt) {
     }
     if (count > 0) {
       const crowd = Math.min(3.6, 1 + .3 * (count - 1));
+      const raw = worst * crowd * player.stats.armor;
+      const reduced = raw * player.dynArmor;      // 방벽 등 자세로 줄인 값
       // 한 대에 풀피가 날아가면 플레이어는 대응할 기회 없이 억울하게 죽는다.
       // 최대 체력의 45% 로 상한을 둬서, 풀피에서는 항상 최소 두 대를 버틴다.
-      const dmg = Math.min(worst * crowd * player.stats.armor, player.stats.maxHp * .45);
+      const dmg = Math.min(reduced, player.stats.maxHp * .45);
+      const blocked = raw - reduced;
       player.hp -= dmg;
       player.iframe = .6; player.hurtFlash = .35;
       player.onHurt();
       cam.shake = Math.min(16, 4 + dmg * .22);
       spawnNumber(player.x, player.y - 22, "-" + Math.round(dmg) + (count > 2 ? " ×" + count : ""), "#ff6b6b", 17);
       Sfx.hurt();
+      if (blocked > 0 && player.cls && player.cls.stance && player.cls.stance.onBlocked)
+        player.cls.stance.onBlocked(player, blocked);
       if (player.hp <= 0) { onPlayerDown(); if (Game.state === "dead") return; }
     }
   }
 
   /* 7. 경험치 보석 */
-  const magnetR = 92 * s.magnet;
+  const magnetR = 92 * s.magnet * player.dynMagnet;
   for (const g of gems) {
     if (!g.active) continue;
     g.bob += dt * 5;
@@ -1517,6 +1550,87 @@ function drawPlayer() {
   ctx.restore();
 }
 
+/* 자세를 눈에 보이게 만든다 — 규칙이 아무리 좋아도 화면에서 안 보이면 없는 것이다 */
+function drawStanceWorld() {
+  const C = player.cls;
+  if (!C || Game.state === "title" || Game.state === "altar") return;
+  const sx = player.sx, sy = player.sy;
+
+  if (C.key === "paladin") {
+    const need = .6 - .15 * traitLv("bulwark");
+    const charge = clamp(player.stillTime / need, 0, 1);
+    const R = 40;
+    // 충전 중: 테두리가 시계처럼 차오른다
+    if (player.bulwark < 1 && charge > .02) {
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,211,110,.55)"; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(sx, sy, R, -Math.PI / 2, -Math.PI / 2 + TAU * charge);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 전개 완료: 육각 방벽
+    if (player.bulwark > 0) {
+      const a = player.bulwark, rr = R + 6 * a;
+      ctx.save();
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const ang = i / 6 * TAU - Math.PI / 2;
+        const px = sx + Math.cos(ang) * rr, py = sy + Math.sin(ang) * rr;
+        i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255,211,110,.10)"; ctx.fill();
+      ctx.strokeStyle = "rgba(255,225,150,.85)"; ctx.lineWidth = 2.5; ctx.stroke();
+      // 접전 스택이 쌓일수록 테두리가 두꺼워진다
+      if (player.press > 0) {
+        ctx.globalAlpha = a * Math.min(1, player.press / 14) * .8;
+        ctx.strokeStyle = "#ff9f6b"; ctx.lineWidth = 2 + player.press * .35;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  } else if (C.key === "mage") {
+    const st = Math.floor(player.channel), frac = player.channel - st;
+    const maxStage = 3 + traitLv("deepMana");
+    for (let i = 0; i < st; i++) {
+      const r = 30 + i * 12;
+      ctx.save();
+      ctx.globalAlpha = .75;
+      ctx.strokeStyle = i >= 3 ? "#e0b0ff" : "#9bb8ff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      // 회전하는 룬 고리 — 단계가 오를수록 고리가 늘어난다
+      const seg = 6 + i * 2, spin = Game.time * (i % 2 ? -1.1 : 1.4) + i;
+      for (let k = 0; k < seg; k++) {
+        const a0 = spin + k / seg * TAU, a1 = a0 + TAU / seg * .55;
+        ctx.moveTo(sx + Math.cos(a0) * r, sy + Math.sin(a0) * r);
+        ctx.arc(sx, sy, r, a0, a1);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+    // 다음 단계까지의 진행
+    if (st < maxStage && frac > .02) {
+      ctx.save();
+      ctx.globalAlpha = .5;
+      ctx.strokeStyle = "#9bb8ff"; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sx, sy, 30 + st * 12, -Math.PI / 2, -Math.PI / 2 + TAU * frac);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (st >= maxStage) {
+      ctx.save();
+      ctx.globalAlpha = .18 + Math.sin(Game.time * 6) * .06;
+      ctx.fillStyle = "#bcd0ff";
+      ctx.beginPath(); ctx.arc(sx, sy, 30 + maxStage * 12, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
 function drawWorld() {
   // 보석 — 화면에 수백 개가 깔리므로 티어별로 한 패스에 몰아 그린다
   for (let tier = 0; tier < 3; tier++) {
@@ -1584,6 +1698,7 @@ function drawWorld() {
     if (def.draw && w.key === "aura") def.draw(player, w);
   }
 
+  drawStanceWorld();
   drawPlayer();
 
   for (const w of player.weapons) {
@@ -1708,6 +1823,56 @@ function drawWorld() {
   ctx.globalAlpha = 1;
 }
 
+/* ---------- 직업 전용 특성 ----------
+   직업이 '가끔 누르는 버튼'이 아니라 '매 순간의 규칙'이 되도록,
+   레벨업 카드 풀에 직업 전용 카드를 섞는다.
+   수치를 올리는 게 아니라 규칙을 바꾸는 카드만 여기에 둔다. */
+const TRAITS = {
+  paladin: [
+    { key: "bulwark", name: "강철 방벽", icon: "🛡️", max: 3,
+      desc: "방벽이 더 빨리 서고, 더 많이 막고, 더 많이 회복한다.",
+      detail: l => "전개 " + (.6 - .15 * l).toFixed(2) + "초 · 피해 감소 " + Math.round((.5 + .08 * l) * 100) + "%~ · 초당 회복 " + ((.012 + .005 * l) * 100).toFixed(1) + "%~" },
+    { key: "taunt", name: "도발", icon: "📢", max: 2,
+      desc: "방벽을 세우면 주변의 적이 끌려온다. 더 둘러싸일수록 강해진다.",
+      detail: l => "흡인력 " + l + "단계" },
+    { key: "crusade", name: "성전", icon: "✝️", max: 3,
+      desc: "곁에 붙은 적 하나마다 피해가 오른다.",
+      detail: l => "적 1마리당 피해 +" + (5 + 2 * l) + "%" },
+    { key: "thorns", name: "가시 갑옷", icon: "🌵", max: 3,
+      desc: "방벽으로 막은 피해를 주변의 적에게 되돌린다.",
+      detail: l => "반사 " + (40 * l) + "%" },
+    { key: "resolve", name: "불굴", icon: "💢", max: 2,
+      desc: "체력이 바닥일수록 단단해지고 빨라진다.",
+      detail: l => "HP 40% 이하: 피해 -" + (22 * l) + "% · 이동 +" + (14 * l) + "%" },
+  ],
+  mage: [
+    { key: "focus", name: "집중 영창", icon: "🎯", max: 3,
+      desc: "영창 단계가 더 빨리 오른다.",
+      detail: l => "영창 속도 +" + (30 * l) + "%" },
+    { key: "deepMana", name: "심층 마력", icon: "🌌", max: 2,
+      desc: "영창을 한 단계 더 쌓을 수 있다.",
+      detail: l => "최대 " + (3 + l) + "단계" },
+    { key: "residue", name: "잔류 마력", icon: "💫", max: 1,
+      desc: "움직여도 1단계는 남는다. 자리를 옮기며 싸울 수 있다.",
+      detail: () => "이동 중 1단계 유지" },
+    { key: "overload", name: "비전 과부하", icon: "⚡", max: 2,
+      desc: "3단계 이상에서 발사체가 적을 더 꿰뚫는다.",
+      detail: l => "관통 +" + (2 * l) },
+    { key: "meltdown", name: "마력 폭주", icon: "☄️", max: 3,
+      desc: "최대 단계를 유지하면 주변이 주기적으로 터진다.",
+      detail: l => (1.8 - .3 * l).toFixed(1) + "초마다 폭발" },
+  ],
+};
+
+function traitLv(key) {
+  const t = player.traits.find(t => t.key === key);
+  return t ? t.level : 0;
+}
+function traitDef(clsKey, key) {
+  const list = TRAITS[clsKey] || [];
+  return list.find(t => t.key === key);
+}
+
 /* ---------- 메타 진행 : 제단 ----------
    판이 끝나도 남는 것이 있어야 다시 시작하게 된다.
    영혼을 모아 영구 강화를 사고, 그 강화가 다음 판의 시작 지점을 올린다. */
@@ -1757,10 +1922,71 @@ Meta.load();
 const CLASSES = [
   {
     key: "paladin", name: "성기사", icon: "🛡️", color: "#ffd36e",
-    tagline: "빛의 방벽 · 버티며 정화한다",
+    tagline: "멈춰 서서 파고든다",
     start: "aura",
-    desc: "성역을 두르고 접근하는 자를 태운다. 튼튼하지만 느리다.",
+    desc: "군중 한가운데로 파고들어 버티는 직업. 느리지만 둘러싸일수록 강해진다.",
     mods: { maxHp: 40, speed: -.08, armor: .12, regen: .4 },
+    // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
+    stanceName: "진영",
+    stanceHint: "멈추면 방벽 · 곁의 적이 많을수록 피해도 방어도 회복도 오른다",
+    stance: {
+      update(p, dt, moving) {
+        const bl = traitLv("bulwark");
+        const need = .6 - .15 * bl;
+        const on = !moving && p.stillTime >= need;
+        p.bulwark = on ? Math.min(1, p.bulwark + dt * 6) : Math.max(0, p.bulwark - dt * 8);
+
+        // 접전: 곁에 붙은 적 수만큼 피해가 오른다
+        const R = 155 * p.stats.area;
+        const found = hash.query(p.x, p.y, R, scratch3);
+        let n = 0;
+        for (let i = 0; i < found.length; i++) {
+          const e = found[i];
+          if (e.active && dist2(e.x, e.y, p.x, p.y) < R * R) n++;
+        }
+        p.press = Math.min(14, n);
+        p.dynDmg *= 1 + (.05 + .02 * traitLv("crusade")) * p.press;
+
+        if (on) {
+          // 방패벽은 밀집할수록 더 잘 막는다. '둘러싸일수록 강해진다'는 규칙이
+          // 피해에만 걸리고 방어에는 안 걸리면, 파고들라는 설계가 그냥 자살 명령이 된다.
+          p.dynArmor *= 1 - Math.min(.8, .5 + .08 * bl + .016 * p.press);
+          // 자리를 지키면 체력이 돌아온다 — 파고들기 → 버티기 → 회복의 리듬
+          p.hp = Math.min(p.stats.maxHp,
+            p.hp + p.stats.maxHp * (.012 + .005 * bl + .0013 * p.press) * dt);
+          // 도발: 방벽 중에는 적을 끌어당긴다 — 더 둘러싸일수록 이득이라는 규칙과 맞물린다
+          const tl = traitLv("taunt");
+          if (tl > 0) {
+            for (let i = 0; i < found.length; i++) {
+              const e = found[i];
+              if (!e.active || e.boss) continue;
+              const a = Math.atan2(p.y - e.y, p.x - e.x);
+              e.kx += Math.cos(a) * 60 * tl * dt * 60;
+              e.ky += Math.sin(a) * 60 * tl * dt * 60;
+            }
+          }
+        }
+        // 불굴: 체력이 바닥일수록 단단해지고 빨라진다
+        const rl = traitLv("resolve");
+        if (rl > 0 && p.hp < p.stats.maxHp * .4) {
+          p.dynArmor *= 1 - .22 * rl;
+          p.dynSpeed = 1 + .14 * rl;
+        }
+      },
+      // 막은 피해를 주변에 되돌린다
+      onBlocked(p, blocked) {
+        const tl = traitLv("thorns");
+        if (tl <= 0 || blocked <= 0) return;
+        const R = 170 * p.stats.area;
+        const found = hash.query(p.x, p.y, R, scratch3);
+        for (let i = 0; i < found.length; i++) {
+          const e = found[i];
+          if (e.active && dist2(e.x, e.y, p.x, p.y) < R * R)
+            damageEnemy(e, blocked * .4 * tl, p.x, p.y, 120, "holy");
+        }
+        spawnWave({ x: p.x, y: p.y, maxR: R, dmg: 0, life: .25, color: "#ffd9a0", element: "holy" });
+      },
+    },
     // 맞을수록 차오른다 → 위기에 강해지는 역설
     resource: { name: "신앙", color: "#ffd36e", onHurt: 26, perSec: 2.2, hint: "피격 시 충전" },
     skill: {
@@ -1831,10 +2057,46 @@ const CLASSES = [
   },
   {
     key: "mage", name: "마법사", icon: "🔮", color: "#9bb8ff",
-    tagline: "마법 화살 · 멀리서 지워버린다",
+    tagline: "거리를 벌리고 멈춘다",
     start: "orb",
-    desc: "피해량과 범위가 크고 경험치를 더 얻는다. 매우 약한 몸.",
+    desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 매우 약하다.",
     mods: { maxHp: -25, damage: .2, area: .1, xpGain: .2 },
+    // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
+    stanceName: "영창",
+    stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·경험치 흡인이 함께 오른다",
+    stance: {
+      update(p, dt, moving) {
+        const maxStage = 3 + traitLv("deepMana");
+        const rate = (1 / .8) * (1 + .3 * traitLv("focus"));
+        if (moving) {
+          const floor = traitLv("residue") > 0 ? 1 : 0;
+          p.channel = Math.max(floor, p.channel - dt * 3.4);
+        } else {
+          p.channel = Math.min(maxStage, p.channel + dt * rate);
+        }
+        const st = Math.floor(p.channel);
+        p.dynDmg *= 1 + .5 * st;
+        p.dynCd *= Math.max(.28, 1 - .18 * st);
+        // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
+        // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
+        p.dynMagnet *= 1 + .7 * st;
+        // 비전 과부하: 깊게 영창하면 발사체가 더 꿰뚫는다
+        if (st >= 3) p.dynPierce += 2 * traitLv("overload");
+
+        // 마력 폭주: 최대 단계를 유지하면 주변이 주기적으로 터진다
+        const ml = traitLv("meltdown");
+        if (ml > 0 && st >= maxStage) {
+          p.meltTimer -= dt;
+          if (p.meltTimer <= 0) {
+            p.meltTimer = 1.8 - .3 * ml;
+            spawnWave({ x: p.x, y: p.y, maxR: 240 * p.stats.area,
+              dmg: (60 + p.level * 9) * p.stats.damage * p.dynDmg, life: .4,
+              color: "#bcd0ff", element: "frost" });
+            Sfx.play(420, .25, "triangle", .7, 300);
+          }
+        } else p.meltTimer = 0;
+      },
+    },
     // 시간에 따라 꾸준히 찬다 → 아끼느냐 지금 쓰느냐의 자원 관리
     resource: { name: "마나", color: "#9bb8ff", perSec: 8, hint: "시간에 따라 충전" },
     skill: {
@@ -1907,8 +2169,37 @@ function drawHUD() {
     ctx.fillText(R.name + "  " + Math.floor(player.res), 20, 53);
   }
 
+  // 직업 자세 상태 — 지금 강해지고 있는지 한눈에 보여야 한다
+  let cy = 68;
+  if (C && C.stance) {
+    ctx.fillStyle = "rgba(10,10,20,.6)";
+    ctx.beginPath(); ctx.roundRect(14, cy, 240, 22, 6); ctx.fill();
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    if (C.key === "paladin") {
+      const on = player.bulwark > .5;
+      ctx.font = "700 12px " + FONT;
+      ctx.fillStyle = on ? "#ffd36e" : "rgba(255,255,255,.35)";
+      ctx.fillText("🛡 방벽 " + (on ? "-" + Math.round((1 - player.dynArmor) * 100) + "%" : "대기"), 22, cy + 11);
+      ctx.textAlign = "right";
+      ctx.fillStyle = player.press > 0 ? "#ff9f6b" : "rgba(255,255,255,.3)";
+      ctx.fillText("접전 ×" + player.press + "  (+" + Math.round((player.dynDmg - 1) * 100) + "%)", 248, cy + 11);
+    } else {
+      const st = Math.floor(player.channel), maxStage = 3 + traitLv("deepMana");
+      ctx.font = "700 12px " + FONT;
+      ctx.fillStyle = st > 0 ? "#9bb8ff" : "rgba(255,255,255,.35)";
+      ctx.fillText("✦ 영창", 22, cy + 11);
+      for (let i = 0; i < maxStage; i++) {
+        ctx.fillStyle = i < st ? "#9bb8ff" : "rgba(255,255,255,.13)";
+        ctx.beginPath(); ctx.roundRect(76 + i * 17, cy + 6, 13, 10, 3); ctx.fill();
+      }
+      ctx.textAlign = "right";
+      ctx.fillStyle = st > 0 ? "#9bb8ff" : "rgba(255,255,255,.3)";
+      ctx.fillText("피해 +" + Math.round((player.dynDmg - 1) * 100) + "%", 248, cy + 11);
+    }
+    cy += 26;
+  }
+
   // 활성화된 속성 조합
-  let cy = 72;
   for (const cb of COMBOS) {
     if (!player.combos.has(cb.key)) continue;
     ctx.fillStyle = "rgba(10,10,20,.6)";
@@ -1950,6 +2241,13 @@ function drawHUD() {
   for (const w of player.weapons) drawSlot(WEAPONS[w.key].icon, w.level, "rgba(255,210,120,.5)");
   ix += 12;
   for (const p of player.passives) drawSlot(PASSIVES[p.key].icon, p.level, "rgba(140,200,255,.4)");
+  if (player.traits.length) {
+    ix += 12;
+    for (const t of player.traits) {
+      const d = traitDef(player.cls.key, t.key);
+      if (d) drawSlot(d.icon, t.level, (player.cls.color || "#c9a3ff") + "88");
+    }
+  }
 
   // 능동 스킬
   if (player.cls) {
@@ -2052,9 +2350,9 @@ function drawTitle() {
   if (aHover && mouse.clicked) { Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
-  const cw = 268, ch = 330, gap = 18;
+  const cw = 268, ch = 348, gap = 18;
   const total = CLASSES.length * cw + (CLASSES.length - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 214;
+  const x0 = (W - total) / 2, y0 = 206;
 
   for (let i = 0; i < CLASSES.length; i++) {
     const c = CLASSES[i], x = x0 + i * (cw + gap);
@@ -2087,18 +2385,26 @@ function drawTitle() {
       ctx.fillText(value, x + cw - 22, vy);
     };
     const W_ = WEAPONS[c.start], E = ELEMENTS[W_.element];
-    row("무기", W_.icon + " " + W_.name, y0 + 145 + oy);
-    row("속성", E.icon + " " + E.name, y0 + 168 + oy, E.color);
-    row("자원", c.resource.name, y0 + 191 + oy, c.resource.color);
-    row("스킬", c.skill.icon + " " + c.skill.name, y0 + 214 + oy, c.color);
+    let ry = y0 + 140 + oy;
+    if (c.stance) { row("자세", "⚜ " + c.stanceName, ry, c.color); ry += 20; }
+    row("무기", W_.icon + " " + W_.name, ry); ry += 20;
+    row("속성", E.icon + " " + E.name, ry, E.color); ry += 20;
+    row("자원", c.resource.name, ry, c.resource.color); ry += 20;
+    row("스킬", c.skill.icon + " " + c.skill.name, ry); ry += 26;
 
-    // 자원이 차는 방식 — 직업의 성격이 여기서 갈린다
+    // 자세와 자원이 차는 방식 — 직업의 성격이 여기서 갈린다
     ctx.textAlign = "center";
-    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
-    wrapText(c.resource.hint, x + cw / 2, y0 + 242 + oy, cw - 40, 15);
+    if (c.stance) {
+      ctx.font = "600 11px " + FONT; ctx.fillStyle = c.color;
+      wrapText(c.stanceHint, x + cw / 2, ry, cw - 36, 15);
+      ry += 30;
+    }
+    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    wrapText(c.resource.hint, x + cw / 2, ry, cw - 40, 15);
+    ry += c.stance ? 26 : 32;
 
-    ctx.font = "500 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
-    wrapText(c.desc, x + cw / 2, y0 + 278 + oy, cw - 38, 16);
+    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
+    wrapText(c.desc, x + cw / 2, ry, cw - 36, 15);
 
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
     ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 16 + oy);
@@ -2229,10 +2535,13 @@ function drawLevelUp() {
     const c = Game.choices[i]; if (!c) continue;
     const x = x0 + i * (cw + gap);
     const hovered = inRect(mouse.x, mouse.y, x, y0, cw, ch);
-    const isW = c.type === "weapon";
+    const isW = c.type === "weapon", isT = c.type === "trait";
     const def = c.type === "heal" ? { name: "치유의 성물", icon: "🍖", desc: "체력을 40 회복한다." }
-              : isW ? WEAPONS[c.key] : PASSIVES[c.key];
-    const tint = c.type === "heal" ? "#5fe08a" : isW ? "#ffd36e" : "#8fd0ff";
+              : isW ? WEAPONS[c.key]
+              : isT ? traitDef(player.cls.key, c.key)
+              : PASSIVES[c.key];
+    const tint = c.type === "heal" ? "#5fe08a" : isW ? "#ffd36e"
+               : isT ? (player.cls ? player.cls.color : "#c9a3ff") : "#8fd0ff";
 
     panel(x, y0 - (hovered ? 8 : 0), cw, ch, 18,
       hovered ? "rgba(30,28,46,.98)" : "rgba(14,14,24,.94)",
@@ -2242,8 +2551,9 @@ function drawLevelUp() {
     ctx.font = "52px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.icon, x + cw / 2, y0 + 66 + oy);
 
+    const kind = isW ? "무기" : isT ? (player.cls ? player.cls.name + " 전용" : "직업 특성") : "능력";
     ctx.font = "700 12px " + FONT; ctx.fillStyle = tint;
-    ctx.fillText(c.isNew ? "NEW · " + (isW ? "무기" : "능력") : (isW ? "무기 강화" : "능력 강화"), x + cw / 2, y0 + 112 + oy);
+    ctx.fillText(c.isNew ? "NEW · " + kind : kind + " 강화", x + cw / 2, y0 + 112 + oy);
 
     ctx.font = "800 23px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.name, x + cw / 2, y0 + 142 + oy);
@@ -2251,6 +2561,16 @@ function drawLevelUp() {
     if (c.type !== "heal") {
       ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
       ctx.fillText(c.isNew ? "Lv 1" : "Lv " + (c.level - 1) + " → " + c.level, x + cw / 2, y0 + 168 + oy);
+    }
+    // 직업 특성은 자세 이름을 배지로 — 이 카드가 왜 이 직업의 것인지 보이게
+    if (isT && player.cls) {
+      const label = "⚜ " + player.cls.stanceName;
+      ctx.font = "700 11px " + FONT;
+      const tw = ctx.measureText(label).width + 20;
+      ctx.fillStyle = "rgba(255,255,255,.07)";
+      ctx.beginPath(); ctx.roundRect(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, 9); ctx.fill();
+      ctx.fillStyle = tint;
+      ctx.fillText(label, x + cw / 2, y0 + 188 + oy);
     }
     // 무기는 속성을 함께 보여준다 — 조합을 노릴 수 있어야 선택이 의미를 갖는다
     if (isW) {
@@ -2265,7 +2585,13 @@ function drawLevelUp() {
     }
 
     ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.68)";
-    wrapText(def.desc, x + cw / 2, y0 + (isW ? 216 : 202) + oy, cw - 44, 18);
+    wrapText(def.desc, x + cw / 2, y0 + (isW || isT ? 216 : 202) + oy, cw - 44, 18);
+
+    // 특성은 실제 수치를 함께 보여준다
+    if (isT && def.detail) {
+      ctx.font = "600 12px " + FONT; ctx.fillStyle = tint;
+      wrapText(def.detail(c.level), x + cw / 2, y0 + 262 + oy, cw - 34, 16);
+    }
 
     // 강화 시 실제 수치 변화
     if (isW && !c.isNew) {
@@ -2348,9 +2674,14 @@ function frame(now) {
 
   if (Game.state !== "title" && Game.state !== "altar") {
     drawHUD();
-    // 피격 시 붉은 비네트
-    if (player.hurtFlash > 0) {
-      const a = player.hurtFlash / .35 * .45;
+    // 붉은 비네트.
+    // 기사는 설계상 상시 피격당하므로 세기를 '남은 체력'에 연동한다 —
+    // 건강할 때는 옅게, 죽기 직전에만 강하게. 화면이 늘 빨갛기만 하면 정보가 아니다.
+    const hpFrac = clamp(player.hp / player.stats.maxHp, 0, 1);
+    const hitA = player.hurtFlash > 0 ? (player.hurtFlash / .35) * (.12 + .26 * (1 - hpFrac)) : 0;
+    const lowA = hpFrac < .3 ? (.3 - hpFrac) / .3 * (.14 + Math.sin(performance.now() / 260) * .05) : 0;
+    const a = Math.min(.5, hitA + lowA);
+    if (a > .004) {
       const g = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, H * .75);
       g.addColorStop(0, "rgba(255,0,40,0)");
       g.addColorStop(1, "rgba(255,0,40," + a.toFixed(3) + ")");

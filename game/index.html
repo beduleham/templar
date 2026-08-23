@@ -411,7 +411,7 @@ const GEM_REF = .15;   // 이 확률에서 기대 경험치가 기본값과 같�
 //   '언제 쓸까'라는 판단이 사라진다. 등급 몹이 확률을 굴릴 자격을 주고,
 //   실제로 나올지는 이 재사용 대기가 정한다.
 //   보스·파수꾼·상자·비석은 사건이므로 대기와 무관하게 준다.
-const ITEM_CD = 20, HEART_CD = 14, TRASH_CD = 26;
+const ITEM_CD = 20, HEART_CD = 6, TRASH_CD = 10;
 
 const SHRINE_MIN_LEVEL = 8;
 
@@ -1247,7 +1247,7 @@ function killEnemy(e, elem) {
     givePickupItem(pick(CONSUMABLE_KEYS), e.x + 80, e.y);
     Game.itemCd = ITEM_CD;
     giveSigil(e.x - 40, e.y);          // 보스도 징표를 준다 — 전직 경로가 하나뿐이면 막힌다
-  } else if (Game.heartCd <= 0 && Math.random() < .0012) {
+  } else if (Game.heartCd <= 0 && Math.random() < .004) {
     // 일반 몹도 아주 가끔은 준다. 회복이 완전히 끊기면 등급 몹을 못 만난 판이 그냥 막힌다.
     // 다만 더 긴 대기를 걸어 '주 공급원'이 되지는 않게 한다.
     spawnPickup(e.x, e.y, Math.random() < .8 ? "heart" : "vacuum");

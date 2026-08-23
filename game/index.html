@@ -394,6 +394,9 @@ const Sprites = {
 /* ---------- 몬스터 등급 ----------
    같은 종류라도 등급이 다르면 다른 상대가 된다.
    화면에서 즉시 구분되어야 하므로 크기·테두리·이름표를 함께 바꾼다. */
+// 성장 속도를 한 곳에서 조절한다. 낮출수록 같은 시각에 더 약한 상태로 싸우게 된다.
+const XP_RATE = .5;
+
 const SHRINE_MIN_LEVEL = 8;
 
 const RANKS = {
@@ -2198,7 +2201,7 @@ function update(dt) {
     g.x += g.vx * dt; g.y += g.vy * dt;
     if (d2 < 400) {
       g.active = false;
-      player.xp += g.value * s.xpGain;
+      player.xp += g.value * s.xpGain * XP_RATE;
       Sfx.pickup();
       if (player.xp >= player.xpNext) { Game.levelUp(); return; }
     }

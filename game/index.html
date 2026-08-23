@@ -35,7 +35,7 @@ const W = 1280, H = 720;          // 논리 해상도 (실제 크기는 CSS로 �
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
-const ADV_LV1 = 10, ADV_LV2 = 22;   // 전직 레벨
+const ADV_LV1 = 10, ADV_LV2 = 22, ADV_LV3 = 34;   // 전직 레벨 (1차 · 2차 · 3차 각성)
 // 조합은 두 속성 무기를 이 레벨까지 올려야 열리고(COMBO_LEVEL),
 // 둘 다 최대치가 되면 '완성'되어 효과가 강해진다(COMBO_MASTER).
 //   1로 두면 무기를 모으기만 하는 게 최적이 되어 강화할 이유가 사라지고,
@@ -849,6 +849,7 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   if (C && C.has("shatter") && elem === "physical" && e.slow > 0) { mul *= 1 + .45 * comboPower("shatter"); procCombo("shatter", e.x, e.y); }
   // 전직: 속성 증폭 / 둔화된 적 추가 피해
   if (elem !== "physical") mul *= 1 + advVal("elemAmp", 0) + .12 * traitLv("attune");
+  if (e.burn > 0) mul *= 1 + advVal("poisonBonus", 0);
   if (e.slow > 0 && (advVal("deepFreeze", false) || traitLv("chronos")))
     mul *= 1 + .18 * traitLv("chronos") + (advVal("deepFreeze", false) ? .2 : 0);
   // 조합: 학살 — 처치 누적 버프
@@ -902,8 +903,25 @@ function killEnemy(e, elem) {
   Game.kills++;
   player.onKill(e);
   // 전직: 피의 갈증 — 처치할 때마다 회복
-  if (traitLv("bloodlust"))
-    player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * .006 * traitLv("bloodlust"));
+  const kh = .006 * traitLv("bloodlust") + advVal("killHeal", 0);
+  if (kh) player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * kh);
+  // 3차 각성: 처치할 때마다 폭발이 번진다
+  if (advVal("deathExplode", false))
+    spawnWave({ x: e.x, y: e.y, maxR: 130 * player.stats.area,
+      dmg: e.maxHp * .5 + 40 + player.level * 6, life: .3,
+      color: advColor(), element: "fire" });
+  // 3차 각성: 중독된 적이 죽으면 역병이 퍼진다
+  if (advVal("poisonNova", false) && e.burn > 0) {
+    const R = 200 * player.stats.area;
+    const near = hash.query(e.x, e.y, R, scratch2);
+    for (let i = 0; i < near.length; i++) {
+      const o = near[i];
+      if (!o.active || dist2(o.x, o.y, e.x, e.y) > R * R) continue;
+      o.burn = Math.max(o.burn, 3);
+      o.burnDps = Math.max(o.burnDps, e.burnDps * .9);
+    }
+    spawnWave({ x: e.x, y: e.y, maxR: R, dmg: 0, life: .3, color: "#a8f06a", element: "blood" });
+  }
 
   const C = player.combos;
   if (C) {
@@ -1004,6 +1022,7 @@ const player = {
   // 직업 자원 · 조합 · 전용 특성
   res: 0, noHit: 0, combos: new Set(), mastered: new Set(), traits: [], advance: [],
   items: [], sigils: 0, buffFury: 0, buffWard: 0,
+  tickA: 0, tickB: 0, shieldT: 0, shieldOn: 0, echoT: 0, echoSkill: null,
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
   dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
@@ -1061,8 +1080,10 @@ function useSkill() {
     Sfx.throttled("nores", 260, () => Sfx.play(130, .09, "square", .3, -40));
     return;
   }
-  player.res -= curSkill().cost;
-  curSkill().use(player);
+  const sk = curSkill();
+  player.res -= sk.cost;
+  sk.use(player);
+  if (advVal("skillEcho", false)) { player.echoT = .45; player.echoSkill = sk; }
 }
 
 /* ---------- 속성 조합 판정 ---------- */
@@ -1168,18 +1189,20 @@ function recomputeStats() {
     if (m.crit)     s.crit += m.crit;
     if (m.xpGain)   s.xpGain *= 1 + m.xpGain;
   }
-  // 전직 보정 — 직업 보정과 같은 방식으로 누적된다
+  // 전직 보정 — 직업 보정과 같은 방식으로 누적된다.
+  // 1·2차는 체감이 약해서 증폭한다 (3차는 데이터에 이미 크게 잡혀 있다).
   for (const a of player.advance) {
     const m = a.mods || {};
-    if (m.maxHp)    s.maxHp += m.maxHp;
-    if (m.speed)    s.speed *= 1 + m.speed;
-    if (m.damage)   s.damage *= 1 + m.damage;
-    if (m.area)     s.area *= 1 + m.area;
-    if (m.cooldown) s.cooldown *= 1 + m.cooldown;
-    if (m.armor)    s.armor *= 1 - m.armor;
-    if (m.regen)    s.regen += m.regen;
-    if (m.crit)     s.crit += m.crit;
-    if (m.xpGain)   s.xpGain *= 1 + m.xpGain;
+    const k = a.tier === 3 ? 1 : 1.55;
+    if (m.maxHp)    s.maxHp += m.maxHp * k;
+    if (m.speed)    s.speed *= 1 + m.speed * k;
+    if (m.damage)   s.damage *= 1 + m.damage * k;
+    if (m.area)     s.area *= 1 + m.area * k;
+    if (m.cooldown) s.cooldown *= 1 + m.cooldown * k;
+    if (m.armor)    s.armor *= 1 - m.armor * k;
+    if (m.regen)    s.regen += m.regen * k;
+    if (m.crit)     s.crit += m.crit * k;
+    if (m.xpGain)   s.xpGain *= 1 + m.xpGain * k;
   }
   for (const p of player.passives) PASSIVES[p.key].apply(s, p.level);
   // 고대 비석 — 이번 판 동안만 남는 보정
@@ -1253,21 +1276,82 @@ function applyAdvanceEffects(p, dt, moving) {
   if (advVal("allHoming", false)) p.dynHoming = 6.5;
 
   // 화상·중독 증폭
-  p.dynBurnAmp = 1 + .45 * traitLv("pyreLord") + .5 * traitLv("virulence");
+  p.dynBurnAmp = (1 + .45 * traitLv("pyreLord") + .5 * traitLv("virulence")) * advVal("burnAmp", 1);
+
+  /* ── 3차 각성 — 수치가 아니라 규칙을 바꾸는 것들 ── */
+  p.dynCrit += advVal("critAll", 0);
+  p.dynCritMul += advVal("critMulBonus", 0);
+  p.dynMagnet *= 1 + advVal("magnetAll", 0);
+  const sh = advVal("shadowScale", 0);
+  if (sh) p.dynDmg *= 1 + .1 * sh * Math.min(4, p.noHit / 5);
+
+  // 주기 효과 — 대지 파동 / 낙뢰 / 룬 맥동
+  const quake = advVal("quakeAura", 0), bolt = advVal("boltAura", 0), rune = advVal("runePulse", 0);
+  if (quake || bolt || rune) {
+    p.tickA -= dt;
+    if (p.tickA <= 0) {
+      p.tickA = quake ? 2.2 / quake : bolt ? 2.6 / bolt : 2.4 / rune;
+      const dmg = (90 + p.level * 16) * s.damage * p.dynDmg;
+      if (quake) {
+        spawnWave({ x: p.x, y: p.y, maxR: 300 * s.area * quake, dmg, life: .45,
+          color: "#d8c08a", element: "physical" });
+        cam.shake = Math.max(cam.shake, 7);
+      } else if (bolt) {
+        const pool = nearestEnemies(p.x, p.y, 700, 6);
+        for (const e of pool) { spawnBolt(e.x, e.y); damageEnemy(e, dmg, e.x, e.y - 60, 0, "storm"); }
+      } else {
+        spawnWave({ x: p.x, y: p.y, maxR: 260 * s.area, dmg, life: .4,
+          color: "#8fb0ff", element: "frost" });
+      }
+    }
+  }
+  // 상시 빙결 — 시간의 주인
+  if (advVal("freezeAura", false)) {
+    const R = 340 * s.area;
+    const found = hash.query(p.x, p.y, R, scratch3);
+    for (let i = 0; i < found.length; i++) {
+      const e = found[i];
+      if (e.active && dist2(e.x, e.y, p.x, p.y) < R * R) e.slow = Math.max(e.slow, .4);
+    }
+  }
+  // 주기적 무적 방패 — 일정 시간마다 한 대를 완전히 무시한다
+  const gs = advVal("guardShield", 0);
+  if (gs) {
+    if (p.shieldOn <= 0) {
+      p.shieldT -= dt;
+      if (p.shieldT <= 0) { p.shieldOn = 1; p.shieldT = gs; }
+    }
+  } else { p.shieldOn = 0; }
+
+  // 스킬 메아리 — 0.45초 뒤 한 번 더
+  if (p.echoT > 0) {
+    p.echoT -= dt;
+    if (p.echoT <= 0 && p.echoSkill) { p.echoSkill.use(p); p.echoSkill = null; }
+  }
 }
 
 function applyAdvance(a) {
   player.sigils = Math.max(0, player.sigils - 1);   // 징표를 소비한다
   player.advance.push(a);
   recomputeStats();
-  player.hp = Math.min(player.stats.maxHp, player.hp + (a.mods && a.mods.maxHp > 0 ? a.mods.maxHp : 0));
+  // 전직은 판의 전환점이어야 한다 — 체력을 가득 채우고 주변을 쓸어버린다
+  player.hp = player.stats.maxHp;
   if (a.grant) addWeapon(a.grant);
-  Game.advanceFlash = 3.2;
-  cam.shake = 18;
-  spawnParticles(player.x, player.y, 60, a.color, 400, 1.2, 6);
-  spawnWave({ x: player.x, y: player.y, maxR: 360, dmg: 0, life: .7, color: a.color, element: "holy" });
-  player.iframe = Math.max(player.iframe, 1.5);
-  [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => Sfx.play(f, .18, "triangle", .9), i * 80));
+  Game.advanceFlash = 3.6;
+  Game.slowmo = .9 + a.tier * .25;      // 차수가 높을수록 길게
+  Game.whiteFlash = 1;
+  cam.shake = 14 + a.tier * 8;
+  spawnParticles(player.x, player.y, 50 + a.tier * 30, a.color, 420, 1.4, 7);
+  // 각성의 파동 — 차수만큼 커지고, 3차는 실제로 적을 쓸어버린다
+  spawnWave({
+    x: player.x, y: player.y, maxR: 300 + a.tier * 200,
+    dmg: a.tier >= 2 ? (120 + player.level * 22) * player.stats.damage : 0,
+    life: .9, color: a.color, element: "holy",
+  });
+  player.iframe = Math.max(player.iframe, 1.2 + a.tier * .6);
+  player.res = RES_MAX;                 // 새 스킬을 즉시 써볼 수 있게
+  [523, 659, 784, 1046, 1318, 1568].forEach((f, i) =>
+    setTimeout(() => Sfx.play(f, .2, "triangle", .95), i * 75));
 }
 
 function addPassive(key) {
@@ -1286,7 +1370,7 @@ const Game = {
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
   usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0,
-  lmFlash: 0, lmFlashText: "", advancePending: 0,
+  lmFlash: 0, lmFlashText: "", advancePending: 0, slowmo: 0, whiteFlash: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
@@ -1301,7 +1385,7 @@ const Game = {
   // 징표는 제단의 파수꾼이나 보스에게서 나오므로, 맵을 돌아다닐 이유가 된다.
   checkAdvance() {
     if (this.state === "advance" || this.state === "dead" || this.state === "won") return false;
-    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2]]) {
+    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2], [ADV_LV3, 3]]) {
       if (player.level < lv || player.advance.length >= tier) continue;
       const opts = advanceOptions(tier);
       if (!opts.length) continue;
@@ -1330,13 +1414,15 @@ const Game = {
     player.dash = 0; player.dashHit.clear();
     player.traits.length = 0; player.advance.length = 0; this.advanceFlash = 0;
     player.items.length = 0; player.sigils = 0; player.buffFury = 0; player.buffWard = 0;
+    player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
+    player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
     lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
-    this.comboFlash = 0; resetCombos(); this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
+    this.comboFlash = 0; resetCombos(); this.slowmo = 0; this.whiteFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
     player.cls = CLASSES[selectedClass];
     recomputeStats();
     player.hp = player.stats.maxHp;
@@ -1683,6 +1769,10 @@ function update(dt) {
       if (da < .62) {
         sl.hitIds.add(e.id);
         damageEnemy(e, sl.dmg, sl.x, sl.y, 260, sl.element);
+        // 3차 각성: 참격이 적중하면 연쇄한다
+        if (advVal("chainSlash", false) && Math.random() < .16 && sl.dmg > 4)
+          spawnSlash(player, Math.atan2(e.y - player.y, e.x - player.x) + rnd(-.7, .7),
+                     sl.dmg * .55, sl.len * .8, 1.0, sl.element);
       }
     }
   }
@@ -1793,8 +1883,15 @@ function update(dt) {
       const reduced = raw * player.dynArmor;      // 방벽 등 자세로 줄인 값
       // 한 대에 풀피가 날아가면 플레이어는 대응할 기회 없이 억울하게 죽는다.
       // 최대 체력의 45% 로 상한을 둬서, 풀피에서는 항상 최소 두 대를 버틴다.
-      const dmg = Math.min(reduced, player.stats.maxHp * .45);
+      let dmg = Math.min(reduced, player.stats.maxHp * .45);
       const blocked = raw - reduced;
+      // 3차 각성의 방패 — 한 대를 통째로 무시한다
+      if (player.shieldOn > 0) {
+        player.shieldOn = 0;
+        dmg = 0;
+        spawnNumber(player.x, player.y - 30, "방어!", "#8fd0ff", 20);
+        spawnWave({ x: player.x, y: player.y, maxR: 220, dmg: 0, life: .3, color: "#8fd0ff", element: "frost" });
+      }
       player.hp -= dmg;
       player.iframe = .6; player.hurtFlash = .35;
       player.onHurt();
@@ -2073,12 +2170,33 @@ function drawPlayer() {
   const sx = player.sx, sy = player.sy;
   drawShadow(sx, sy, player.r);
   const blink = player.iframe > 0 && Math.floor(player.iframe * 20) % 2 === 0;
+  const tier = player.advance.length;
+  const tint = tier ? advColor() : "#c9243f";
+  // 전직할수록 몸에서 빛이 난다 — 지금 내가 무엇인지가 화면에 보여야 한다
+  if (tier) {
+    ctx.save();
+    const pulse = .5 + Math.sin(Game.time * (2 + tier)) * .5;
+    ctx.globalAlpha = (.06 + tier * .05) * (.6 + pulse * .4);
+    ctx.fillStyle = tint;
+    ctx.beginPath(); ctx.arc(sx, sy, 26 + tier * 9, 0, TAU); ctx.fill();
+    if (tier >= 3) {
+      ctx.globalAlpha = .5 + pulse * .3;
+      ctx.strokeStyle = tint; ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const a = Game.time * 1.3 + i / 3 * TAU;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 30, a, a + .9);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
   ctx.save();
   ctx.translate(sx, sy);
   ctx.globalAlpha = blink ? .45 : 1;
   const bob = Math.sin(player.walk) * 2;
-  // 망토
-  ctx.fillStyle = "#c9243f";
+  // 망토 — 전직 색으로 물든다
+  ctx.fillStyle = tint;
   ctx.beginPath();
   ctx.moveTo(-10, -6 + bob); ctx.quadraticCurveTo(-16, 10 + bob, -6, 14 + bob);
   ctx.lineTo(6, 14 + bob); ctx.quadraticCurveTo(16, 10 + bob, 10, -6 + bob);
@@ -2086,7 +2204,7 @@ function drawPlayer() {
   // 몸
   ctx.fillStyle = player.hurtFlash > 0 ? "#ffb4b4" : "#e8e5da";
   ctx.fillRect(-8, -6 + bob, 16, 15);
-  ctx.fillStyle = "#c9243f";
+  ctx.fillStyle = tint;
   ctx.fillRect(-1.6, -6 + bob, 3.2, 15);
   ctx.fillRect(-8, -1 + bob, 16, 3);
   // 머리
@@ -2713,7 +2831,7 @@ const CLASSES = [
       update(p, dt, moving) {
         const bl = traitLv("bulwark") + traitLv("immovable");
         const need = Math.max(.12, advVal("bulwarkInstant", .6) - .15 * bl);
-        const on = !moving && p.stillTime >= need;
+        const on = advVal("bulwarkAlways", false) || (!moving && p.stillTime >= need);
         p.bulwark = on ? Math.min(1, p.bulwark + dt * 6) : Math.max(0, p.bulwark - dt * 8);
 
         // 접전: 곁에 붙은 적 수만큼 피해가 오른다 (p.press 는 공용 패스에서 계산됨)
@@ -2861,7 +2979,9 @@ const CLASSES = [
       update(p, dt, moving) {
         const maxStage = 3 + traitLv("deepMana") + advVal("maxStageBonus", 0);
         const rate = (1 / .8) * (1 + .3 * traitLv("focus"));
-        if (moving) {
+        if (advVal("alwaysMaxChannel", false)) {
+          p.channel = maxStage;                      // 각성 — 멈출 필요가 없다
+        } else if (moving) {
           const floor = Math.max(traitLv("residue") > 0 ? 1 : 0, advVal("moveKeep", 0));
           p.channel = Math.max(floor, p.channel - dt * 3.4);
         } else {
@@ -3241,10 +3361,280 @@ const ADVANCES = [
       { key: "packleader", name: "무리의 우두머리", icon: "🐕", max: 3, desc: "궤도 무기가 하나 더 늘어난다.",
         detail: l => "궤도 +" + l },
     ] },
+
+  /* ══ 3차 각성 — 판의 결말을 정하는 단계. 수치가 아니라 규칙을 바꾼다 ══ */
+
+  /* ── 성기사 계열 ── */
+  { key: "eternalwall", from: "everwall", tier: 3, name: "영원의 방벽", icon: "🏛️", color: "#fff0c8",
+    tagline: "무너지는 법을 잊었다",
+    desc: "방벽이 이동 중에도 유지된다. 체력이 압도적이고 매초 회복한다.",
+    mods: { maxHp: 900, armor: .3, area: .2 },
+    stanceMod: { bulwarkAlways: true, bulwarkCap: .94, regenBonus: .05, thornsAlways: 1.4 },
+    skill: skWave("불멸 선언", "🕊️", 45, "완전히 회복하고 오랫동안 무적이 된다.",
+      { r: 520, dmg: 340, perLv: 26, elem: "holy", color: "#fff0c8", iframe: 5, healPct: 1, shake: 22 }) },
+
+  { key: "earthjudge", from: "everwall", tier: 3, name: "대지의 심판자", icon: "⛰️", color: "#d8c08a",
+    tagline: "선 자리가 곧 심판대",
+    desc: "방벽 중 주기적으로 대지가 갈라져 사방을 짓밟는다.",
+    mods: { maxHp: 620, damage: .55, area: .3 },
+    stanceMod: { bulwarkCap: .92, regenBonus: .035, quakeAura: 1.4, pressDmg: .1 },
+    skill: skWave("대지 붕괴", "🌋", 50, "땅을 무너뜨려 주변을 통째로 지운다.",
+      { r: 620, dmg: 420, perLv: 34, elem: "fire", color: "#d8c08a", shake: 26, iframe: 1.5 }) },
+
+  { key: "lightlancer", from: "crusader", tier: 3, name: "빛의 기병", icon: "🌠", color: "#ffd98a",
+    tagline: "멈추지 않는 돌격",
+    desc: "돌진이 훨씬 길고 강해지며, 스킬이 한 번 더 메아리친다.",
+    mods: { maxHp: 380, damage: .6, speed: .22 },
+    stanceMod: { moveBulwark: .85, bulwarkCap: .9, skillEcho: true },
+    skill: skDash("천상의 창격", "🏇", 40, "빛이 되어 전장을 꿰뚫는다.",
+      { dur: .8, dmg: 420, perLv: 32 }) },
+
+  { key: "warsaint", from: "crusader", tier: 3, name: "성전의 화신", icon: "☀️", color: "#ffe9a8",
+    tagline: "곁의 적이 곧 힘",
+    desc: "접전 스택당 피해가 폭증하고, 처치할 때마다 폭발이 번진다.",
+    mods: { maxHp: 420, damage: .5, area: .25 },
+    stanceMod: { pressDmg: .22, bulwarkCap: .9, deathExplode: true, moveBulwark: .5 },
+    skill: skWave("성전의 나팔", "📯", 50, "성전의 함성이 사방을 불태운다.",
+      { r: 560, dmg: 380, perLv: 30, elem: "holy", color: "#ffe9a8", iframe: 2, healPct: .5 }) },
+
+  { key: "reaperlord", from: "executioner", tier: 3, name: "사신", icon: "💀", color: "#ff2d5e",
+    tagline: "수확의 때",
+    desc: "체력 절반 이하의 적을 즉사시킨다. 치명타가 항상 터진다.",
+    mods: { damage: .8, crit: .35 },
+    stanceMod: { execute: .45, pressDmg: .18, critAll: .3 },
+    skill: skSlash("대낫", "🪦", 45, "앞의 모든 것을 네 번 벤다.",
+      { n: 4, dmg: 460, perLv: 34, len: 300, elem: "blood", color: "#ff2d5e", spread: .5, iframe: .8 }) },
+
+  { key: "bloodjudge", from: "executioner", tier: 3, name: "피의 재판관", icon: "🩸", color: "#c9184a",
+    tagline: "흘린 피가 돌아온다",
+    desc: "처치할 때마다 폭발하고 회복한다. 피해가 극대화된다.",
+    mods: { damage: .7, maxHp: 260, crit: .2 },
+    stanceMod: { execute: .3, deathExplode: true, killHeal: .012, pressDmg: .16 },
+    skill: skWave("피의 심판", "⚖️", 48, "피의 파동이 모든 것을 되돌린다.",
+      { r: 580, dmg: 400, perLv: 32, elem: "blood", color: "#c9184a", healPct: .5, iframe: 1.5 }) },
+
+  { key: "flameavatar", from: "grandinquisitor", tier: 3, name: "불의 화신", icon: "🔥", color: "#ff5a1c",
+    tagline: "닿는 모든 것이 재가 된다",
+    desc: "주변이 항상 불타고, 화상 피해가 폭증한다.",
+    mods: { damage: .6, area: .45 },
+    stanceMod: { burnAura: true, pressDmg: .14, burnAmp: 2.2, deathExplode: true },
+    skill: skWave("겁화", "🌋", 50, "세상을 태우는 불길이 퍼져나간다.",
+      { r: 680, dmg: 400, perLv: 34, elem: "fire", color: "#ff5a1c", shake: 24, life: .8 }) },
+
+  { key: "puresun", from: "grandinquisitor", tier: 3, name: "정화의 태양", icon: "🌞", color: "#ffd000",
+    tagline: "그늘이 남지 않는다",
+    desc: "거대한 성역이 상시 전개되고, 스킬이 두 번 발동한다.",
+    mods: { damage: .5, area: .6, maxHp: 220 },
+    stanceMod: { burnAura: true, skillEcho: true, pressDmg: .12, regenBonus: .02 },
+    grant: "aura",
+    skill: skStrike("태양 강림", "☄️", 52, "태양의 조각이 적들에게 쏟아진다.",
+      { n: 14, dmg: 380, perLv: 30, elem: "fire", color: "#ffd000", splash: 200 }) },
+
+  /* ── 전사 계열 ── */
+  { key: "undying", from: "warlord", tier: 3, name: "불멸의 광전사", icon: "💀", color: "#ff3a2a",
+    tagline: "죽어도 멈추지 않는다",
+    desc: "체력이 낮을수록 압도적으로 강해지고, 처치할 때마다 크게 회복한다.",
+    mods: { damage: .5, maxHp: 300 },
+    stanceMod: { lowHpFury: true, furyAmp: 3.4, killHeal: .018, rageGain: 2.6 },
+    skill: skWave("최후의 포효", "🗣️", 42, "죽음을 거부하는 포효. 완전히 회복한다.",
+      { r: 560, dmg: 380, perLv: 32, elem: "physical", color: "#ff3a2a", iframe: 2.5, healPct: 1 }) },
+
+  { key: "warmaster", from: "warlord", tier: 3, name: "전장의 지배자", icon: "🎖️", color: "#ff7a4a",
+    tagline: "전장이 그의 것이다",
+    desc: "돌진이 전장을 가르고, 스킬이 한 번 더 메아리친다.",
+    mods: { damage: .65, maxHp: 260, speed: .18 },
+    stanceMod: { lowHpFury: true, furyAmp: 2.2, skillEcho: true, rageGain: 2.2 },
+    skill: skDash("천지개벽", "⚔️", 45, "전장을 가로지르며 모든 것을 부순다.",
+      { dur: .9, dmg: 460, perLv: 34 }) },
+
+  { key: "worldbreaker", from: "destroyer", tier: 3, name: "대지파괴자", icon: "🌎", color: "#b03a1a",
+    tagline: "땅째로 부순다",
+    desc: "모든 타격이 폭발하고, 처치할 때도 폭발한다.",
+    mods: { damage: .6, area: .45 },
+    stanceMod: { shatterHit: .55, deathExplode: true, quakeAura: 1.0 },
+    skill: skWave("종말", "☄️", 50, "대지가 갈라지며 모든 것이 무너진다.",
+      { r: 700, dmg: 440, perLv: 36, elem: "fire", color: "#b03a1a", shake: 28, life: .85 }) },
+
+  { key: "stormhammer", from: "destroyer", tier: 3, name: "폭풍의 망치", icon: "🔨", color: "#ffb03a",
+    tagline: "내려칠 때마다 벼락이 친다",
+    desc: "타격이 폭발하고, 주기적으로 벼락이 사방에 떨어진다.",
+    mods: { damage: .58, area: .3, cooldown: -.2 },
+    stanceMod: { shatterHit: .4, boltAura: 1.2 },
+    skill: skStrike("천둥망치", "⚡", 46, "벼락이 적들 위로 내리꽂힌다.",
+      { n: 16, dmg: 340, perLv: 30, elem: "storm", color: "#ffb03a", splash: 180 }) },
+
+  { key: "swordgod", from: "swordmaster", tier: 3, name: "검신", icon: "🗡️", color: "#ffe066",
+    tagline: "한 번 베면 끝난다",
+    desc: "참격이 적중할 때마다 연쇄하고, 치명타가 압도적이다.",
+    mods: { damage: .7, crit: .3 },
+    stanceMod: { doubleSlash: true, chainSlash: true, critAll: .25, crowdArmor: .014 },
+    skill: skSlash("검신 강림", "🌟", 50, "열 갈래의 검격이 전장을 가른다.",
+      { n: 10, dmg: 340, perLv: 30, len: 320, elem: "physical", color: "#ffe066", spread: .72, iframe: 1 }) },
+
+  { key: "onestrike", from: "swordmaster", tier: 3, name: "일섬의 달인", icon: "⚡", color: "#fff3b0",
+    tagline: "단 한 수",
+    desc: "치명타 피해가 극단적으로 커지고, 스킬이 메아리친다.",
+    mods: { damage: .5, crit: .4 },
+    stanceMod: { doubleSlash: true, critAll: .35, critMulBonus: 2.2, skillEcho: true },
+    skill: skSlash("무형일섬", "✴️", 48, "형체 없는 일섬이 앞을 지운다.",
+      { n: 3, dmg: 620, perLv: 44, len: 340, elem: "physical", color: "#fff3b0", spread: .25, iframe: .8 }) },
+
+  { key: "invincible", from: "arenaking", tier: 3, name: "불패의 투사", icon: "🛡️", color: "#ffdf6e",
+    tagline: "쓰러지지 않는다",
+    desc: "포위될수록 단단해지고 회복한다. 주기적으로 피해를 완전히 무시한다.",
+    mods: { maxHp: 760, armor: .28, area: .25 },
+    stanceMod: { crowdArmor: .034, crowdRegen: .0026, guardShield: 6 },
+    skill: skWave("불패 선언", "🏅", 45, "관중의 함성이 모든 상처를 지운다.",
+      { r: 560, dmg: 340, perLv: 28, elem: "holy", color: "#ffdf6e", iframe: 3.5, healPct: 1 }) },
+
+  { key: "crowdking", from: "arenaking", tier: 3, name: "군중의 지배자", icon: "👑", color: "#ffcf3a",
+    tagline: "많을수록 강하다",
+    desc: "주변 적이 많을수록 피해와 방어가 함께 폭증한다.",
+    mods: { maxHp: 520, damage: .55, area: .4 },
+    stanceMod: { crowdArmor: .026, crowdRegen: .0016, pressDmg: .2, deathExplode: true },
+    skill: skWave("개선의 폭풍", "🎺", 48, "환호가 폭풍이 되어 사방을 휩쓴다.",
+      { r: 640, dmg: 400, perLv: 32, elem: "physical", color: "#ffcf3a", iframe: 2, healPct: .6 }) },
+
+  /* ── 추적자 계열 ── */
+  { key: "shadowitself", from: "shadowlord", tier: 3, name: "그림자 그 자체", icon: "🌑", color: "#4fe0a0",
+    tagline: "형체가 없다",
+    desc: "치명타가 거의 항상 터지고, 안 맞을수록 끝없이 강해진다.",
+    mods: { crit: .45, damage: .55, speed: .18 },
+    stanceMod: { focusCrit: true, focusAmp: 3.2, critAll: .3, shadowScale: 3 },
+    skill: skBlink("무형", "🌀", 45, "세 번 순간이동하며 칼날의 폭풍을 남긴다.",
+      { dist: 460, n: 30, dmg: 300, perLv: 26, elem: "physical", color: "#4fe0a0", pierce: 6, iframe: 2 }) },
+
+  { key: "assassingod", from: "shadowlord", tier: 3, name: "암살의 신", icon: "🗡️", color: "#8ef0b0",
+    tagline: "한 번에 끝낸다",
+    desc: "체력이 낮은 적을 즉사시키고, 치명타 피해가 극단적이다.",
+    mods: { crit: .35, damage: .7 },
+    stanceMod: { focusCrit: true, focusAmp: 2.4, execute: .35, critMulBonus: 2.0 },
+    skill: skBurst("절명", "☠️", 48, "주변의 모든 적에게 필살의 칼날이 날아간다.",
+      { n: 34, dmg: 300, perLv: 26, kind: "dagger", elem: "physical", color: "#8ef0b0",
+        homing: 9, pierce: 5, speed: 760 }) },
+
+  { key: "plaguelord", from: "toxicmaster", tier: 3, name: "역병의 화신", icon: "☣️", color: "#a8f06a",
+    tagline: "숨만 쉬어도 퍼진다",
+    desc: "중독된 적이 죽으면 역병이 사방으로 번진다. 지속 피해가 압도적.",
+    mods: { damage: .5, area: .45 },
+    stanceMod: { focusCrit: true, poison: true, poisonNova: true, burnAmp: 2.4 },
+    skill: skWave("대역병", "🦠", 46, "역병이 전장을 통째로 덮는다.",
+      { r: 700, dmg: 340, perLv: 28, elem: "blood", color: "#a8f06a", life: .9 }) },
+
+  { key: "venomking", from: "toxicmaster", tier: 3, name: "독왕", icon: "🐍", color: "#7ad04a",
+    tagline: "독이 곧 왕관",
+    desc: "중독이 훨씬 강해지고, 중독된 적에게 주는 피해가 폭증한다.",
+    mods: { damage: .62, maxHp: 220, crit: .2 },
+    stanceMod: { focusCrit: true, poison: true, burnAmp: 3.2, poisonBonus: .45 },
+    skill: skBurst("맹독 폭풍", "💚", 46, "맹독의 탄막이 사방으로 퍼진다.",
+      { n: 26, dmg: 320, perLv: 26, kind: "orb", elem: "blood", color: "#7ad04a",
+        homing: 7, pierce: 6, speed: 520 }) },
+
+  { key: "godarcher", from: "sharpshooter", tier: 3, name: "신궁", icon: "🏹", color: "#d8f06a",
+    tagline: "화살이 스스로 찾아간다",
+    desc: "모든 발사체가 유도되고 크게 관통하며, 훨씬 빨라진다.",
+    mods: { damage: .6, cooldown: -.26 },
+    stanceMod: { projBoost: 1.0, pierceBonus: 6, allHoming: true, critAll: .2 },
+    skill: skBurst("만천화우", "🎯", 50, "하늘을 덮은 화살이 모든 것에 꽂힌다.",
+      { n: 44, dmg: 260, perLv: 24, kind: "dagger", elem: "physical", color: "#d8f06a",
+        homing: 11, pierce: 8, speed: 820 }) },
+
+  { key: "thousandarrow", from: "sharpshooter", tier: 3, name: "천 개의 화살", icon: "🎇", color: "#c2e06a",
+    tagline: "쏘는 것을 멈추지 않는다",
+    desc: "공격 속도가 극단적으로 빨라지고, 스킬이 메아리친다.",
+    mods: { damage: .45, cooldown: -.4 },
+    stanceMod: { projBoost: .8, pierceBonus: 4, allHoming: true, skillEcho: true },
+    skill: skBurst("연사 폭풍", "🌪️", 44, "쉼 없는 화살의 폭풍.",
+      { n: 30, dmg: 250, perLv: 22, kind: "dagger", elem: "physical", color: "#c2e06a",
+        homing: 8, pierce: 6, speed: 720 }) },
+
+  { key: "beastking", from: "beastmaster", tier: 3, name: "야수의 왕", icon: "🦁", color: "#e0a86a",
+    tagline: "무리가 곧 군대",
+    desc: "궤도 무기가 대폭 늘어나고, 처치할 때마다 회복한다.",
+    mods: { damage: .5, area: .35, maxHp: 300 },
+    stanceMod: { projBoost: .6, pierceBonus: 3, orbitBeast: 6, killHeal: .01 },
+    grant: "orbit",
+    skill: skBurst("맹수 해방", "🐾", 46, "굶주린 무리를 전부 풀어놓는다.",
+      { n: 30, dmg: 320, perLv: 28, kind: "orb", elem: "blood", color: "#e0a86a",
+        homing: 9, pierce: 6, speed: 540 }) },
+
+  { key: "wolflegion", from: "beastmaster", tier: 3, name: "늑대 군단", icon: "🐺", color: "#c98a5a",
+    tagline: "혼자 싸우지 않는다",
+    desc: "궤도가 늘고 주기적으로 벼락 같은 습격이 쏟아진다.",
+    mods: { damage: .55, area: .3, speed: .16 },
+    stanceMod: { projBoost: .6, pierceBonus: 3, orbitBeast: 4, boltAura: 1.0 },
+    skill: skStrike("군단 돌격", "🐕", 46, "무리가 사방에서 덮친다.",
+      { n: 18, dmg: 320, perLv: 28, elem: "blood", color: "#c98a5a", splash: 170 }) },
+
+  /* ── 마법사 계열 ── */
+  { key: "swordmage", from: "swordsaint", tier: 3, name: "검마도", icon: "⚔️", color: "#f0d8ff",
+    tagline: "검과 마법이 하나로",
+    desc: "이동 중에도 영창이 최대로 유지된다. 근접 피해가 압도적.",
+    mods: { damage: .65, maxHp: 300, speed: .16, crit: .2 },
+    stanceMod: { alwaysMaxChannel: true, meleeBonus: 1.8, chainSlash: true },
+    skill: skSlash("검마 무쌍", "🌪️", 48, "검과 마법이 뒤섞인 여덟 갈래 참격.",
+      { n: 8, dmg: 380, perLv: 32, len: 300, elem: "frost", color: "#f0d8ff", spread: .85, iframe: 1 }) },
+
+  { key: "mushin", from: "swordsaint", tier: 3, name: "무념무상", icon: "🌀", color: "#e0c2ff",
+    tagline: "생각하지 않는다",
+    desc: "영창이 항상 최대이고, 참격이 끝없이 연쇄한다.",
+    mods: { damage: .55, crit: .3, cooldown: -.2 },
+    stanceMod: { alwaysMaxChannel: true, meleeBonus: 1.2, chainSlash: true, skillEcho: true },
+    skill: skBlink("심상 이동", "💠", 44, "생각의 속도로 이동하며 베어낸다.",
+      { dist: 420, n: 24, dmg: 300, perLv: 26, elem: "frost", color: "#e0c2ff", pierce: 5, iframe: 1.6 }) },
+
+  { key: "runemaster", from: "runeknight", tier: 3, name: "룬 마스터", icon: "🔷", color: "#8fb0ff",
+    tagline: "룬이 스스로 터진다",
+    desc: "영창이 항상 최대이고, 룬이 주기적으로 스스로 폭발한다.",
+    mods: { damage: .55, maxHp: 420, armor: .2 },
+    stanceMod: { alwaysMaxChannel: true, runeBurst: true, runePulse: 1.4, moveKeep: 4 },
+    skill: skWave("룬 대폭발", "💠", 46, "새겨둔 모든 룬이 한꺼번에 터진다.",
+      { r: 640, dmg: 400, perLv: 32, elem: "frost", color: "#8fb0ff", iframe: 2, healPct: .4 }) },
+
+  { key: "runearmor", from: "runeknight", tier: 3, name: "불괴의 룬갑", icon: "🛡️", color: "#a8c0ff",
+    tagline: "부서지지 않는 갑주",
+    desc: "체력과 방어가 압도적이고, 주기적으로 피해를 완전히 무시한다.",
+    mods: { maxHp: 800, armor: .34, damage: .35 },
+    stanceMod: { alwaysMaxChannel: true, runeBurst: true, guardShield: 5, moveKeep: 4 },
+    skill: skWave("절대 방벽", "🔰", 44, "룬 갑주가 모든 것을 튕겨낸다.",
+      { r: 560, dmg: 340, perLv: 28, elem: "frost", color: "#a8c0ff", iframe: 4.5, healPct: 1 }) },
+
+  { key: "sagepeak", from: "archmage", tier: 3, name: "현자의 정점", icon: "🔮", color: "#c9a3ff",
+    tagline: "멈춰 설 필요가 없다",
+    desc: "영창이 항상 최대로 유지되고, 모든 발사체가 크게 관통한다.",
+    mods: { damage: .7, area: .3 },
+    stanceMod: { alwaysMaxChannel: true, maxStageBonus: 2, pierceAtMax: 5, elemAmp: .4 },
+    skill: skStrike("천체 붕괴", "☄️", 52, "하늘의 별들이 통째로 떨어진다.",
+      { n: 18, dmg: 420, perLv: 34, elem: "fire", color: "#c9a3ff", splash: 220 }) },
+
+  { key: "doomcaster", from: "archmage", tier: 3, name: "파멸의 술사", icon: "💥", color: "#ff8ad8",
+    tagline: "닿으면 터진다",
+    desc: "처치할 때마다 폭발이 번지고, 속성 피해가 폭증한다.",
+    mods: { damage: .8, area: .35 },
+    stanceMod: { alwaysMaxChannel: true, deathExplode: true, elemAmp: .6, pierceAtMax: 3 },
+    skill: skWave("파멸", "🌌", 50, "존재를 지우는 파멸의 파동.",
+      { r: 720, dmg: 440, perLv: 36, elem: "fire", color: "#ff8ad8", shake: 26, life: .9 }) },
+
+  { key: "timelord", from: "grandsage", tier: 3, name: "시간의 주인", icon: "⏳", color: "#8ce0c0",
+    tagline: "시간이 그를 비켜 간다",
+    desc: "주변이 항상 깊게 얼어붙고, 영창 중 크게 회복한다.",
+    mods: { maxHp: 340, damage: .5, regen: 3, xpGain: .4 },
+    stanceMod: { alwaysMaxChannel: true, channelHeal: .03, deepFreeze: true, freezeAura: true },
+    skill: skWave("시간 정지·완성", "🕰️", 48, "시간을 완전히 멈춘다.",
+      { r: 800, dmg: 360, perLv: 30, elem: "frost", color: "#8ce0c0", life: 1.1, iframe: 3, shake: 20 }) },
+
+  { key: "allknowing", from: "grandsage", tier: 3, name: "만물의 이치", icon: "📖", color: "#9ce0e0",
+    tagline: "모든 것을 안다",
+    desc: "영창이 항상 최대이고, 스킬이 메아리치며, 경험치를 크게 더 얻는다.",
+    mods: { damage: .55, maxHp: 280, xpGain: .8, cooldown: -.22 },
+    stanceMod: { alwaysMaxChannel: true, skillEcho: true, channelHeal: .018, elemAmp: .35, magnetAll: 3 },
+    skill: skStrike("만상 붕괴", "✴️", 50, "만물의 이치가 적들을 해체한다.",
+      { n: 20, dmg: 360, perLv: 30, elem: "storm", color: "#9ce0e0", splash: 200 }) },
 ];
 
 function advanceOptions(tier) {
-  const from = tier === 1 ? (player.cls && player.cls.key) : (player.advance[0] && player.advance[0].key);
+  const prev = player.advance[tier - 2];
+  const from = tier === 1 ? (player.cls && player.cls.key) : (prev && prev.key);
   return ADVANCES.filter(a => a.tier === tier && a.from === from);
 }
 // 전직 스탯/자세/스킬은 나중에 얻은 것이 이긴다
@@ -3707,7 +4097,8 @@ function drawHUD() {
     ctx.font = "800 40px " + FONT; ctx.fillStyle = advColor();
     ctx.fillText(advIcon() + "  " + advName(), W / 2, 132);
     ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.fillText("전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, 164);
+    ctx.fillText(player.advance.length >= 3 ? "★ 각성 완료 — 규칙이 바뀌었다"
+                                            : "전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, 164);
     ctx.globalAlpha = 1;
   }
 
@@ -3943,13 +4334,18 @@ function drawAdvance() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   const tier = player.advance.length + 1;
-  ctx.font = "800 52px " + FONT; ctx.fillStyle = "#ffd34d";
-  ctx.fillText(tier === 1 ? "1차 전직" : "2차 전직", W / 2, 78);
+  ctx.font = "800 52px " + FONT;
+  ctx.fillStyle = tier === 3 ? "#ff8ad8" : "#ffd34d";
+  ctx.fillText(tier === 3 ? "★ 3차 각성 ★" : tier + "차 전직", W / 2, 78);
   ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.62)";
-  ctx.fillText(advName() + " · 앞으로 무엇이 될지 고르세요 — 스킬과 특성이 통째로 바뀝니다", W / 2, 112);
+  ctx.fillText(tier === 3
+    ? advName() + " · 마지막 각성 — 규칙 자체가 바뀝니다"
+    : advName() + " · 앞으로 무엇이 될지 고르세요 — 스킬과 특성이 통째로 바뀝니다", W / 2, 112);
 
   const n = Game.choices.length;
-  const cw = 400, ch = 470, gap = 30;
+  // 3차 각성 카드는 특성·지급무기가 없어 아래가 비므로 높이를 줄인다
+  const hasExtra = Game.choices.some(a => (a.traits && a.traits.length) || a.grant);
+  const cw = 400, ch = hasExtra ? 470 : 372, gap = 30;
   const total = n * cw + (n - 1) * gap;
   const x0 = (W - total) / 2, y0 = 150;
 
@@ -4218,7 +4614,15 @@ function frame(now) {
   if (Game.houndWarn > 0) Game.houndWarn = Math.max(0, Game.houndWarn - dt);
   if (Game.lmFlash > 0) Game.lmFlash = Math.max(0, Game.lmFlash - dt);
 
-  acc += dt;
+  // 전직 순간의 슬로모션 — 연출 타이머는 실시간, 시뮬레이션만 늦춘다
+  let simDt = dt;
+  if (Game.slowmo > 0) {
+    Game.slowmo = Math.max(0, Game.slowmo - dt);
+    simDt *= .34;
+  }
+  if (Game.whiteFlash > 0) Game.whiteFlash = Math.max(0, Game.whiteFlash - dt * 1.6);
+
+  acc += simDt;
   let guard = 0;
   while (acc >= STEP && guard++ < 5) { update(STEP); acc -= STEP; }
 
@@ -4246,6 +4650,11 @@ function frame(now) {
       g.addColorStop(1, "rgba(255,0,40," + a.toFixed(3) + ")");
       ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
     }
+  }
+
+  if (Game.whiteFlash > 0) {
+    ctx.fillStyle = "rgba(255,248,230," + (Game.whiteFlash * .55).toFixed(3) + ")";
+    ctx.fillRect(0, 0, W, H);
   }
 
   if (Game.state === "title") drawTitle();

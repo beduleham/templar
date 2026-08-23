@@ -5,8 +5,13 @@
 
 ## 플레이
 
+**https://beduleham.github.io/templar/game/** — 링크만 있으면 바로 된다.
+
+`claude/vampire-survival-game-uosewa` 브랜치에 푸시하면
+`.github/workflows/pages.yml` 이 자동으로 갱신한다.
+
 ```
-game/index.html 을 브라우저로 열면 끝. 빌드도 서버도 필요 없다.
+game/index.html 을 브라우저로 열어도 된다. 빌드도 서버도 필요 없다.
 ```
 
 | 조작 | |

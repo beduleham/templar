@@ -35,12 +35,16 @@ const W = 1280, H = 720;          // 논리 해상도 (실제 크기는 CSS로 �
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
-const ADV_LV1 = 8, ADV_LV2 = 16, ADV_LV3 = 26;    // 전직 레벨 (1차 · 2차 · 3차 각성)
+// 전직 레벨 (1차 · 2차 · 3차 · 4차 각성)
+const ADV_LEVELS = [8, 24, 48, 80];
+// 징표는 단계만큼 든다 — 뒤로 갈수록 제단과 보스를 더 찾아다녀야 한다
+const ADV_SIGILS = [1, 2, 3, 4];
 // 레벨만으로 열면 경험치 배율을 조절할 때마다 전직 시점이 같이 흔들린다.
-// 판 전체 길이(RUN_TIME)의 1/4 · 2/4 · 3/4 지점을 함께 요구해, 성장 속도와 무관하게
-// 한 판 안에서 늘 같은 리듬으로 열리게 한다. 15분 기준 3:45 · 7:30 · 11:15.
-const ADV_AT = [.25, .5, .75];
+// 판 전체 길이(RUN_TIME)의 1/5 · 2/5 · 3/5 · 4/5 지점을 함께 요구해, 성장 속도와
+// 무관하게 한 판 안에서 늘 같은 리듬으로 열리게 한다. 15분 기준 3:00 · 6:00 · 9:00 · 12:00.
+const ADV_AT = [.2, .4, .6, .8];
 const advTime = tier => RUN_TIME * ADV_AT[tier - 1];
+const ADV_TIERS = 4;
 // 조합은 두 속성 무기를 이 레벨까지 올려야 열리고(COMBO_LEVEL),
 // 둘 다 최대치가 되면 '완성'되어 효과가 강해진다(COMBO_MASTER).
 //   1로 두면 무기를 모으기만 하는 게 최적이 되어 강화할 이유가 사라지고,
@@ -1506,7 +1510,7 @@ function recomputeStats() {
   // 1·2차는 체감이 약해서 증폭한다 (3차는 데이터에 이미 크게 잡혀 있다).
   for (const a of player.advance) {
     const m = a.mods || {};
-    const k = a.tier === 3 ? 1 : 1.55;
+    const k = a.tier >= 3 ? 1 : 1.55;
     if (m.maxHp)    s.maxHp += m.maxHp * k;
     if (m.speed)    s.speed *= 1 + m.speed * k;
     if (m.damage)   s.damage *= 1 + m.damage * k;
@@ -1646,7 +1650,7 @@ function applyAdvanceEffects(p, dt, moving) {
 }
 
 function applyAdvance(a) {
-  player.sigils = Math.max(0, player.sigils - 1);   // 징표를 소비한다
+  player.sigils = Math.max(0, player.sigils - (ADV_SIGILS[a.tier - 1] || 1));   // 단계만큼 소비한다
   player.advance.push(a);
   recomputeStats();
   // 전직은 판의 전환점이어야 한다 — 체력을 가득 채우고 주변을 쓸어버린다
@@ -1702,11 +1706,11 @@ const Game = {
   // 징표는 제단의 파수꾼이나 보스에게서 나오므로, 맵을 돌아다닐 이유가 된다.
   checkAdvance() {
     if (this.state === "advance" || this.state === "dead" || this.state === "won") return false;
-    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2], [ADV_LV3, 3]]) {
-      if (player.level < lv || player.advance.length >= tier) continue;
+    for (let tier = 1; tier <= ADV_TIERS; tier++) {
+      if (player.level < ADV_LEVELS[tier - 1] || player.advance.length >= tier) continue;
       const opts = advanceOptions(tier);
       if (!opts.length) continue;
-      // 시간 관문 — 레벨을 아무리 빨리 올려도 판의 1/4 · 2/4 · 3/4 전에는 열리지 않는다
+      // 시간 관문 — 레벨을 아무리 빨리 올려도 판의 1/5 · 2/5 · 3/5 · 4/5 전에는 열리지 않는다
       if (this.time < advTime(tier)) {
         this.advancePending = 0;
         this.advanceWaitT = advTime(tier) - this.time;
@@ -1714,7 +1718,8 @@ const Game = {
         return false;
       }
       this.advanceWaitT = 0;
-      if (player.sigils < 1) { this.advancePending = tier; return false; }
+      // 징표는 단계만큼 든다
+      if (player.sigils < ADV_SIGILS[tier - 1]) { this.advancePending = tier; return false; }
       this.advancePending = 0;
       this.choices = opts;
       this.state = "advance";
@@ -4221,9 +4226,108 @@ const ADVANCES = [
     stanceMod: { alwaysMaxChannel: true, skillEcho: true, channelHeal: .018, elemAmp: .35, magnetAll: 3 },
     skill: skStrike("만상 붕괴", "✴️", 50, "만물의 이치가 적들을 해체한다.",
       { n: 20, dmg: 360, perLv: 30, elem: "storm", color: "#9ce0e0", splash: 200 }) },
+  /* ══════════ 4차 · 초월 ══════════
+     3차 최종형이 32종이라 경로마다 붙이면 데이터가 64개가 되고 하나하나가 얕아진다.
+     그래서 4차는 직업을 부모로 삼아 직업당 3종만 두되, 각각을 판을 끝내는 무게로 만든다.
+     증폭(k)을 받지 않고 아래 수치가 그대로 적용된다. */
+
+  /* ── 성기사 ── */
+  { key: "godwall", from: "paladin", tier: 4, name: "신의 성벽", icon: "🏰", color: "#fff4d0",
+    tagline: "밀려나지 않는다",
+    desc: "체력이 세 배가 되고, 멈춰 있는 동안 받는 피해가 거의 사라진다.",
+    mods: { maxHp: 1600, armor: .42, area: .3, regen: 6 },
+    stanceMod: { bulwarkAlways: true, bulwarkCap: .97, crowdArmor: .05, crowdRegen: .004, thornsAlways: 3 },
+    skill: skWave("성벽 선포", "🛡️", 40, "완전히 회복하고 오래 무적이 되며 사방을 밀어낸다.",
+      { r: 760, dmg: 700, perLv: 40, elem: "holy", color: "#fff4d0", iframe: 6, healPct: 1, shake: 26 }) },
+  { key: "dawnjudge", from: "paladin", tier: 4, name: "여명의 심판자", icon: "🌅", color: "#ffd36e",
+    tagline: "빛이 먼저 닿는다",
+    desc: "곁의 적이 많을수록 피해가 폭증하고, 처치할 때마다 빛이 번진다.",
+    mods: { damage: 1.1, area: .45, crit: .3, maxHp: 700 },
+    stanceMod: { pressDmg: .3, critAll: .3, deathExplode: true, crowdArmor: .03 },
+    skill: skWave("여명", "☀️", 44, "빛이 폭발하며 화면을 휩쓸고 체력을 채운다.",
+      { r: 820, dmg: 900, perLv: 52, elem: "holy", color: "#ffd36e", iframe: 3, healPct: .8, shake: 24 }) },
+  { key: "eternalvow", from: "paladin", tier: 4, name: "영원의 맹세", icon: "⚜️", color: "#c9e8ff",
+    tagline: "쓰러져도 다시 선다",
+    desc: "피해를 크게 줄이고 매초 회복하며, 가시가 항상 돈다.",
+    mods: { maxHp: 1200, armor: .34, regen: 10, damage: .5 },
+    stanceMod: { bulwarkAlways: true, thornsAlways: 4, guardShield: 4, crowdRegen: .005 },
+    skill: skWave("불멸의 맹세", "🕊️", 42, "완전히 회복하고 주변을 정화한다.",
+      { r: 700, dmg: 620, perLv: 38, elem: "holy", color: "#c9e8ff", iframe: 5, healPct: 1, shake: 20 }) },
+
+  /* ── 전사 ── */
+  { key: "wargod", from: "warrior", tier: 4, name: "전쟁의 신", icon: "🔱", color: "#ff7a3c",
+    tagline: "전장이 곧 몸이다",
+    desc: "공격 범위가 압도적으로 넓어지고 모든 타격이 두 번 들어간다.",
+    mods: { damage: 1.0, area: .8, maxHp: 900, cooldown: -.3 },
+    stanceMod: { doubleSlash: true, chainSlash: true, critAll: .28, crowdArmor: .022 },
+    skill: skSlash("천지개벽", "🌋", 46, "거대한 참격이 사방을 갈라놓는다.",
+      { n: 12, len: 420, dmg: 760, perLv: 46, elem: "physical", spread: .52, iframe: 2 }) },
+  { key: "bloodsov", from: "warrior", tier: 4, name: "피의 군주", icon: "🩸", color: "#ff4d6d",
+    tagline: "피가 마를수록 강해진다",
+    desc: "체력이 낮을수록 피해와 속도가 폭증하고, 가한 피해로 회복한다.",
+    mods: { damage: .9, speed: .3, maxHp: 600, crit: .25 },
+    stanceMod: { lowHpFury: true, furyAmp: 2.6, leechAll: .12, warcryAmp: 2 },
+    skill: skSlash("피의 폭풍", "🌪️", 44, "회전하며 주변을 갈아버리고 피해량만큼 회복한다.",
+      { n: 14, len: 380, dmg: 680, perLv: 44, elem: "blood", spread: .46, iframe: 2 }) },
+  { key: "titanbreak", from: "warrior", tier: 4, name: "산을 부수는 자", icon: "⛰️", color: "#e0a060",
+    tagline: "한 번에 끝낸다",
+    desc: "치명타 배수가 극단적으로 커지고 한 방이 무거워진다.",
+    mods: { damage: 1.3, crit: .4, area: .4, maxHp: 700 },
+    stanceMod: { onehitAmp: 3, critAll: .35, pressDmg: .16 },
+    skill: skStrike("산맥 붕괴", "🪨", 48, "가장 강한 적들에게 산이 무너져 내린다.",
+      { n: 16, dmg: 1100, perLv: 68, elem: "physical", color: "#e0a060", splash: 200 }) },
+
+  /* ── 추적자 ── */
+  { key: "voidstalker", from: "rogue", tier: 4, name: "공허의 추적자", icon: "🕳️", color: "#4fe0a0",
+    tagline: "보이지 않는다",
+    desc: "치명타가 항상 터지고, 안 맞을수록 끝없이 강해진다.",
+    mods: { crit: .6, damage: .95, speed: .32, cooldown: -.28 },
+    stanceMod: { focusCrit: true, focusAmp: 4.2, critAll: .4, shadowScale: 4.5 },
+    skill: skBlink("공허 보행", "🌀", 42, "다섯 번 순간이동하며 칼날의 폭풍을 남긴다.",
+      { dist: 520, n: 46, dmg: 640, perLv: 42, elem: "physical", color: "#4fe0a0", pierce: 9, iframe: 3 }) },
+  { key: "thousandfang", from: "rogue", tier: 4, name: "천 개의 송곳니", icon: "🗡️", color: "#8ef0b0",
+    tagline: "쏟아붓는다",
+    desc: "던지는 칼이 비처럼 쏟아지고 관통한다.",
+    mods: { damage: .85, cooldown: -.4, area: .3, crit: .35 },
+    stanceMod: { extraProj: 6, pierceAll: 5, critAll: .3 },
+    skill: skBurst("만천화우", "🌠", 44, "사방으로 칼날이 폭사한다.",
+      { n: 60, dmg: 380, perLv: 26, elem: "physical", color: "#8ef0b0", speed: 620, pierce: 8 }) },
+  { key: "deathmark", from: "rogue", tier: 4, name: "죽음의 표식", icon: "☠️", color: "#c9ffe0",
+    tagline: "표식이 곧 사형선고",
+    desc: "처치할 때마다 폭발이 번지고 치명타 배수가 극단적으로 커진다.",
+    mods: { crit: .5, damage: 1.1, speed: .22 },
+    stanceMod: { onehitAmp: 3.4, deathExplode: true, critAll: .38, leechAll: .06 },
+    skill: skStrike("사형 선고", "⚰️", 46, "표식이 찍힌 적들이 한꺼번에 무너진다.",
+      { n: 20, dmg: 900, perLv: 58, elem: "physical", color: "#c9ffe0", splash: 170 }) },
+
+  /* ── 마법사 ── */
+  { key: "archmagus", from: "mage", tier: 4, name: "만상의 현자", icon: "🌌", color: "#b9c8ff",
+    tagline: "멈출 필요가 없다",
+    desc: "영창이 항상 최대치로 유지되고 모든 속성 피해가 폭증한다.",
+    mods: { damage: 1.2, area: .5, cooldown: -.34, maxHp: 500 },
+    stanceMod: { alwaysMaxChannel: true, maxStageBonus: 3, elemAmpAll: .5, channelHeal: .02 },
+    skill: skWave("천체 붕괴", "☄️", 46, "하늘이 무너져 화면 전체를 삼킨다.",
+      { r: 900, dmg: 1000, perLv: 62, elem: "arcane", color: "#b9c8ff", iframe: 3, healPct: .5, shake: 26 }) },
+  { key: "frostsov", from: "mage", tier: 4, name: "서리의 지배자", icon: "❄️", color: "#a8e8ff",
+    tagline: "모든 것이 멈춘다",
+    desc: "주변이 얼어붙고, 얼어붙은 적에게 주는 피해가 크게 오른다.",
+    mods: { damage: .95, area: .7, maxHp: 700, cooldown: -.24 },
+    stanceMod: { alwaysMaxChannel: true, frostAmp: 2.4, elemAmpAll: .3, slowAll: .5 },
+    skill: skWave("절대 영도", "🧊", 44, "모든 것을 얼려붙이고 산산이 부순다.",
+      { r: 840, dmg: 880, perLv: 54, elem: "frost", color: "#a8e8ff", iframe: 3, healPct: .4, shake: 22 }) },
+  { key: "starcaller", from: "mage", tier: 4, name: "별을 부르는 자", icon: "✨", color: "#ffd9a8",
+    tagline: "하늘이 답한다",
+    desc: "쉬지 않고 별이 떨어진다. 쿨다운이 극단적으로 짧아진다.",
+    mods: { damage: 1.0, cooldown: -.46, area: .45, crit: .3 },
+    stanceMod: { alwaysMaxChannel: true, extraProj: 5, elemAmpAll: .35, critAll: .25 },
+    skill: skStrike("유성우", "☄️", 42, "별이 비처럼 쏟아져 내린다.",
+      { n: 26, dmg: 720, perLv: 46, elem: "fire", color: "#ffd9a8", splash: 190 }) },
 ];
 
 function advanceOptions(tier) {
+  // 4차 초월은 3차 최종형(32종)마다 따로 두지 않고 직업을 부모로 삼는다.
+  // 경로마다 붙이면 데이터가 64개가 되고 하나하나가 얕아진다 — 갈래 수보다 무게가 중요하다.
+  if (tier === 4) return ADVANCES.filter(a => a.tier === 4 && a.from === (player.cls && player.cls.key));
   const prev = player.advance[tier - 2];
   const from = tier === 1 ? (player.cls && player.cls.key) : (prev && prev.key);
   return ADVANCES.filter(a => a.tier === tier && a.from === from);
@@ -4620,7 +4724,7 @@ function drawHUD() {
     ctx.globalAlpha = .55 + Math.sin(performance.now() / 420) * .2;
     ctx.font = "800 16px " + FONT; ctx.fillStyle = "#c9a3ff";
     const w = Math.max(0, Math.ceil(Game.advanceWaitT));
-    ctx.fillText("⏳ " + ["1차", "2차", "3차"][Game.advanceWaitTier - 1] + " 각성까지 "
+    ctx.fillText("⏳ " + ["1차", "2차", "3차", "4차"][Game.advanceWaitTier - 1] + " 각성까지 "
       + Math.floor(w / 60) + ":" + String(w % 60).padStart(2, "0"), W / 2, 108);
     ctx.globalAlpha = 1;
   }

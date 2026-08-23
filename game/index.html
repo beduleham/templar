@@ -3650,7 +3650,7 @@ const CLASSES = [
           if (p.meltTimer <= 0) {
             p.meltTimer = 1.8 - .3 * ml;
             // 반경 240 고정이면 특성을 키워도 체감이 없다 — 단계에 묶는다
-            spawnWave({ x: p.x, y: p.y, maxR: (104 + 46 * ml) * p.stats.area,
+            spawnWave({ x: p.x, y: p.y, maxR: (48 + 24 * ml) * p.stats.area,
               dmg: (60 + p.level * 9) * p.stats.damage * p.dynDmg, life: .4,
               color: "#bcd0ff", element: "frost" });
             Sfx.play(420, .25, "triangle", .7, 300);

@@ -2436,10 +2436,13 @@ const CLASSES = [
         p.dynDmg *= 1 + .26 * effSt + .18 * traitLv("overchannel") * (st >= maxStage ? 1 : 0);
         if (advVal("channelHeal", 0) && st > 0)
           p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * advVal("channelHeal", 0) * st * dt);
-        p.dynCd *= Math.max(.58, 1 - .09 * effSt);   // 피해와 연사를 동시에 몰아주면 곱셈이 폭주한다
+        p.dynCd *= Math.max(.52, 1 - .1 * effSt);   // 피해와 연사를 동시에 몰아주면 곱셈이 폭주한다
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
-        p.dynMagnet *= 1 + Math.min(2.4, .8 * st);   // 흡인이 세면 레벨이 다른 직업의 두 배가 된다
+        // 흡인은 초반 굶주림만 막고 후반에는 더 쌓이지 않게 한다.
+        // 단계에 비례해 계속 커지면 후반에 레벨이 다른 직업의 두 배가 되고,
+        // 반대로 너무 조이면 6~8분에 성장이 막혀 굶어 죽는다. 2단계에서 포화시킨다.
+        p.dynMagnet *= 1 + Math.min(2.8, 1.6 * st);
 
         // 적이 수백 마리인 판에서 '주변에 적이 없을 때'를 기다리면 영창은 영영 못 쓴다.
         // 자리를 지킬 시간을 벌어줘야 하는데, 밀어내기로 하면 무적 거품이 생겨

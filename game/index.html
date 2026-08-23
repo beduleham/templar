@@ -1438,7 +1438,7 @@ function recomputeStats() {
   const s = {
     damage: 1, cooldown: 1, area: 1, speed: 1, armor: 1, projSpeed: 1,
     maxHp: player.base.maxHp + (player.level - 1) * 3, regen: 0, magnet: 1, xpGain: 1, crit: .10,
-    gemChance: player.cls ? player.cls.gemChance : .06,  // 직업마다 다르다
+    gemChance: player.cls ? player.cls.gemChance : .10,  // 직업마다 다르다
   };
   // 직업 보정을 먼저 적용하고, 그 위에 패시브를 곱한다
   const C = player.cls;
@@ -1485,7 +1485,7 @@ function recomputeStats() {
   s.damage *= 1 + .05 * Meta.lv("edge");
   s.speed  *= 1 + .04 * Meta.lv("swift");
   s.xpGain *= 1 + .06 * Meta.lv("avarice");
-  s.gemChance = clamp(s.gemChance + .006 * Meta.lv("avarice"), .01, 1);
+  s.gemChance = clamp(s.gemChance + .01 * Meta.lv("avarice"), .01, 1);
   player.stats = s;
   player.hp = Math.min(player.hp, s.maxHp);
 }
@@ -3335,7 +3335,7 @@ const CLASSES = [
     key: "paladin", name: "성기사", icon: "🛡️", color: "#ffd36e",
     tagline: "멈춰 서서 파고든다",
     start: "aura",
-    gemChance: .042,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
+    gemChance: .07,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
     desc: "군중 한가운데로 파고들어 버티는 직업. 체력이 압도적으로 높고 느리다.",
     mods: { maxHp: 150, speed: -.08, armor: .12, regen: .4 },
     // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
@@ -3432,7 +3432,7 @@ const CLASSES = [
     key: "warrior", name: "전사", icon: "⚔️", color: "#ff8a5c",
     tagline: "쇠사슬 플레일 · 휘둘러 쓸어버린다",
     start: "whip",
-    gemChance: .062,
+    gemChance: .10,
     desc: "광역 근접 타격에 특화. 공격 범위와 체력이 높다.",
     mods: { maxHp: 25, area: .15, damage: .1, speed: -.03 },
     // 처치로만 차고 가만있으면 빠진다 → 몰아쳐야 유지된다
@@ -3454,7 +3454,7 @@ const CLASSES = [
     key: "rogue", name: "추적자", icon: "🗡️", color: "#8ef0b0",
     tagline: "투척 단검 · 빠르게 파고든다",
     start: "dagger",
-    gemChance: .082,  // 약탈에 능하다 — 같은 수를 잡아도 두 배 가까이 건진다
+    gemChance: .135,  // 약탈에 능하다 — 같은 수를 잡아도 두 배 가까이 건진다
     desc: "이동과 공격 속도가 빠르고 치명타 확률이 높다. 물몸.",
     mods: { maxHp: -20, speed: .14, cooldown: -.12, crit: .15 },
     // 안 맞은 시간에 비례해 찬다 → 무피격 유지가 곧 보상
@@ -3486,7 +3486,7 @@ const CLASSES = [
     key: "mage", name: "마법사", icon: "🔮", color: "#9bb8ff",
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
-    gemChance: .058,
+    gemChance: .095,
     desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
     mods: { maxHp: -8, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.

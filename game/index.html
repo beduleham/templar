@@ -414,13 +414,13 @@ function rollRank(t) {
 }
 
 const ENEMY_TYPES = {
-  bat:    { name: "박쥐", r: 11, hp: 10,  speed: 88, dmg: 7,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
-  slime:  { name: "슬라임", r: 15, hp: 24,  speed: 54, dmg: 9,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
-  ghost:  { name: "유령", r: 13, hp: 32,  speed: 74, dmg: 11, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
-  zombie: { name: "좀비", r: 16, hp: 52,  speed: 48, dmg: 14, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
-  brute:  { name: "괴수", r: 23, hp: 115, speed: 40, dmg: 20, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
-  reaper: { name: "사신", r: 18, hp: 175, speed: 62, dmg: 24, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
-  hound:  { name: "사냥개", r: 13, hp: 70,  speed: 248, dmg: 14, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
+  bat:    { name: "박쥐", r: 11, hp: 14,  speed: 88, dmg: 9,  xp: 1,  color: "#a37bff", shape: "bat", sprite: "bat" },
+  slime:  { name: "슬라임", r: 15, hp: 33,  speed: 54, dmg: 11,  xp: 1,  color: "#57c96a", shape: "blob", sprite: "slime" },
+  ghost:  { name: "유령", r: 13, hp: 44,  speed: 74, dmg: 14, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
+  zombie: { name: "좀비", r: 16, hp: 72,  speed: 48, dmg: 17, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
+  brute:  { name: "괴수", r: 23, hp: 160, speed: 40, dmg: 25, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
+  reaper: { name: "사신", r: 18, hp: 245, speed: 62, dmg: 30, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
+  hound:  { name: "사냥개", r: 13, hp: 96,  speed: 248, dmg: 17, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
 
   // ── 행동이 다른 것들 — 스탯이 아니라 대응 방법이 달라야 다양한 것이다
   archer: { name: "사수", r: 14, hp: 48,  speed: 44, dmg: 12, xp: 4,  color: "#7ad0b0", shape: "humanoid", sprite: "archer",
@@ -1438,7 +1438,7 @@ function recomputeStats() {
   const s = {
     damage: 1, cooldown: 1, area: 1, speed: 1, armor: 1, projSpeed: 1,
     maxHp: player.base.maxHp + (player.level - 1) * 3, regen: 0, magnet: 1, xpGain: 1, crit: .10,
-    gemChance: player.cls ? player.cls.gemChance : .6,   // 직업마다 다르다
+    gemChance: player.cls ? player.cls.gemChance : .06,  // 직업마다 다르다
   };
   // 직업 보정을 먼저 적용하고, 그 위에 패시브를 곱한다
   const C = player.cls;
@@ -1485,7 +1485,7 @@ function recomputeStats() {
   s.damage *= 1 + .05 * Meta.lv("edge");
   s.speed  *= 1 + .04 * Meta.lv("swift");
   s.xpGain *= 1 + .06 * Meta.lv("avarice");
-  s.gemChance = clamp(s.gemChance + .03 * Meta.lv("avarice"), .15, 1);
+  s.gemChance = clamp(s.gemChance + .006 * Meta.lv("avarice"), .01, 1);
   player.stats = s;
   player.hp = Math.min(player.hp, s.maxHp);
 }
@@ -1755,7 +1755,7 @@ const Game = {
       if (!this.choices.every(c => c.type === "heal")) break;
       // 전부 회복 카드 = 더 배울 게 없다. 회복만 주고 넘어간다.
       player.hp = Math.min(player.stats.maxHp, player.hp + 40);
-      spawnNumber(player.x, player.y - 30, "Lv" + player.level, "#ffe37a", 17);
+      spawnNumber(player.x, player.y - 30, player.level + "레벨", "#ffe37a", 17);
       if (player.xp < player.xpNext) return;
     }
     this.state = "levelup";
@@ -1828,7 +1828,7 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * .95 + Math.pow(m, 2.4) * .030, spd: 1 + m * .055, dmg: 1 + m * .24 };
+    return { hp: 1 + m * 1.30 + Math.pow(m, 2.4) * .044, spd: 1 + m * .055, dmg: 1 + m * .34 };
   },
   targetCount() {
     return Math.min(440, Math.floor(38 + this.time / 60 * 32));
@@ -3335,7 +3335,7 @@ const CLASSES = [
     key: "paladin", name: "성기사", icon: "🛡️", color: "#ffd36e",
     tagline: "멈춰 서서 파고든다",
     start: "aura",
-    gemChance: .42,   // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
+    gemChance: .042,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
     desc: "군중 한가운데로 파고들어 버티는 직업. 체력이 압도적으로 높고 느리다.",
     mods: { maxHp: 150, speed: -.08, armor: .12, regen: .4 },
     // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
@@ -3432,7 +3432,7 @@ const CLASSES = [
     key: "warrior", name: "전사", icon: "⚔️", color: "#ff8a5c",
     tagline: "쇠사슬 플레일 · 휘둘러 쓸어버린다",
     start: "whip",
-    gemChance: .62,
+    gemChance: .062,
     desc: "광역 근접 타격에 특화. 공격 범위와 체력이 높다.",
     mods: { maxHp: 25, area: .15, damage: .1, speed: -.03 },
     // 처치로만 차고 가만있으면 빠진다 → 몰아쳐야 유지된다
@@ -3454,7 +3454,7 @@ const CLASSES = [
     key: "rogue", name: "추적자", icon: "🗡️", color: "#8ef0b0",
     tagline: "투척 단검 · 빠르게 파고든다",
     start: "dagger",
-    gemChance: .82,   // 약탈에 능하다 — 한 마리를 잡으면 대개 뭔가 나온다
+    gemChance: .082,  // 약탈에 능하다 — 같은 수를 잡아도 두 배 가까이 건진다
     desc: "이동과 공격 속도가 빠르고 치명타 확률이 높다. 물몸.",
     mods: { maxHp: -20, speed: .14, cooldown: -.12, crit: .15 },
     // 안 맞은 시간에 비례해 찬다 → 무피격 유지가 곧 보상
@@ -3486,7 +3486,7 @@ const CLASSES = [
     key: "mage", name: "마법사", icon: "🔮", color: "#9bb8ff",
     tagline: "거리를 벌리고 멈춘다",
     start: "orb",
-    gemChance: .58,
+    gemChance: .058,
     desc: "멈춰서 영창해야 위력이 나오는 직업. 화력은 최고지만 몸이 약하고 발이 느리다.",
     mods: { maxHp: -8, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
@@ -4203,7 +4203,7 @@ function drawHUD() {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W * xpf, 14);
   ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.fillRect(0, 0, W, 4);
   ctx.font = "700 11px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillStyle = "#ffffff"; ctx.fillText("LV " + player.level, 34, 7);
+  ctx.fillStyle = "#ffffff"; ctx.fillText(player.level + "레벨", 34, 7);
 
   // 체력
   const hpf = clamp(player.hp / s.maxHp, 0, 1);
@@ -4347,7 +4347,7 @@ function drawHUD() {
     ctx.fillStyle = "#fff"; ctx.fillText(icon, ix + 20, H - 35);
     ctx.font = "700 10px " + FONT; ctx.textAlign = "right";
     ctx.fillStyle = level >= MAX_LEVEL ? "#ffd34d" : "rgba(255,255,255,.8)";
-    ctx.fillText(level >= MAX_LEVEL ? "MAX" : "Lv" + level, ix + 37, H - 20);
+    ctx.fillText(level >= MAX_LEVEL ? "최대" : level + "렙", ix + 37, H - 20);
     ix += 46;
   };
   for (const w of player.weapons) drawSlot(WEAPONS[w.key].icon, w.level, "rgba(255,210,120,.5)");
@@ -4535,11 +4535,11 @@ function drawHUD() {
   let by2 = 90;
   if (player.buffFury > 0) {
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "#ff6b4a";
-    ctx.fillText("🧪 광란 " + player.buffFury.toFixed(1) + "s", W - 16, by2); by2 += 20;
+    ctx.fillText("🧪 광란 " + player.buffFury.toFixed(1) + "초", W - 16, by2); by2 += 20;
   }
   if (player.buffWard > 0) {
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "#8fd0ff";
-    ctx.fillText("🔰 수호 " + player.buffWard.toFixed(1) + "s", W - 16, by2); by2 += 20;
+    ctx.fillText("🔰 수호 " + player.buffWard.toFixed(1) + "초", W - 16, by2); by2 += 20;
   }
 
   // 전직 대기 — 레벨은 됐는데 징표가 없을 때
@@ -4586,7 +4586,7 @@ function drawHUD() {
     ctx.fillStyle = ready ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.4)";
     ctx.fillText(curSkill().name, bx + bw / 2, by + bw + 12);
     ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-    ctx.fillText("SPACE", bx + bw / 2, by + bw + 27);
+    ctx.fillText("스페이스", bx + bw / 2, by + bw + 27);
   }
 
   // 새 조합 해금 배너
@@ -4654,7 +4654,7 @@ function drawTitle() {
 
   ctx.font = "800 62px " + FONT;
   ctx.fillStyle = "#ffd36e";
-  ctx.fillText("TEMPLAR SURVIVORS", W / 2, 96);
+  ctx.fillText("템플러 서바이버즈", W / 2, 96);
   ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
   ctx.fillText("중세 판타지 오토배틀 서바이벌 · 15분을 버텨라", W / 2, 134);
 
@@ -4673,13 +4673,13 @@ function drawTitle() {
   ctx.font = "700 14px " + FONT; ctx.fillStyle = "#c9a3ff";
   ctx.fillText("영혼의 제단", abx + 44, aby + 16);
   ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  TAB", abx + 44, aby + 33);
+  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  탭", abx + 44, aby + 33);
   if (aHover && mouse.clicked) { Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
-  const cw = 268, ch = 348, gap = 18;
+  const cw = 268, ch = 382, gap = 18;
   const total = CLASSES.length * cw + (CLASSES.length - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 206;
+  const x0 = (W - total) / 2, y0 = 196;
 
   for (let i = 0; i < CLASSES.length; i++) {
     const c = CLASSES[i], x = x0 + i * (cw + gap);
@@ -4717,7 +4717,9 @@ function drawTitle() {
     row("무기", W_.icon + " " + W_.name, ry); ry += 20;
     row("속성", E.icon + " " + E.name, ry, E.color); ry += 20;
     row("자원", c.resource.name, ry, c.resource.color); ry += 20;
-    row("스킬", c.skill.icon + " " + c.skill.name, ry); ry += 26;
+    row("스킬", c.skill.icon + " " + c.skill.name, ry); ry += 20;
+    // 직업마다 '한 마리의 무게'가 다르다는 걸 고르기 전에 보여준다
+    row("전리품", "💎 " + Math.round(c.gemChance * 100) + "%", ry, "rgba(120,230,180,.9)"); ry += 26;
 
     // 자세와 자원이 차는 방식 — 직업의 성격이 여기서 갈린다
     ctx.textAlign = "center";
@@ -4733,10 +4735,6 @@ function drawTitle() {
     ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
     wrapText(c.desc, x + cw / 2, ry, cw - 36, 15);
 
-    // 전리품 확률 — 직업마다 '한 마리의 무게'가 다르다는 걸 고르기 전에 보여준다
-    ctx.font = "600 11px " + FONT; ctx.fillStyle = "rgba(120,230,180,.75)";
-    ctx.fillText("💎 전리품 " + Math.round(c.gemChance * 100) + "%", x + cw / 2, y0 + ch - 36 + oy);
-
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
     ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 16 + oy);
 
@@ -4747,26 +4745,26 @@ function drawTitle() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.42)";
   ctx.fillText("서로 다른 속성의 무기를 " + COMBO_LEVEL + "레벨까지 올리면 조합이 열리고, "
-    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, 578);
+    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, 598);
 
   const chipW = 176, chipGap = 8;
   const cTotal = COMBOS.length * chipW + (COMBOS.length - 1) * chipGap;
   let cx = (W - cTotal) / 2;
   for (const cb of COMBOS) {
-    panel(cx, 596, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
+    panel(cx, 616, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    ctx.fillStyle = ea.color; ctx.fillText(ea.icon, cx + 12, 613);
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 30, 613);
-    ctx.fillStyle = eb.color; ctx.fillText(eb.icon, cx + 42, 613);
+    ctx.fillStyle = ea.color; ctx.fillText(ea.icon, cx + 12, 633);
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 30, 633);
+    ctx.fillStyle = eb.color; ctx.fillText(eb.icon, cx + 42, 633);
     ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
-    ctx.fillText(cb.name, cx + 66, 613);
+    ctx.fillText(cb.name, cx + 66, 633);
     cx += chipW + chipGap;
   }
 
   ctx.font = "700 17px " + FONT;
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
-  ctx.fillText("SPACE 또는 클릭으로 시작   ·   게임 중 SPACE 로 직업 스킬   ·   M 음소거", W / 2, H - 38);
+  ctx.fillText("스페이스 또는 클릭으로 시작   ·   스페이스 직업 스킬   ·   M 음소거   ·   N 이름표", W / 2, H - 30);
 }
 
 function wrapText(text, cx, y, maxW, lh) {
@@ -4939,7 +4937,7 @@ function drawLevelUp() {
   const tp = Game.traitPick && player.cls;
   ctx.font = "800 42px " + FONT;
   ctx.fillStyle = tp ? advColor() : "#ffd34d";
-  ctx.fillText(tp ? advName() + " 특성" : "LEVEL UP!", W / 2, 108);
+  ctx.fillText(tp ? advName() + " 특성" : "레벨 업!", W / 2, 108);
   ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
   ctx.fillText(tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
                   : "레벨 " + player.level + " · 하나를 선택하세요", W / 2, 142);
@@ -4969,14 +4967,14 @@ function drawLevelUp() {
 
     const kind = isW ? "무기" : isT ? advName() + " 전용" : "능력";
     ctx.font = "700 12px " + FONT; ctx.fillStyle = tint;
-    ctx.fillText(c.isNew ? "NEW · " + kind : kind + " 강화", x + cw / 2, y0 + 112 + oy);
+    ctx.fillText(c.isNew ? "새 " + kind : kind + " 강화", x + cw / 2, y0 + 112 + oy);
 
     ctx.font = "800 23px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.name, x + cw / 2, y0 + 142 + oy);
 
     if (c.type !== "heal") {
       ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-      ctx.fillText(c.isNew ? "Lv 1" : "Lv " + (c.level - 1) + " → " + c.level, x + cw / 2, y0 + 168 + oy);
+      ctx.fillText(c.isNew ? "1레벨" : (c.level - 1) + "레벨 → " + c.level + "레벨", x + cw / 2, y0 + 168 + oy);
     }
     // 직업 특성은 자세 이름을 배지로 — 이 카드가 왜 이 직업의 것인지 보이게
     if (isT && player.cls) {

@@ -1,0 +1,123 @@
+{
+  "frames": {
+    "bat": {
+      "shape": "bat",
+      "color": "#a37bff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "slime": {
+      "shape": "blob",
+      "color": "#57c96a",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "ghost": {
+      "shape": "ghost",
+      "color": "#7fd2ff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "zombie": {
+      "shape": "humanoid",
+      "color": "#8aa35c",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "brute": {
+      "shape": "humanoid",
+      "color": "#e0694a",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "reaper": {
+      "shape": "ghost",
+      "color": "#d94fd0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "hound": {
+      "shape": "hound",
+      "color": "#ff9f6b",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "archer": {
+      "shape": "humanoid",
+      "color": "#7ad0b0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "charger": {
+      "shape": "humanoid",
+      "color": "#ff7a4a",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "splitter": {
+      "shape": "blob",
+      "color": "#57c9c9",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "bomber": {
+      "shape": "blob",
+      "color": "#ffcf3a",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "shaman": {
+      "shape": "ghost",
+      "color": "#b06ad0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "shield": {
+      "shape": "humanoid",
+      "color": "#8a9ab0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 8
+    },
+    "guardian": {
+      "shape": "boss",
+      "color": "#c9a3ff",
+      "glow": "#ffd9a8",
+      "h": 64,
+      "fps": 8
+    },
+    "boss1": {
+      "shape": "boss",
+      "color": "#8ac94a",
+      "glow": "#ffd9a8",
+      "h": 64,
+      "fps": 8
+    },
+    "boss2": {
+      "shape": "boss",
+      "color": "#c0c8d8",
+      "glow": "#ffd9a8",
+      "h": 64,
+      "fps": 8
+    },
+    "boss3": {
+      "shape": "boss",
+      "color": "#b04ad8",
+      "glow": "#ffd9a8",
+      "h": 64,
+      "fps": 8
+    }
+  }
+}

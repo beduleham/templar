@@ -602,7 +602,11 @@ const Sprites = {
     img.src = url;
   },
 
-  // 그렸으면 true, 프레임이 없으면 false → 호출부가 도형으로 폴백한다
+  /* 그렸으면 true, 프레임이 없으면 false → 호출부가 도형으로 폴백한다.
+     호출부는 scale 로 '적 반지름 / 14' 를 넘긴다. 즉 28px 프레임이 히트박스와 정확히 겹친다.
+     보스처럼 큰 것은 같은 28px 에 그리면 뭉개지므로, 큰 프레임을 쓰고 s 로 되돌린다.
+       예) 64px 프레임 + s: 0.44  →  화면에서는 28px 기준으로 보이되 픽셀은 2배로 촘촘하다
+     ox / oy 는 발밑을 기준으로 맞출 때 쓴다(기둥처럼 위로 긴 그림). */
   draw(key, sx, sy, scale, time, flip) {
     if (!this.ready || !key) return false;
     const f = this.frames[key];
@@ -610,12 +614,13 @@ const Sprites = {
     const n = f.n || 1;
     const idx = n > 1 ? Math.floor(time * (f.fps || 8)) % n : 0;
     const w = f.w, h = f.h;
+    const k = scale * (f.s || 1);
     ctx.save();
-    ctx.translate(sx, sy);
+    ctx.translate(sx + (f.ox || 0) * k, sy + (f.oy || 0) * k);
     if (flip) ctx.scale(-1, 1);
     ctx.imageSmoothingEnabled = false;          // 픽셀아트는 보간하지 않는다
     ctx.drawImage(this.atlas, f.x + idx * w, f.y, w, h,
-                  -w * scale / 2, -h * scale / 2, w * scale, h * scale);
+                  -w * k / 2, -h * k / 2, w * k, h * k);
     ctx.restore();
     return true;
   },

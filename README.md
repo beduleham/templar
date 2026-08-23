@@ -330,6 +330,19 @@ game/index.html 을 브라우저로 열어도 된다. 빌드도 서버도 필요
 
 보스가 살아 있는 동안 자동으로 두꺼워지고, 쓰러뜨리면 돌아온다.
 
+## 그래픽 리소스
+
+현재는 이미지 에셋이 하나도 없다 — 전부 도형으로 그린다.
+교체 규격은 **[docs/art-spec.md](docs/art-spec.md)** 에 확정돼 있고,
+`art/reference-atlas.png` 가 그 규격대로 만든 동작하는 예시다.
+
+핵심은 **17종을 다 그릴 필요가 없다**는 것이다. 실루엣은 이미 6종으로 묶여 있고
+(`bat · blob · ghost · humanoid · hound · boss`) 등급은 코드가 테두리로 구분한다.
+
+```sh
+node art/make-atlas.js     # 레퍼런스 아틀라스 재생성
+```
+
 ## 기술 스택
 
 의존성 없음. 파일 하나(`game/index.html`)에 HTML + Canvas 2D + WebAudio 만 들어 있다.

@@ -1865,10 +1865,14 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * 1.10 + Math.pow(m, 2.4) * .036, spd: 1 + m * .05, dmg: 1 + m * .28 };
+    // 적 곡선은 '플레이어가 그 시각에 얼마나 강한가'에 맞춰야 한다.
+    // 전직을 시간 관문(3:45 · 7:30 · 11:15)으로 옮기면서 플레이어의 힘이 크게 뒤로 밀렸는데
+    // 적 곡선은 '1분대에 1차 전직을 마친 플레이어' 기준 그대로였다.
+    // 그래서 계단을 옮겨도 벽은 따라 움직이기만 했다(3:36 → 4:35). 곡선 자체를 낮춘다.
+    return { hp: 1 + m * .85 + Math.pow(m, 2.4) * .026, spd: 1 + m * .045, dmg: 1 + m * .20 };
   },
   targetCount() {
-    return Math.min(440, Math.floor(38 + this.time / 60 * 32));
+    return Math.min(440, Math.floor(34 + this.time / 60 * 26));
   },
 
   spawnEnemy(typeKey, forceX, forceY, forceRank) {

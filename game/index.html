@@ -35,6 +35,7 @@ const W = 1280, H = 720;          // 논리 해상도 (실제 크기는 CSS로 �
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
+const ADV_LV1 = 10, ADV_LV2 = 22;   // 전직 레벨
 
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d", { alpha: false });
@@ -240,7 +241,7 @@ const ENEMY_TYPES = {
   brute:  { r: 23, hp: 115, speed: 40, dmg: 20, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
   reaper: { r: 18, hp: 175, speed: 62, dmg: 24, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
   hound:  { r: 13, hp: 34,  speed: 232, dmg: 11, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
-  boss:   { r: 40, hp: 1000, speed: 44, dmg: 30, xp: 120, color: "#ff3b6b", shape: "boss", sprite: "boss", boss: true },
+  boss:   { r: 40, hp: 1500, speed: 44, dmg: 30, xp: 120, color: "#ff3b6b", shape: "boss", sprite: "boss", boss: true },
 };
 
 // 분(minute)마다 등장하는 적 구성
@@ -250,9 +251,10 @@ const SPAWN_TABLE = [
   { t: 150, types: ["bat", "slime", "ghost"] },
   { t: 240, types: ["slime", "ghost", "zombie"] },
   { t: 360, types: ["ghost", "zombie", "bat"] },
-  { t: 480, types: ["zombie", "ghost", "brute"] },
-  { t: 600, types: ["zombie", "brute", "reaper"] },
-  { t: 780, types: ["brute", "reaper", "ghost"] },
+  { t: 420, types: ["zombie", "ghost", "brute"] },
+  { t: 540, types: ["zombie", "brute", "reaper"] },
+  { t: 660, types: ["brute", "reaper", "ghost"] },
+  { t: 780, types: ["brute", "reaper", "hound"] },
 ];
 const BOSS_TIMES = [300, 600, 899];
 
@@ -357,7 +359,9 @@ const WEAPONS = {
     dmg: [22, 30, 39, 51, 66, 85, 110, 142],
     count: [1, 1, 2, 2, 2, 3, 3, 4],
     fire(p, w) {
-      const n = this.count[w.level - 1], dmg = this.dmg[w.level - 1] * p.stats.damage;
+      // 전직: 검성의 이중 참격 / 마검성의 무한의 검
+      const extra = (advVal("doubleSlash", false) ? 1 : 0) + traitLv("endlessBlade");
+      const n = this.count[w.level - 1] + extra, dmg = this.dmg[w.level - 1] * p.stats.damage;
       const base = Math.atan2(p.faceY, p.faceX);
       for (let i = 0; i < n; i++) {
         // 앞 → 뒤 → 앞위 → 뒤아래 순으로 부채꼴을 추가
@@ -422,7 +426,8 @@ const WEAPONS = {
     radius: [86, 92, 98, 104, 112, 120, 128, 138],
     passiveUpdate(p, w, dt) {
       w.angle = (w.angle || 0) + dt * 2.4;
-      const n = this.count[w.level - 1];
+      // 전직: 야수 조련사 — 궤도가 늘어난다
+      const n = this.count[w.level - 1] + advVal("orbitBeast", 0) + traitLv("packleader");
       const R = this.radius[w.level - 1] * p.stats.area;
       const dmg = this.dmg[w.level - 1] * p.stats.damage;
       if (!w.hitAt) w.hitAt = new Map();
@@ -527,7 +532,7 @@ function alloc(pool) {
   return null;               // 풀이 가득 차면 스폰을 건너뛴다 (프레임 드랍 방지)
 }
 
-const enemies    = makePool(420, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0 }));
+const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0 }));
 const projectiles= makePool(320, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 6, dmg: 0, pierce: 1, life: 0, kind: "", angle: 0, color: "#fff", homing: 0, target: null, hitIds: new Set(), spin: 0, element: "physical", maxLife: 1, retarget: 0 }));
 const slashes    = makePool(24,  () => ({ x: 0, y: 0, ang: 0, len: 0, life: 0, maxLife: 0, dmg: 0, hitIds: new Set(), element: "physical" }));
 const waves      = makePool(40,  () => ({ x: 0, y: 0, r: 0, maxR: 0, life: 0, maxLife: 1, dmg: 0, color: "#fff", element: "physical", heal: 0, hitIds: new Set() }));
@@ -550,6 +555,9 @@ function spawnProjectile(o) {
   p.pierce = o.pierce + (player.dynPierce || 0); p.life = o.life; p.kind = o.kind; p.angle = o.angle;
   p.color = o.color; p.homing = o.homing || 0; p.target = o.target || null;
   p.element = o.element || "physical"; p.maxLife = o.life; p.retarget = 0;
+  const ps = player.dynProjSpeed || 1;
+  if (ps !== 1) { p.vx *= ps; p.vy *= ps; }
+  if (!p.homing && player.dynHoming) p.homing = player.dynHoming;
   p.spin = o.kind === "dagger" ? 0 : rnd(-4, 4);
   p.hitIds.clear();
   return p;
@@ -643,18 +651,22 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   if (elem === "fire") { e.burn = Math.max(e.burn, 2.5); e.burnDps = Math.max(e.burnDps, dmg * .35); }
 
   // 조합: 정화의 불길 — 속성을 가리지 않고 화상을 남긴다
-  if (C && C.has("pyre") && elem !== "fire") { e.burn = Math.max(e.burn, 2.0); e.burnDps = Math.max(e.burnDps, dmg * .22); }
+  if (C && C.has("pyre") && elem !== "fire") { e.burn = Math.max(e.burn, 2.0); e.burnDps = Math.max(e.burnDps, dmg * .22); procCombo("pyre", e.x, e.y); }
 
   let mul = 1;
   // 조합: 빙결 처형 — 둔화된 적에게 물리 피해 증폭
-  if (C && C.has("shatter") && elem === "physical" && e.slow > 0) mul *= 1.45;
+  if (C && C.has("shatter") && elem === "physical" && e.slow > 0) { mul *= 1.45; procCombo("shatter", e.x, e.y); }
+  // 전직: 속성 증폭 / 둔화된 적 추가 피해
+  if (elem !== "physical") mul *= 1 + advVal("elemAmp", 0) + .12 * traitLv("attune");
+  if (e.slow > 0 && (advVal("deepFreeze", false) || traitLv("chronos")))
+    mul *= 1 + .18 * traitLv("chronos") + (advVal("deepFreeze", false) ? .2 : 0);
   // 조합: 학살 — 처치 누적 버프
-  if (C && C.has("carnage")) mul *= 1 + player.carnage;
+  if (C && C.has("carnage") && player.carnage > 0) { mul *= 1 + player.carnage; procCombo("carnage", e.x, e.y); }
   // 직업 자세(진영의 접전 스택 / 영창 단계)는 매 프레임 변하므로 여기서 곱한다
   mul *= player.dynDmg;
 
-  const crit = Math.random() < (s ? s.crit : .1);
-  const final = dmg * mul * (crit ? 2 : 1);
+  const crit = Math.random() < ((s ? s.crit : .1) + player.dynCrit);
+  const final = dmg * mul * (crit ? player.dynCritMul : 1);
   e.hp -= final;
   e.flash = .12;
   Game.dmgDealt += final;
@@ -664,6 +676,7 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
     const heal = Math.min(player.leechBudget, final * .015);
     player.leechBudget -= heal;
     player.hp = Math.min(s.maxHp, player.hp + heal);
+    procCombo("leech", player.x, player.y);
   }
 
   const col = crit ? "#ffd34d" : (ELEMENTS[elem] ? ELEMENTS[elem].color : "#ffffff");
@@ -672,6 +685,22 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
     const a = Math.atan2(e.y - fromY, e.x - fromX);
     e.kx += Math.cos(a) * knock; e.ky += Math.sin(a) * knock;
   }
+  // 전직: 처형 — 체력이 바닥난 적을 즉시 끝낸다
+  const exe = advVal("execute", 0);
+  if (exe > 0 && !e.boss && e.hp > 0 && e.hp < e.maxHp * (exe + .04 * traitLv("reap"))) {
+    spawnNumber(e.x, e.y - e.r - 14, "처형!", "#e0426a", 20);
+    e.hp = 0;
+  }
+  // 전직: 중독 — 모든 공격이 지속 피해를 남긴다
+  if (advVal("poison", false)) {
+    e.burn = Math.max(e.burn, 3);
+    e.burnDps = Math.max(e.burnDps, dmg * .3);
+  }
+  // 전직: 파괴자 — 타격이 확률적으로 터진다
+  const sh = advVal("shatterHit", 0);
+  if (sh > 0 && Math.random() < sh + .08 * traitLv("demolish"))
+    spawnWave({ x: e.x, y: e.y, maxR: 90 * player.stats.area, dmg: final * .6,
+      life: .26, color: "#c94a2a", element: "fire" });
   if (e.hp <= 0) killEnemy(e, elem);
   else spawnParticles(e.x, e.y, 2, e.type.color, 90, .3, 2.5);
 }
@@ -681,19 +710,24 @@ function killEnemy(e, elem) {
   e.active = false;
   Game.kills++;
   player.onKill(e);
+  // 전직: 피의 갈증 — 처치할 때마다 회복
+  if (traitLv("bloodlust"))
+    player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * .006 * traitLv("bloodlust"));
 
   const C = player.combos;
   if (C) {
     // 폭발 연쇄 — 화염 + 뇌전
-    if (C.has("blast") && Math.random() < .28) {
+    if (C.has("blast") && Math.random() < .28 * (1 + .3 * traitLv("prism"))) {
       spawnWave({ x: e.x, y: e.y, maxR: 100 * player.stats.area, dmg: e.maxHp * .35 + 20,
                   life: .3, color: "#ff8a3c", element: "fire" });
+      procCombo("blast", e.x, e.y);
       Sfx.throttled("blast", 90, () => Sfx.play(120, .18, "sawtooth", .5, -60));
     }
     // 감전 폭풍 — 뇌전 + 냉기 (둔화된 적이 죽을 때)
     if (C.has("surge") && wasSlowed) {
       const near = nearestEnemies(e.x, e.y, 220, 2);
       for (const o of near) { spawnBolt(o.x, o.y); damageEnemy(o, 30 + e.maxHp * .25, e.x, e.y, 40, "storm"); }
+      if (near.length) procCombo("surge", e.x, e.y);
     }
   }
   spawnParticles(e.x, e.y, e.boss ? 40 : 8, e.type.color, e.boss ? 320 : 150, .6, e.boss ? 6 : 3.5);
@@ -719,9 +753,10 @@ const player = {
   stats: null,
   base: { maxHp: 100, speed: 208 },
   // 직업 자원 · 조합 · 전용 특성
-  res: 0, noHit: 0, combos: new Set(), traits: [],
+  res: 0, noHit: 0, combos: new Set(), traits: [], advance: [],
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
+  dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
   stillTime: 0, bulwark: 0, press: 0, channel: 0, meltTimer: 0, blocked: 0,
   carnage: 0, carnageTimer: 0, leechBudget: 0,
   dash: 0, dashX: 1, dashY: 0, dashDmg: 0, dashHit: new Set(),
@@ -734,7 +769,7 @@ const RES_MAX = 100;
 
 player.onKill = function (e) {
   const R = player.cls && player.cls.resource;
-  if (R && R.onKill) player.res = clamp(player.res + R.onKill * (e.boss ? 10 : 1), 0, RES_MAX);
+  if (R && R.onKill) player.res = clamp(player.res + R.onKill * advVal("rageGain", 1) * (e.boss ? 10 : 1), 0, RES_MAX);
   if (player.combos.has("carnage")) {
     player.carnage = Math.min(.35, player.carnage + .014);
     player.carnageTimer = 3.5;
@@ -763,15 +798,54 @@ function updateResource(dt) {
 function useSkill() {
   const C = player.cls;
   if (!C || Game.state !== "playing") return;
-  if (player.res < C.skill.cost) {
+  if (player.res < curSkill().cost) {
     Sfx.throttled("nores", 260, () => Sfx.play(130, .09, "square", .3, -40));
     return;
   }
-  player.res -= C.skill.cost;
-  C.skill.use(player);
+  player.res -= curSkill().cost;
+  curSkill().use(player);
 }
 
 /* ---------- 속성 조합 판정 ---------- */
+/* 조합이 실제로 몇 번 터졌는지 세고, 터질 때 화면에 띄운다.
+   "조합이 열렸다"만 알려주고 끝내면 플레이어는 그게 일하고 있는지 알 수 없다. */
+const comboProcs = {};
+function procCombo(key, x, y) {
+  let e = comboProcs[key];
+  if (!e) e = comboProcs[key] = { count: 0, flash: 0 };
+  e.count++; e.flash = .9;
+  if (x !== undefined && Math.random() < .22) {
+    const c = COMBOS.find(c => c.key === key);
+    if (c) spawnNumber(x, y - 34, c.icon + " " + c.name, "#ffd9a0", 15);
+  }
+}
+function resetCombos() { for (const k in comboProcs) delete comboProcs[k]; }
+
+/* 이 속성을 들이면 어떤 조합이 열리는지 — 레벨업 카드에서 미리 보여준다 */
+function combosIfAdded(elem) {
+  const els = new Set();
+  for (const w of player.weapons) els.add(WEAPONS[w.key].element);
+  if (els.has(elem)) return [];
+  const out = [];
+  for (const c of COMBOS) {
+    if (player.combos.has(c.key)) continue;
+    if ((c.a === elem && els.has(c.b)) || (c.b === elem && els.has(c.a))) out.push(c);
+  }
+  return out;
+}
+/* 무기 하나만 더 있으면 열리는 조합 — HUD 힌트용 */
+function combosOneAway() {
+  const els = new Set();
+  for (const w of player.weapons) els.add(WEAPONS[w.key].element);
+  const out = [];
+  for (const c of COMBOS) {
+    if (player.combos.has(c.key)) continue;
+    if (els.has(c.a) && !els.has(c.b)) out.push({ c, need: c.b });
+    else if (els.has(c.b) && !els.has(c.a)) out.push({ c, need: c.a });
+  }
+  return out;
+}
+
 function recomputeCombos() {
   const els = new Set();
   for (const w of player.weapons) els.add(WEAPONS[w.key].element);
@@ -793,6 +867,19 @@ function recomputeStats() {
   const C = player.cls;
   if (C) {
     const m = C.mods;
+    if (m.maxHp)    s.maxHp += m.maxHp;
+    if (m.speed)    s.speed *= 1 + m.speed;
+    if (m.damage)   s.damage *= 1 + m.damage;
+    if (m.area)     s.area *= 1 + m.area;
+    if (m.cooldown) s.cooldown *= 1 + m.cooldown;
+    if (m.armor)    s.armor *= 1 - m.armor;
+    if (m.regen)    s.regen += m.regen;
+    if (m.crit)     s.crit += m.crit;
+    if (m.xpGain)   s.xpGain *= 1 + m.xpGain;
+  }
+  // 전직 보정 — 직업 보정과 같은 방식으로 누적된다
+  for (const a of player.advance) {
+    const m = a.mods || {};
     if (m.maxHp)    s.maxHp += m.maxHp;
     if (m.speed)    s.speed *= 1 + m.speed;
     if (m.damage)   s.damage *= 1 + m.damage;
@@ -825,6 +912,63 @@ function addTrait(key) {
   else player.traits.push({ key, level: 1 });
 }
 
+/* 자세가 없는 직업(전사·추적자)과, 자세 밖에서 도는 전직 효과를 여기서 처리한다.
+   매 프레임 dyn* 배수에 곱해지고, 프레임마다 초기화되므로 상태가 남지 않는다. */
+function applyAdvanceEffects(p, dt, moving) {
+  const s = p.stats;
+
+  // 광전사 계열 — 피가 마를수록 빨라지고 세진다
+  if (advVal("lowHpFury", false)) {
+    const f = 1 - clamp(p.hp / s.maxHp, 0, 1);
+    const amp = advVal("furyAmp", 1) * (1 + .25 * traitLv("warcry"));
+    p.dynDmg *= 1 + .85 * f * amp;
+    p.dynCd *= 1 - .38 * f;
+  }
+  // 검투사 계열 — 포위될수록 단단해진다
+  const ca = advVal("crowdArmor", 0);
+  if (ca) {
+    const per = ca + traitLv("champion") * .008;
+    p.dynArmor *= 1 - Math.min(.72, per * p.press);
+    const cr = advVal("crowdRegen", 0);
+    if (cr) p.hp = Math.min(s.maxHp, p.hp + s.maxHp * cr * p.press * dt);
+  }
+  if (traitLv("showman")) p.dynDmg *= 1 + .015 * traitLv("showman") * p.press;
+
+  // 마검사 계열 — 곁의 적에게 추가 피해
+  const mb = advVal("meleeBonus", 0);
+  if (mb > 0 && p.press > 0)
+    p.dynDmg *= 1 + (mb + .25 * traitLv("bladeDance")) * Math.min(1, p.press / 6);
+
+  // 암살자 계열 — 집중이 찰수록 치명타
+  if (advVal("focusCrit", false))
+    p.dynCrit += (p.res / RES_MAX) * .35 * advVal("focusAmp", 1);
+  if (traitLv("manaEdge")) p.dynCrit += .04 * traitLv("manaEdge") * Math.floor(p.channel);
+  if (traitLv("shadowstep")) p.dynDmg *= 1 + .08 * traitLv("shadowstep") * Math.min(4, p.noHit / 5);
+  if (traitLv("onehit")) p.dynCritMul = 2 + .4 * traitLv("onehit");
+
+  // 사냥꾼 계열 — 발사체 강화
+  const pb = advVal("projBoost", 0);
+  if (pb) p.dynProjSpeed *= 1 + pb;
+  p.dynPierce += advVal("pierceBonus", 0);
+  if (advVal("allHoming", false)) p.dynHoming = 6.5;
+
+  // 화상·중독 증폭
+  p.dynBurnAmp = 1 + .45 * traitLv("pyreLord") + .5 * traitLv("virulence");
+}
+
+function applyAdvance(a) {
+  player.advance.push(a);
+  recomputeStats();
+  player.hp = Math.min(player.stats.maxHp, player.hp + (a.mods && a.mods.maxHp > 0 ? a.mods.maxHp : 0));
+  if (a.grant) addWeapon(a.grant);
+  Game.advanceFlash = 3.2;
+  cam.shake = 18;
+  spawnParticles(player.x, player.y, 60, a.color, 400, 1.2, 6);
+  spawnWave({ x: player.x, y: player.y, maxR: 360, dmg: 0, life: .7, color: a.color, element: "holy" });
+  player.iframe = Math.max(player.iframe, 1.5);
+  [523, 659, 784, 1046, 1318].forEach((f, i) => setTimeout(() => Sfx.play(f, .18, "triangle", .9), i * 80));
+}
+
 function addPassive(key) {
   const p = player.passives.find(p => p.key === key);
   if (p) p.level++;
@@ -840,7 +984,7 @@ const Game = {
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0,
-  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false,
+  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
@@ -862,12 +1006,12 @@ const Game = {
     player.noHit = 0; player.combos = new Set();
     player.carnage = 0; player.carnageTimer = 0; player.leechBudget = 0;
     player.dash = 0; player.dashHit.clear();
-    player.traits.length = 0;
+    player.traits.length = 0; player.advance.length = 0; this.advanceFlash = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
-    this.comboFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
+    this.comboFlash = 0; resetCombos(); this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
     player.cls = CLASSES[selectedClass];
     recomputeStats();
     player.hp = player.stats.maxHp;
@@ -898,7 +1042,7 @@ const Game = {
     if (this.state === "playing" && (k === " " || k === "shift")) { useSkill(); return; }
     if (this.state === "playing" && (k === "escape" || k === "p")) { this.state = "paused"; return; }
     if (this.state === "paused" && (k === "escape" || k === "p")) { this.state = "playing"; return; }
-    if (this.state === "levelup") {
+    if (this.state === "levelup" || this.state === "advance") {
       const i = "123".indexOf(k);
       if (i >= 0 && this.choices[i]) this.applyChoice(this.choices[i]);
     }
@@ -912,6 +1056,19 @@ const Game = {
     // 곡선을 세워 한 판의 상한을 40대 초반으로 낮춘다 — 무엇을 포기할지 고르게 만드는 게 핵심이다.
     player.xpNext = Math.floor(5 + (player.level - 1) * 5.5 + Math.pow(player.level, 2) * .55);
     player.hp = Math.min(player.stats.maxHp, player.hp + 3);
+    // 전직 관문 — 여기서만은 무기·특성이 아니라 '앞으로 무엇이 될지'를 고른다
+    for (const [lv, tier] of [[ADV_LV1, 1], [ADV_LV2, 2]]) {
+      if (player.level >= lv && player.advance.length < tier) {
+        const opts = advanceOptions(tier);
+        if (opts.length) {
+          this.choices = opts;
+          this.state = "advance";
+          this.hover = -1;
+          Sfx.levelup();
+          return;
+        }
+      }
+    }
     this.choices = this.rollChoices();
     this.state = "levelup";
     this.hover = -1;
@@ -923,7 +1080,7 @@ const Game = {
     // 직업 전용 특성을 일반 카드와 같은 슬롯에서 경쟁시키면, 특성이 있는 직업만
     // 무기 강화를 덜 받아 화력이 뒤처진다(측정으로 확인). 그래서 트랙을 분리한다 —
     // 3레벨마다 한 번은 특성만 나오는 판이고, 나머지는 무기·능력만 나온다.
-    const list = (player.cls && TRAITS[player.cls.key]) || [];
+    const list = traitList();
     const traitPool = [];
     for (const t of list) {
       const lv = traitLv(t.key);
@@ -965,6 +1122,7 @@ const Game = {
   },
 
   applyChoice(c) {
+    if (c.tier) { applyAdvance(c); this.state = "playing"; if (player.xp >= player.xpNext) this.levelUp(); return; }
     if (c.type === "weapon") addWeapon(c.key);
     else if (c.type === "passive") addPassive(c.key);
     else if (c.type === "trait") addTrait(c.key);
@@ -982,10 +1140,10 @@ const Game = {
   },
   difficulty() {
     const m = this.time / 60;
-    return { hp: 1 + m * .5 + Math.pow(m, 2.35) * .024, spd: 1 + m * .03, dmg: 1 + m * .18 };
+    return { hp: 1 + m * .62 + Math.pow(m, 2.5) * .027, spd: 1 + m * .036, dmg: 1 + m * .24 };
   },
   targetCount() {
-    return Math.min(380, Math.floor(26 + this.time / 60 * 22));
+    return Math.min(440, Math.floor(30 + this.time / 60 * 28));
   },
 
   spawnEnemy(typeKey, forceX, forceY) {
@@ -1032,8 +1190,8 @@ const Game = {
 
     // 7분 이후 45초마다 사냥개 무리 — 플레이어보다 빨라서 계속 도망만 칠 수 없다
     const ht = Math.floor(this.time), pht = Math.floor(this.time - dt);
-    if (ht !== pht && this.time >= 420 && ht % 45 === 0) {
-      const a = rnd(TAU), n = 6 + Math.floor((this.time - 420) / 90);
+    if (ht !== pht && this.time >= 330 && ht % 38 === 0) {
+      const a = rnd(TAU), n = 7 + Math.floor((this.time - 330) / 70);
       for (let i = 0; i < n; i++) {
         const aa = a + rnd(-.7, .7), rad = rnd(820, 980);
         this.spawnEnemy("hound", player.x + Math.cos(aa) * rad, player.y + Math.sin(aa) * rad);
@@ -1090,15 +1248,30 @@ function update(dt) {
   if (player.carnageTimer > 0) player.carnageTimer -= dt;
   else if (player.carnage > 0) player.carnage = Math.max(0, player.carnage - dt * .12);
   if (Game.comboFlash > 0) Game.comboFlash -= dt;
+  if (Game.advanceFlash > 0) Game.advanceFlash -= dt;
 
   /* 2. 공간 해시 재구축 */
   hash.clear();
   for (const e of enemies) if (e.active) hash.insert(e);
 
-  /* 2-b. 직업 자세 — 매 프레임 다시 계산되는 배수 */
+  /* 2-b. 직업 자세 · 전직 효과 — 매 프레임 다시 계산되는 배수 */
   player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
   player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
+  player.dynCrit = 0; player.dynCritMul = 2; player.dynProjSpeed = 1;
+  player.dynHoming = 0; player.dynBurnAmp = 1;
+  // 곁에 붙은 적 수는 여러 직업·전직이 함께 쓰므로 공용으로 한 번만 센다
+  {
+    const R = 155 * s.area;
+    const found = hash.query(player.x, player.y, R, scratch3);
+    let n = 0;
+    for (let i = 0; i < found.length; i++) {
+      const e = found[i];
+      if (e.active && dist2(e.x, e.y, player.x, player.y) < R * R) n++;
+    }
+    player.press = Math.min(14, n);
+  }
   if (player.cls && player.cls.stance) player.cls.stance.update(player, dt, moving);
+  if (player.advance.length) applyAdvanceEffects(player, dt, moving);
 
   /* 3. 무기 */
   for (const w of player.weapons) {
@@ -1204,7 +1377,7 @@ function update(dt) {
       const rr = 34 + e.r;
       if (dist2(e.x, e.y, player.x, player.y) < rr * rr) {
         player.dashHit.add(e.id);
-        damageEnemy(e, player.dashDmg, player.x, player.y, 420, "physical");
+        damageEnemy(e, player.dashDmg * (1 + .4 * traitLv("charge")), player.x, player.y, 420, "physical");
       }
     }
   }
@@ -1227,7 +1400,7 @@ function update(dt) {
     if (e.slow > 0) e.slow -= dt;
     if (e.burn > 0) {
       e.burn -= dt;
-      e.hp -= e.burnDps * dt;
+      e.hp -= e.burnDps * (player.dynBurnAmp || 1) * dt;
       if (Math.random() < dt * 7) spawnParticles(e.x, e.y, 1, "#ff8a3c", 70, .3, 2);
       if (e.hp <= 0) { killEnemy(e, "fire"); continue; }
     }
@@ -1276,6 +1449,11 @@ function update(dt) {
       player.hp -= dmg;
       player.iframe = .6; player.hurtFlash = .35;
       player.onHurt();
+      // 전직: 룬나이트 — 맞으면 룬이 터진다
+      if (advVal("runeBurst", false))
+        spawnWave({ x: player.x, y: player.y, maxR: 220 * player.stats.area,
+          dmg: (40 + player.level * 6) * player.stats.damage * (1 + .5 * traitLv("runeGuard")),
+          life: .35, color: "#9fb8ff", element: "frost" });
       cam.shake = Math.min(16, 4 + dmg * .22);
       spawnNumber(player.x, player.y - 22, "-" + Math.round(dmg) + (count > 2 ? " ×" + count : ""), "#ff6b6b", 17);
       Sfx.hurt();
@@ -1877,9 +2055,118 @@ function traitLv(key) {
   const t = player.traits.find(t => t.key === key);
   return t ? t.level : 0;
 }
-function traitDef(clsKey, key) {
-  const list = TRAITS[clsKey] || [];
-  return list.find(t => t.key === key);
+// 전직으로 열린 특성까지 합친 목록
+function traitList() {
+  const out = (player.cls && TRAITS[player.cls.key]) ? TRAITS[player.cls.key].slice() : [];
+  for (const a of player.advance) if (a.traits) out.push(...a.traits);
+  return out;
+}
+function traitDefByKey(key) {
+  return traitList().find(t => t.key === key);
+}
+function traitDef(clsKey, key) {   // 이전 호출부 호환
+  return traitDefByKey(key);
+}
+
+/* ---------- 능동 스킬 빌더 ----------
+   전직마다 스킬이 바뀌어야 하는데 24개를 손으로 쓰면 관리가 안 된다.
+   형태별로 만들어 쓰고, 수치만 전직 데이터에 둔다. */
+function skWave(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    spawnWave({ x: p.x, y: p.y, maxR: o.r * p.stats.area,
+      dmg: (o.dmg + p.level * (o.perLv || 10)) * p.stats.damage * p.dynDmg,
+      life: o.life || .5, color: o.color, element: o.elem, heal: o.heal || 0 });
+    if (o.iframe) p.iframe = Math.max(p.iframe, o.iframe);
+    if (o.healPct) p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * o.healPct);
+    cam.shake = o.shake || 12;
+    spawnParticles(p.x, p.y, 34, o.color, 320, .8, 5);
+    Sfx.play(o.freq || 320, .45, "triangle", 1, o.slide || 500);
+  } };
+}
+
+function skBurst(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    const targets = nearestEnemies(p.x, p.y, 900, o.n);
+    for (let i = 0; i < o.n; i++) {
+      const t = targets[i % Math.max(1, targets.length)];
+      const a = t ? Math.atan2(t.y - p.y, t.x - p.x) + rnd(-.22, .22)
+                  : i / o.n * TAU;
+      const sp = (o.speed || 380) * p.stats.projSpeed;
+      spawnProjectile({
+        x: p.x, y: p.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        r: (o.r || 11) * p.stats.area,
+        dmg: (o.dmg + p.level * (o.perLv || 8)) * p.stats.damage * p.dynDmg,
+        pierce: o.pierce || 2, life: o.life || 2.2, kind: o.kind || "orb",
+        angle: a, color: o.color, element: o.elem,
+        homing: o.homing || 0, target: t || null,
+      });
+    }
+    cam.shake = 8;
+    Sfx.play(o.freq || 540, .3, "triangle", .9, 400);
+  } };
+}
+
+function skStrike(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    const pool = nearestEnemies(p.x, p.y, 800, o.n * 2);
+    const dmg = (o.dmg + p.level * (o.perLv || 14)) * p.stats.damage * p.dynDmg;
+    for (let i = 0; i < o.n; i++) {
+      const e = pool[i % Math.max(1, pool.length)];
+      if (!e || !e.active) continue;
+      spawnBolt(e.x, e.y);
+      damageEnemy(e, dmg, e.x, e.y - 60, 0, o.elem);
+      spawnWave({ x: e.x, y: e.y, maxR: (o.splash || 90) * p.stats.area,
+        dmg: dmg * .5, life: .28, color: o.color, element: o.elem });
+    }
+    cam.shake = 10;
+    Sfx.play(200, .3, "sawtooth", .8, 700);
+  } };
+}
+
+function skSlash(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    const base = Math.atan2(p.faceY, p.faceX);
+    const dmg = (o.dmg + p.level * (o.perLv || 12)) * p.stats.damage * p.dynDmg;
+    for (let i = 0; i < o.n; i++)
+      spawnSlash(p, base + (i - (o.n - 1) / 2) * (o.spread || .55), dmg,
+                 o.len * p.stats.area, 1.4, o.elem);
+    if (o.iframe) p.iframe = Math.max(p.iframe, o.iframe);
+    cam.shake = 10;
+    spawnParticles(p.x + p.faceX * 40, p.y + p.faceY * 40, 20, o.color, 260, .5, 4);
+    Sfx.play(280, .3, "sawtooth", .8, 260);
+  } };
+}
+
+function skDash(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    p.dash = o.dur; p.dashX = p.faceX; p.dashY = p.faceY;
+    p.dashDmg = (o.dmg + p.level * (o.perLv || 12)) * p.stats.damage * p.dynDmg;
+    p.dashHit.clear();
+    p.iframe = Math.max(p.iframe, o.dur + .2);
+    cam.shake = 8;
+    Sfx.play(190, .3, "sawtooth", .85, 320);
+  } };
+}
+
+function skBlink(name, icon, cost, desc, o) {
+  return { name, icon, cost, desc, use(p) {
+    const ox = p.x, oy = p.y;
+    p.x += p.faceX * o.dist; p.y += p.faceY * o.dist;
+    p.iframe = Math.max(p.iframe, o.iframe || .9);
+    const dmg = (o.dmg + p.level * (o.perLv || 8)) * p.stats.damage * p.dynDmg;
+    for (const [bx, by] of [[ox, oy], [p.x, p.y]]) {
+      spawnParticles(bx, by, 22, o.color, 280, .6, 4);
+      for (let i = 0; i < o.n; i++) {
+        const a = i / o.n * TAU, sp = 540 * p.stats.projSpeed;
+        spawnProjectile({
+          x: bx, y: by, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+          r: 8 * p.stats.area, dmg, pierce: o.pierce || 2, life: 1.0,
+          kind: o.kind || "dagger", angle: a, color: o.color, element: o.elem,
+        });
+      }
+    }
+    Sfx.play(760, .2, "sine", .8, -420);
+  } };
 }
 
 /* ---------- 메타 진행 : 제단 ----------
@@ -1940,32 +2227,28 @@ const CLASSES = [
     stanceHint: "멈추면 방벽(방어·회복·연사) · 곁의 적이 많을수록 피해 증가",
     stance: {
       update(p, dt, moving) {
-        const bl = traitLv("bulwark");
-        const need = .6 - .15 * bl;
+        const bl = traitLv("bulwark") + traitLv("immovable");
+        const need = Math.max(.12, advVal("bulwarkInstant", .6) - .15 * bl);
         const on = !moving && p.stillTime >= need;
         p.bulwark = on ? Math.min(1, p.bulwark + dt * 6) : Math.max(0, p.bulwark - dt * 8);
 
-        // 접전: 곁에 붙은 적 수만큼 피해가 오른다
+        // 접전: 곁에 붙은 적 수만큼 피해가 오른다 (p.press 는 공용 패스에서 계산됨)
         const R = 155 * p.stats.area;
         const found = hash.query(p.x, p.y, R, scratch3);
-        let n = 0;
-        for (let i = 0; i < found.length; i++) {
-          const e = found[i];
-          if (e.active && dist2(e.x, e.y, p.x, p.y) < R * R) n++;
-        }
-        p.press = Math.min(14, n);
-        p.dynDmg *= 1 + (.06 + .025 * traitLv("crusade")) * p.press;
+        const perPress = advVal("pressDmg", .06) + .025 * traitLv("crusade") + .025 * traitLv("zealotry");
+        p.dynDmg *= 1 + perPress * p.press;
 
         if (on) {
           // 방패벽은 밀집할수록 더 잘 막는다. '둘러싸일수록 강해진다'는 규칙이
           // 피해에만 걸리고 방어에는 안 걸리면, 파고들라는 설계가 그냥 자살 명령이 된다.
-          p.dynArmor *= 1 - Math.min(.88, .52 + .08 * bl + .02 * p.press);
+          p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .08 * bl + .02 * p.press);
           // 접전 보너스는 적이 몰려야 나오므로 초반엔 사실상 0이다.
           // 방벽 자체에 쿨다운 감소를 붙여 '자리를 지키면 꾸준히 때린다'는 기본값을 준다.
           p.dynCd *= .72;
           // 자리를 지키면 체력이 돌아온다 — 파고들기 → 버티기 → 회복의 리듬
           p.hp = Math.min(p.stats.maxHp,
-            p.hp + p.stats.maxHp * (.015 + .005 * bl + .0018 * p.press) * dt);
+            p.hp + p.stats.maxHp * (.015 + advVal("regenBonus", 0) + .005 * bl
+              + .012 * traitLv("fortress") + .0018 * p.press) * dt);
           // 도발: 방벽 중에는 적을 끌어당긴다 — 더 둘러싸일수록 이득이라는 규칙과 맞물린다
           const tl = traitLv("taunt");
           if (tl > 0) {
@@ -1978,6 +2261,20 @@ const CLASSES = [
             }
           }
         }
+        // 성전사: 달리면서도 방벽 효과의 일부가 남는다
+        const mv = advVal("moveBulwark", 0);
+        if (!on && mv > 0) p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .02 * p.press) * mv;
+        // 대심문관: 접전 범위의 적이 상시 불탄다
+        if (advVal("burnAura", false)) {
+          for (let i = 0; i < found.length; i++) {
+            const e = found[i];
+            if (!e.active) continue;
+            if (dist2(e.x, e.y, p.x, p.y) < R * R) {
+              e.burn = Math.max(e.burn, 1.2);
+              e.burnDps = Math.max(e.burnDps, 14 * p.stats.damage * (1 + p.level * .06));
+            }
+          }
+        }
         // 불굴: 체력이 바닥일수록 단단해지고 빨라진다
         const rl = traitLv("resolve");
         if (rl > 0 && p.hp < p.stats.maxHp * .4) {
@@ -1987,7 +2284,7 @@ const CLASSES = [
       },
       // 막은 피해를 주변에 되돌린다
       onBlocked(p, blocked) {
-        const tl = traitLv("thorns");
+        const tl = traitLv("thorns") + advVal("thornsAlways", 0);
         if (tl <= 0 || blocked <= 0) return;
         const R = 170 * p.stats.area;
         const found = hash.query(p.x, p.y, R, scratch3);
@@ -2078,16 +2375,18 @@ const CLASSES = [
     stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",
     stance: {
       update(p, dt, moving) {
-        const maxStage = 3 + traitLv("deepMana");
+        const maxStage = 3 + traitLv("deepMana") + advVal("maxStageBonus", 0);
         const rate = (1 / .8) * (1 + .3 * traitLv("focus"));
         if (moving) {
-          const floor = traitLv("residue") > 0 ? 1 : 0;
+          const floor = Math.max(traitLv("residue") > 0 ? 1 : 0, advVal("moveKeep", 0));
           p.channel = Math.max(floor, p.channel - dt * 3.4);
         } else {
           p.channel = Math.min(maxStage, p.channel + dt * rate);
         }
         const st = Math.floor(p.channel);
-        p.dynDmg *= 1 + .35 * st;
+        p.dynDmg *= 1 + (.35 + .2 * traitLv("overchannel") * (st >= maxStage ? 1 : 0)) * st;
+        if (advVal("channelHeal", 0) && st > 0)
+          p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * advVal("channelHeal", 0) * st * dt);
         p.dynCd *= Math.max(.4, 1 - .14 * st);
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
@@ -2108,6 +2407,7 @@ const CLASSES = [
         }
         // 비전 과부하: 깊게 영창하면 발사체가 더 꿰뚫는다
         if (st >= 3) p.dynPierce += 2 * traitLv("overload");
+        if (st >= maxStage) p.dynPierce += advVal("pierceAtMax", 0);
 
         // 마력 폭주: 최대 단계를 유지하면 주변이 주기적으로 터진다
         const ml = traitLv("meltdown");
@@ -2148,6 +2448,342 @@ const CLASSES = [
     },
   },
 ];
+/* ---------- 전직 ----------
+   Lv10 에서 1차, Lv22 에서 2차. 전직하면 능동 스킬이 통째로 바뀌고,
+   자세 파라미터가 조정되며, 전용 특성 카드 풀에 새 카드가 추가된다.
+   같은 직업으로 시작해도 끝이 달라지게 만드는 게 목적이다. */
+const ADVANCES = [
+  /* ── 마법사 ───────────────────────────────────────── */
+  { key: "spellblade", from: "mage", tier: 1, name: "마검사", icon: "⚔️", color: "#c4a2ff",
+    tagline: "영창을 몸에 두르고 파고든다",
+    desc: "이동 중에도 영창 2단계가 남는다. 곁의 적에게 추가 피해. 몸이 튼튼해지고 발이 빨라진다.",
+    mods: { maxHp: 70, speed: .2, area: .1 },
+    stanceMod: { moveKeep: 2, meleeBonus: .5 },
+    grant: "whip",
+    skill: skSlash("마력 참격", "🌩️", 45, "앞을 세 갈래로 베어 가른다.",
+      { n: 3, dmg: 90, len: 190, elem: "frost", color: "#c4a2ff", iframe: .3 }),
+    traits: [
+      { key: "bladeDance", name: "검무", icon: "💃", max: 3, desc: "근접 추가 피해가 커진다.",
+        detail: l => "곁의 적에게 +" + (25 * l) + "%" },
+      { key: "manaEdge", name: "마력 날", icon: "🔷", max: 2, desc: "영창 단계마다 치명타 확률이 오른다.",
+        detail: l => "단계당 치명타 +" + (4 * l) + "%" },
+    ] },
+
+  { key: "elementalist", from: "mage", tier: 1, name: "원소술사", icon: "🌈", color: "#8fd0ff",
+    tagline: "네 원소를 한 손에",
+    desc: "영창 최대 단계가 하나 늘고, 속성 피해가 증폭된다. 불꽃 파도를 얻는다.",
+    mods: { damage: .18, area: .12 },
+    stanceMod: { maxStageBonus: 1, elemAmp: .3 },
+    grant: "flame",
+    skill: skStrike("원소 강림", "🌠", 50, "적들에게 원소를 내리꽂는다.",
+      { n: 5, dmg: 120, elem: "storm", color: "#8fd0ff", splash: 110 }),
+    traits: [
+      { key: "attune", name: "원소 공명", icon: "🎼", max: 3, desc: "속성 피해가 더 증폭된다.",
+        detail: l => "속성 피해 +" + (12 * l) + "%" },
+      { key: "prism", name: "프리즘", icon: "🔺", max: 2, desc: "영창 중 조합 발동 확률이 오른다.",
+        detail: l => "조합 발동 +" + (30 * l) + "%" },
+    ] },
+
+  { key: "swordsaint", from: "spellblade", tier: 2, name: "마검성", icon: "🗡️", color: "#e0c2ff",
+    tagline: "멈추지 않는 검",
+    desc: "이동 중에도 영창 3단계 유지. 근접 피해와 치명타가 크게 오른다.",
+    mods: { damage: .28, speed: .12, crit: .12 },
+    stanceMod: { moveKeep: 3, meleeBonus: 1.0 },
+    skill: skSlash("무한검제", "⚡", 55, "다섯 갈래의 검격이 사방을 가른다.",
+      { n: 5, dmg: 150, len: 230, elem: "physical", color: "#e0c2ff", spread: 1.25, iframe: .5 }),
+    traits: [
+      { key: "endlessBlade", name: "무한의 검", icon: "♾️", max: 3, desc: "채찍·플레일 계열이 한 번 더 나간다.",
+        detail: l => "참격 +" + l + "회" },
+    ] },
+
+  { key: "runeknight", from: "spellblade", tier: 2, name: "룬나이트", icon: "🛡️", color: "#9fb8ff",
+    tagline: "룬을 새긴 갑주",
+    desc: "체력과 방어가 크게 오르고, 영창 중 피격 시 룬이 터진다.",
+    mods: { maxHp: 140, armor: .2 },
+    stanceMod: { moveKeep: 3, runeBurst: true },
+    skill: skWave("룬 폭발", "💠", 45, "몸에 새긴 룬을 터뜨린다. 잠시 무적.",
+      { r: 300, dmg: 160, elem: "frost", color: "#9fb8ff", iframe: 1.5, healPct: .12 }),
+    traits: [
+      { key: "runeGuard", name: "룬 수호", icon: "🔰", max: 3, desc: "룬 폭발이 세지고 자주 터진다.",
+        detail: l => "룬 피해 +" + (50 * l) + "%" },
+    ] },
+
+  { key: "archmage", from: "elementalist", tier: 2, name: "대마법사", icon: "🔮", color: "#b39dff",
+    tagline: "한 걸음도 물러서지 않는다",
+    desc: "영창 최대 단계 +2. 최대 단계에서 모든 발사체가 관통한다. 화력의 정점.",
+    mods: { damage: .4, area: .18 },
+    stanceMod: { maxStageBonus: 2, pierceAtMax: 3, elemAmp: .45 },
+    skill: skStrike("메테오", "☄️", 60, "하늘에서 운석이 쏟아진다.",
+      { n: 9, dmg: 200, perLv: 20, elem: "fire", color: "#ff8a3c", splash: 150 }),
+    traits: [
+      { key: "overchannel", name: "초과 영창", icon: "🌀", max: 3, desc: "최대 단계에서 피해가 한 번 더 곱해진다.",
+        detail: l => "최대 단계 피해 +" + (20 * l) + "%" },
+    ] },
+
+  { key: "grandsage", from: "elementalist", tier: 2, name: "대현자", icon: "📜", color: "#9ce0c0",
+    tagline: "시간마저 다스린다",
+    desc: "영창 중 체력이 회복되고 주변이 깊게 얼어붙는다. 경험치도 더 얻는다.",
+    mods: { maxHp: 80, regen: 1.4, xpGain: .35, cooldown: -.12 },
+    stanceMod: { maxStageBonus: 1, channelHeal: .014, deepFreeze: true },
+    skill: skWave("시간 정지", "⏳", 55, "시간을 멈춰 모든 것을 얼려붙인다.",
+      { r: 460, dmg: 130, elem: "frost", color: "#9ce0c0", life: .8, iframe: 1.2, shake: 16 }),
+    traits: [
+      { key: "chronos", name: "시간의 손", icon: "🕰️", max: 3, desc: "얼어붙은 적이 받는 피해가 늘어난다.",
+        detail: l => "둔화된 적 피해 +" + (18 * l) + "%" },
+    ] },
+
+  /* ── 성기사 ───────────────────────────────────────── */
+  { key: "guardian", from: "paladin", tier: 1, name: "수호기사", icon: "🏰", color: "#ffd36e",
+    tagline: "한 발도 물러서지 않는다",
+    desc: "방벽이 거의 즉시 서고 더 많이 막고 더 많이 회복한다. 체력이 크게 오른다.",
+    mods: { maxHp: 130, armor: .16 },
+    stanceMod: { bulwarkInstant: .25, bulwarkCap: .9, regenBonus: .012 },
+    skill: skWave("성역 봉인", "⛪", 55, "성역을 봉인해 주변을 정화하고 크게 회복한다.",
+      { r: 340, dmg: 140, elem: "holy", color: "#ffd9a0", iframe: 1.8, healPct: .25 }),
+    traits: [
+      { key: "immovable", name: "부동", icon: "⛰️", max: 3, desc: "방벽 중 넉백을 완전히 무시하고 더 단단해진다.",
+        detail: l => "방벽 피해 감소 +" + (4 * l) + "%p" },
+    ] },
+
+  { key: "inquisitor", from: "paladin", tier: 1, name: "심판관", icon: "🔥", color: "#ff8a5c",
+    tagline: "방패를 버리고 불을 들었다",
+    desc: "접전 피해가 훨씬 크게 오르지만 방벽은 약해진다. 불꽃 파도를 얻는다.",
+    mods: { damage: .22, speed: .08, maxHp: -50 },
+    stanceMod: { pressDmg: .11, bulwarkCap: .7 },
+    grant: "flame",
+    skill: skStrike("화형 선고", "🕯️", 50, "죄인들을 지목해 불태운다.",
+      { n: 6, dmg: 130, elem: "fire", color: "#ff8a3c", splash: 120 }),
+    traits: [
+      { key: "zealotry", name: "광신", icon: "🩸", max: 3, desc: "접전 스택당 피해가 더 오른다.",
+        detail: l => "적 1마리당 +" + (2.5 * l) + "%p" },
+    ] },
+
+  { key: "everwall", from: "guardian", tier: 2, name: "불멸의 성벽", icon: "🧱", color: "#ffe9b8",
+    tagline: "무너지지 않는다",
+    desc: "체력이 압도적이고, 방벽 중에는 막은 피해를 항상 되돌린다.",
+    mods: { maxHp: 260, armor: .22 },
+    stanceMod: { bulwarkCap: .93, regenBonus: .024, thornsAlways: .6 },
+    skill: skWave("부동의 맹세", "🗿", 50, "완전히 회복하고 오래 무적이 된다.",
+      { r: 380, dmg: 180, elem: "holy", color: "#ffe9b8", iframe: 3, healPct: .45 }),
+    traits: [
+      { key: "fortress", name: "요새", icon: "🏯", max: 3, desc: "방벽 중 회복량이 크게 오른다.",
+        detail: l => "초당 회복 +" + (l * 1.2).toFixed(1) + "%" },
+    ] },
+
+  { key: "crusader", from: "guardian", tier: 2, name: "성전사", icon: "🐎", color: "#ffc46e",
+    tagline: "달리면서도 방벽을 세운다",
+    desc: "이동 중에도 방벽 효과의 절반이 유지된다. 파고들기가 훨씬 편해진다.",
+    mods: { maxHp: 120, damage: .24 },
+    stanceMod: { bulwarkCap: .88, pressDmg: .09, moveBulwark: .5 },
+    skill: skDash("성스러운 돌격", "🏇", 45, "적진을 꿰뚫고 지나간다.",
+      { dur: .5, dmg: 150, perLv: 16 }),
+    traits: [
+      { key: "charge", name: "돌격 훈련", icon: "🎠", max: 3, desc: "돌진이 길어지고 강해진다.",
+        detail: l => "돌진 피해 +" + (40 * l) + "%" },
+    ] },
+
+  { key: "executioner", from: "inquisitor", tier: 2, name: "처형자", icon: "🪓", color: "#e0426a",
+    tagline: "약해진 것은 살려두지 않는다",
+    desc: "체력이 낮은 적을 즉사시킨다. 접전 피해와 치명타가 정점에 이른다.",
+    mods: { damage: .34, crit: .14 },
+    stanceMod: { pressDmg: .14, execute: .14 },
+    skill: skSlash("참수", "☠️", 50, "앞의 모든 것을 두 번 벤다.",
+      { n: 2, dmg: 200, perLv: 18, len: 220, elem: "blood", color: "#e0426a", spread: .3 }),
+    traits: [
+      { key: "reap", name: "수확", icon: "🌾", max: 3, desc: "즉사 기준 체력이 올라간다.",
+        detail: l => "체력 " + (14 + 4 * l) + "% 이하 즉사" },
+    ] },
+
+  { key: "grandinquisitor", from: "inquisitor", tier: 2, name: "대심문관", icon: "👁️", color: "#ff7a3c",
+    tagline: "닿는 모든 것이 불탄다",
+    desc: "접전 범위 안의 적이 상시 불탄다. 범위가 크게 넓어진다.",
+    mods: { damage: .28, area: .25 },
+    stanceMod: { pressDmg: .12, burnAura: true },
+    skill: skWave("이단 심판", "🔥", 55, "거대한 화염이 사방으로 번진다.",
+      { r: 420, dmg: 170, elem: "fire", color: "#ff8a3c", iframe: 1, shake: 16 }),
+    traits: [
+      { key: "pyreLord", name: "화형대", icon: "🕯️", max: 3, desc: "화상 피해가 크게 오른다.",
+        detail: l => "화상 피해 +" + (45 * l) + "%" },
+    ] },
+
+  /* ── 전사 ─────────────────────────────────────────── */
+  { key: "berserker", from: "warrior", tier: 1, name: "광전사", icon: "💢", color: "#ff6b4a",
+    tagline: "피가 끓을수록 빨라진다",
+    desc: "체력이 낮을수록 공격 속도와 피해가 오른다. 분노가 더 빨리 찬다.",
+    mods: { damage: .2, maxHp: 40 },
+    stanceMod: { rageGain: 1.6, lowHpFury: true },
+    skill: skDash("피의 질주", "🐗", 45, "피를 튀기며 적진을 관통한다.",
+      { dur: .45, dmg: 140, perLv: 15 }),
+    traits: [
+      { key: "bloodlust", name: "피의 갈증", icon: "🩸", max: 3, desc: "처치할 때마다 체력을 회복한다.",
+        detail: l => "처치당 회복 " + (l * .6).toFixed(1) + "%" },
+    ] },
+
+  { key: "gladiator", from: "warrior", tier: 1, name: "검투사", icon: "🎪", color: "#ffb15c",
+    tagline: "군중이 많을수록 화려하다",
+    desc: "공격 범위가 크게 넓어지고, 주변 적이 많을수록 방어가 오른다.",
+    mods: { area: .25, maxHp: 80, armor: .1 },
+    stanceMod: { crowdArmor: .012 },
+    skill: skSlash("원형 검무", "🌀", 45, "몸을 축으로 사방을 벤다.",
+      { n: 6, dmg: 110, len: 200, elem: "physical", color: "#ffb15c", spread: 1.05, iframe: .4 }),
+    traits: [
+      { key: "showman", name: "흥행사", icon: "🎭", max: 3, desc: "주변 적이 많을수록 피해가 오른다.",
+        detail: l => "적 1마리당 +" + (1.5 * l) + "%" },
+    ] },
+
+  { key: "warlord", from: "berserker", tier: 2, name: "전쟁군주", icon: "👑", color: "#ff4a4a",
+    tagline: "전장이 곧 왕좌",
+    desc: "저체력 보너스가 극대화되고 처치할 때마다 크게 회복한다.",
+    mods: { damage: .35, maxHp: 90 },
+    stanceMod: { rageGain: 2.0, lowHpFury: true, furyAmp: 2 },
+    skill: skWave("전쟁의 함성", "📯", 50, "함성으로 주변을 짓밟고 회복한다.",
+      { r: 400, dmg: 170, elem: "physical", color: "#ff4a4a", iframe: 1.2, healPct: .3 }),
+    traits: [
+      { key: "warcry", name: "전쟁의 함성", icon: "📢", max: 3, desc: "저체력 보너스가 더 커진다.",
+        detail: l => "저체력 피해 +" + (25 * l) + "%" },
+    ] },
+
+  { key: "destroyer", from: "berserker", tier: 2, name: "파괴자", icon: "🔨", color: "#c94a2a",
+    tagline: "모든 것을 부순다",
+    desc: "공격이 폭발을 일으킨다. 넉백과 범위가 압도적.",
+    mods: { damage: .3, area: .22 },
+    stanceMod: { rageGain: 1.6, shatterHit: .18 },
+    skill: skWave("파쇄", "💥", 50, "땅을 갈라 사방을 무너뜨린다.",
+      { r: 430, dmg: 190, elem: "fire", color: "#c94a2a", shake: 18 }),
+    traits: [
+      { key: "demolish", name: "붕괴", icon: "🧨", max: 3, desc: "공격이 폭발할 확률이 오른다.",
+        detail: l => "폭발 확률 " + (18 + 8 * l) + "%" },
+    ] },
+
+  { key: "swordmaster", from: "gladiator", tier: 2, name: "검성", icon: "🎖️", color: "#ffd36e",
+    tagline: "한 수에 모든 것을",
+    desc: "치명타 확률과 피해가 크게 오른다. 참격이 두 배로 나간다.",
+    mods: { damage: .3, crit: .18 },
+    stanceMod: { crowdArmor: .012, doubleSlash: true },
+    skill: skSlash("검성 일섬", "🌟", 55, "여덟 갈래로 갈라지는 일섬.",
+      { n: 8, dmg: 130, perLv: 15, len: 250, elem: "physical", color: "#ffd36e", spread: .82, iframe: .6 }),
+    traits: [
+      { key: "onehit", name: "일격필살", icon: "🎯", max: 3, desc: "치명타 피해가 커진다.",
+        detail: l => "치명타 피해 ×" + (2 + .4 * l).toFixed(1) },
+    ] },
+
+  { key: "arenaking", from: "gladiator", tier: 2, name: "투기장의 왕", icon: "🏆", color: "#ffcf5c",
+    tagline: "포위될수록 단단하다",
+    desc: "주변 적이 많을수록 방어와 회복이 크게 오른다. 체력이 매우 높다.",
+    mods: { maxHp: 200, armor: .18, area: .15 },
+    stanceMod: { crowdArmor: .022, crowdRegen: .0012 },
+    skill: skWave("개선 행진", "🎺", 50, "관중의 환호가 상처를 지운다.",
+      { r: 380, dmg: 150, elem: "holy", color: "#ffcf5c", iframe: 2, healPct: .35 }),
+    traits: [
+      { key: "champion", name: "챔피언", icon: "🥇", max: 3, desc: "포위 방어가 더 강해진다.",
+        detail: l => "적 1마리당 방어 +" + (l * .8).toFixed(1) + "%p" },
+    ] },
+
+  /* ── 추적자 ───────────────────────────────────────── */
+  { key: "assassin", from: "rogue", tier: 1, name: "암살자", icon: "🥷", color: "#8ef0b0",
+    tagline: "보이지 않는 한 방",
+    desc: "치명타 확률과 피해가 오르고, 집중이 가득 차면 다음 공격이 반드시 치명타.",
+    mods: { crit: .16, damage: .15 },
+    stanceMod: { focusCrit: true },
+    skill: skBlink("그림자 처형", "🌑", 45, "순간이동하며 사방에 단검을 흩뿌린다.",
+      { dist: 340, n: 12, dmg: 90, elem: "physical", color: "#8ef0b0", pierce: 3 }),
+    traits: [
+      { key: "shadowstep", name: "그림자 밟기", icon: "👣", max: 3, desc: "무피격 시간당 피해가 오른다.",
+        detail: l => "무피격 5초당 +" + (8 * l) + "%" },
+    ] },
+
+  { key: "hunter", from: "rogue", tier: 1, name: "사냥꾼", icon: "🏹", color: "#a8e06a",
+    tagline: "거리를 지배한다",
+    desc: "발사체 속도와 관통이 크게 오른다. 마법 화살을 얻는다.",
+    mods: { damage: .12, cooldown: -.1 },
+    stanceMod: { projBoost: .4, pierceBonus: 1 },
+    grant: "orb",
+    skill: skBurst("일제 사격", "🎯", 45, "주변의 적들에게 화살을 퍼붓는다.",
+      { n: 16, dmg: 80, kind: "dagger", elem: "physical", color: "#a8e06a", homing: 5, pierce: 3, speed: 620 }),
+    traits: [
+      { key: "volley", name: "연사", icon: "🎣", max: 3, desc: "발사체가 하나씩 더 나간다.",
+        detail: l => "발사체 +" + l },
+    ] },
+
+  { key: "shadowlord", from: "assassin", tier: 2, name: "그림자 군주", icon: "🌚", color: "#6ee0a0",
+    tagline: "그림자가 대신 싸운다",
+    desc: "치명타가 정점에 이르고, 무피격 보너스가 크게 오른다.",
+    mods: { crit: .22, damage: .28, speed: .1 },
+    stanceMod: { focusCrit: true, focusAmp: 2 },
+    skill: skBlink("천개의 칼날", "🗡️", 55, "두 번 순간이동하며 칼날을 흩뿌린다.",
+      { dist: 400, n: 20, dmg: 120, perLv: 11, elem: "physical", color: "#6ee0a0", pierce: 4, iframe: 1.4 }),
+    traits: [
+      { key: "thousandcuts", name: "천 개의 상처", icon: "🩹", max: 3, desc: "치명타 시 출혈을 남긴다.",
+        detail: l => "출혈 피해 +" + (40 * l) + "%" },
+    ] },
+
+  { key: "toxicmaster", from: "assassin", tier: 2, name: "독의 대가", icon: "🧪", color: "#9ce06a",
+    tagline: "닿기만 하면 끝",
+    desc: "모든 공격이 중독을 남긴다. 지속 피해가 압도적.",
+    mods: { damage: .2, area: .18 },
+    stanceMod: { focusCrit: true, poison: true },
+    skill: skWave("역병", "☣️", 50, "역병이 사방으로 퍼진다.",
+      { r: 400, dmg: 140, elem: "blood", color: "#9ce06a", life: .7 }),
+    traits: [
+      { key: "virulence", name: "맹독", icon: "🐍", max: 3, desc: "중독 피해가 크게 오른다.",
+        detail: l => "중독 피해 +" + (50 * l) + "%" },
+    ] },
+
+  { key: "sharpshooter", from: "hunter", tier: 2, name: "명사수", icon: "🎯", color: "#c2e06a",
+    tagline: "빗나가지 않는다",
+    desc: "모든 발사체가 유도되고 관통이 크게 오른다.",
+    mods: { damage: .26, cooldown: -.14 },
+    stanceMod: { projBoost: .6, pierceBonus: 3, allHoming: true },
+    skill: skBurst("필중의 화살", "🏹", 55, "모든 적을 향해 화살이 날아간다.",
+      { n: 26, dmg: 110, perLv: 10, kind: "dagger", elem: "physical", color: "#c2e06a", homing: 9, pierce: 5, speed: 700 }),
+    traits: [
+      { key: "deadeye", name: "매의 눈", icon: "🦅", max: 3, desc: "발사체 피해가 오른다.",
+        detail: l => "발사체 피해 +" + (15 * l) + "%" },
+    ] },
+
+  { key: "beastmaster", from: "hunter", tier: 2, name: "야수 조련사", icon: "🐺", color: "#d8a86a",
+    tagline: "사냥개를 길들였다",
+    desc: "수호 성서가 사냥개로 바뀌어 적을 물어뜯는다. 궤도 무기가 크게 강해진다.",
+    mods: { damage: .22, area: .2, speed: .08 },
+    stanceMod: { projBoost: .4, pierceBonus: 1, orbitBeast: 2 },
+    grant: "orbit",
+    skill: skBurst("무리 사냥", "🐾", 50, "사냥개 무리를 풀어놓는다.",
+      { n: 14, dmg: 130, perLv: 12, kind: "orb", elem: "blood", color: "#d8a86a", homing: 7, pierce: 4, speed: 460 }),
+    traits: [
+      { key: "packleader", name: "무리의 우두머리", icon: "🐕", max: 3, desc: "궤도 무기가 하나 더 늘어난다.",
+        detail: l => "궤도 +" + l },
+    ] },
+];
+
+function advanceOptions(tier) {
+  const from = tier === 1 ? (player.cls && player.cls.key) : (player.advance[0] && player.advance[0].key);
+  return ADVANCES.filter(a => a.tier === tier && a.from === from);
+}
+// 전직 스탯/자세/스킬은 나중에 얻은 것이 이긴다
+function curSkill() {
+  for (let i = player.advance.length - 1; i >= 0; i--)
+    if (player.advance[i].skill) return player.advance[i].skill;
+  return player.cls ? player.cls.skill : null;
+}
+function advVal(key, def) {
+  let v = def;
+  for (const a of player.advance)
+    if (a.stanceMod && a.stanceMod[key] !== undefined) v = a.stanceMod[key];
+  return v;
+}
+function advName() {
+  return player.advance.length ? player.advance[player.advance.length - 1].name
+                               : (player.cls ? player.cls.name : "");
+}
+function advIcon() {
+  return player.advance.length ? player.advance[player.advance.length - 1].icon
+                               : (player.cls ? player.cls.icon : "");
+}
+function advColor() {
+  return player.advance.length ? player.advance[player.advance.length - 1].color
+                               : (player.cls ? player.cls.color : "#fff");
+}
+
 let selectedClass = 0;
 
 /* ---------- HUD ---------- */
@@ -2181,18 +2817,24 @@ function drawHUD() {
   const C = player.cls;
   if (C) {
     const R = C.resource, rf = clamp(player.res / RES_MAX, 0, 1);
-    const ready = player.res >= C.skill.cost;
+    const ready = player.res >= curSkill().cost;
     ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(14, 47, 240, 13);
     ctx.fillStyle = R.color;
     ctx.globalAlpha = ready ? 1 : .62;
     ctx.fillRect(16, 49, 236 * rf, 9);
     ctx.globalAlpha = 1;
     // 스킬 발동에 필요한 지점을 눈금으로 표시
-    const markX = 16 + 236 * (C.skill.cost / RES_MAX);
+    const markX = 16 + 236 * (curSkill().cost / RES_MAX);
     ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.fillRect(markX - 1, 46, 2, 15);
     ctx.font = "700 10px " + FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255,255,255,.9)";
     ctx.fillText(R.name + "  " + Math.floor(player.res), 20, 53);
+    if (player.advance.length) {
+      ctx.textAlign = "right";
+      ctx.font = "700 11px " + FONT; ctx.fillStyle = advColor();
+      ctx.fillText(advIcon() + " " + advName(), 248, 53);
+      ctx.textAlign = "left";
+    }
   }
 
   // 직업 자세 상태 — 지금 강해지고 있는지 한눈에 보여야 한다
@@ -2225,16 +2867,50 @@ function drawHUD() {
     cy += 26;
   }
 
-  // 활성화된 속성 조합
+  // 활성화된 속성 조합 — 지금 일하고 있는지가 보여야 한다
   for (const cb of COMBOS) {
     if (!player.combos.has(cb.key)) continue;
-    ctx.fillStyle = "rgba(10,10,20,.6)";
-    ctx.beginPath(); ctx.roundRect(14, cy, 150, 20, 6); ctx.fill();
-    ctx.strokeStyle = "rgba(255,210,140,.35)"; ctx.lineWidth = 1; ctx.stroke();
-    ctx.font = "600 11px " + FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "#ffd9a0";
-    ctx.fillText(cb.icon + " " + cb.name, 22, cy + 10);
-    cy += 24;
+    const pr = comboProcs[cb.key];
+    const fl = pr ? clamp(pr.flash, 0, 1) : 0;
+    if (pr && pr.flash > 0) pr.flash -= 1 / 60;
+    const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
+    ctx.fillStyle = fl > 0 ? "rgba(56,44,20," + (.6 + fl * .35).toFixed(2) + ")" : "rgba(10,10,20,.62)";
+    ctx.beginPath(); ctx.roundRect(14, cy, 214, 24, 7); ctx.fill();
+    ctx.strokeStyle = fl > 0 ? "rgba(255,225,150," + (.4 + fl * .6).toFixed(2) + ")" : "rgba(255,210,140,.28)";
+    ctx.lineWidth = fl > 0 ? 2 : 1; ctx.stroke();
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.font = "11px " + FONT;
+    ctx.fillStyle = ea.color; ctx.fillText(ea.icon, 21, cy + 12);
+    ctx.fillStyle = "rgba(255,255,255,.3)"; ctx.fillText("+", 36, cy + 12);
+    ctx.fillStyle = eb.color; ctx.fillText(eb.icon, 46, cy + 12);
+    ctx.font = "700 11.5px " + FONT;
+    ctx.fillStyle = fl > 0 ? "#fff3d0" : "#ffd9a0";
+    ctx.fillText(cb.name, 66, cy + 12);
+    if (pr && pr.count) {
+      ctx.textAlign = "right";
+      ctx.font = "700 11px " + FONT;
+      ctx.fillStyle = fl > 0 ? "#ffd34d" : "rgba(255,255,255,.35)";
+      ctx.fillText(pr.count.toLocaleString("ko-KR"), 221, cy + 12);
+      ctx.textAlign = "left";
+    }
+    cy += 27;
+  }
+
+  // 무기 하나만 더 있으면 열리는 조합 — 다음 레벨업에서 뭘 노릴지 알려준다
+  const oneAway = combosOneAway();
+  if (oneAway.length && player.weapons.length < MAX_WEAPONS) {
+    for (let i = 0; i < Math.min(2, oneAway.length); i++) {
+      const { c, need } = oneAway[i], en = ELEMENTS[need];
+      ctx.fillStyle = "rgba(10,10,20,.42)";
+      ctx.beginPath(); ctx.roundRect(14, cy, 214, 22, 7); ctx.fill();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "rgba(255,255,255,.16)"; ctx.lineWidth = 1; ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
+      ctx.fillText(en.icon + " " + en.name + " 무기 → " + c.name, 21, cy + 11);
+      cy += 25;
+    }
   }
 
   // 타이머
@@ -2270,14 +2946,14 @@ function drawHUD() {
   if (player.traits.length) {
     ix += 12;
     for (const t of player.traits) {
-      const d = traitDef(player.cls.key, t.key);
-      if (d) drawSlot(d.icon, t.level, (player.cls.color || "#c9a3ff") + "88");
+      const d = traitDefByKey(t.key);
+      if (d) drawSlot(d.icon, t.level, (advColor() || "#c9a3ff") + "88");
     }
   }
 
   // 능동 스킬
   if (player.cls) {
-    const C = player.cls, ready = player.res >= C.skill.cost;
+    const C = player.cls, ready = player.res >= curSkill().cost;
     const bw = 62, bx = W / 2 - bw / 2, by = H - 106;
     ctx.save();
     if (ready) { ctx.shadowColor = C.resource.color; ctx.shadowBlur = 16; }
@@ -2288,21 +2964,21 @@ function drawHUD() {
     ctx.restore();
     ctx.globalAlpha = ready ? 1 : .4;
     ctx.font = "30px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff"; ctx.fillText(C.skill.icon, bx + bw / 2, by + 28);
+    ctx.fillStyle = "#fff"; ctx.fillText(curSkill().icon, bx + bw / 2, by + 28);
     ctx.font = "700 11px " + FONT;
     ctx.fillStyle = ready ? C.resource.color : "rgba(255,255,255,.55)";
-    ctx.fillText(Math.min(100, Math.floor(player.res)) + " / " + C.skill.cost, bx + bw / 2, by + 50);
+    ctx.fillText(Math.min(100, Math.floor(player.res)) + " / " + curSkill().cost, bx + bw / 2, by + 50);
     ctx.globalAlpha = 1;
     // 이름과 단축키는 박스 밖에 — 62px 안에 한글 이름은 들어가지 않는다
     ctx.font = "700 12px " + FONT;
     ctx.fillStyle = ready ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.4)";
-    ctx.fillText(C.skill.name, bx + bw / 2, by + bw + 12);
+    ctx.fillText(curSkill().name, bx + bw / 2, by + bw + 12);
     ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
     ctx.fillText("SPACE", bx + bw / 2, by + bw + 27);
   }
 
   // 새 조합 해금 배너
-  if (Game.comboFlash > 0) {
+  if (Game.comboFlash > 0 && !overlay) {
     const a = clamp(Game.comboFlash / 2.6, 0, 1);
     ctx.globalAlpha = Math.min(1, a * 1.6);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -2320,8 +2996,22 @@ function drawHUD() {
     ctx.globalAlpha = 1;
   }
 
+  const overlay = Game.state === "levelup" || Game.state === "advance" || Game.state === "paused";
+
+  // 전직 연출
+  if (Game.advanceFlash > 0 && !overlay) {
+    const a = clamp(Game.advanceFlash / 3.2, 0, 1);
+    ctx.globalAlpha = Math.min(1, a * 1.5);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "800 40px " + FONT; ctx.fillStyle = advColor();
+    ctx.fillText(advIcon() + "  " + advName(), W / 2, 132);
+    ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
+    ctx.fillText("전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, 164);
+    ctx.globalAlpha = 1;
+  }
+
   // 사냥개 무리 경고
-  if (Game.houndWarn > 0) {
+  if (Game.houndWarn > 0 && !overlay) {
     ctx.globalAlpha = Math.min(1, Game.houndWarn / 2.4 * 1.8) * (.6 + Math.abs(Math.sin(Game.time * 8)) * .4);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 24px " + FONT; ctx.fillStyle = "#ff9f6b";
@@ -2546,19 +3236,95 @@ function drawAltar() {
   ctx.fillText("TAB / ESC 로 돌아가기", W / 2, H - 44);
 }
 
+function drawAdvance() {
+  ctx.fillStyle = "rgba(4,4,10,.88)"; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  const tier = player.advance.length + 1;
+  ctx.font = "800 52px " + FONT; ctx.fillStyle = "#ffd34d";
+  ctx.fillText(tier === 1 ? "1차 전직" : "2차 전직", W / 2, 78);
+  ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.62)";
+  ctx.fillText(advName() + " · 앞으로 무엇이 될지 고르세요 — 스킬과 특성이 통째로 바뀝니다", W / 2, 112);
+
+  const n = Game.choices.length;
+  const cw = 400, ch = 470, gap = 30;
+  const total = n * cw + (n - 1) * gap;
+  const x0 = (W - total) / 2, y0 = 150;
+
+  for (let i = 0; i < n; i++) {
+    const a = Game.choices[i]; if (!a) continue;
+    const x = x0 + i * (cw + gap);
+    const hovered = inRect(mouse.x, mouse.y, x, y0, cw, ch);
+    const oy = hovered ? -10 : 0;
+    panel(x, y0 + oy, cw, ch, 20,
+      hovered ? "rgba(32,28,50,.99)" : "rgba(13,13,22,.96)",
+      hovered ? a.color : "rgba(255,255,255,.13)");
+
+    ctx.textAlign = "center";
+    ctx.font = "60px " + FONT; ctx.fillStyle = "#fff";
+    ctx.fillText(a.icon, x + cw / 2, y0 + 72 + oy);
+    ctx.font = "800 34px " + FONT; ctx.fillStyle = a.color;
+    ctx.fillText(a.name, x + cw / 2, y0 + 132 + oy);
+    ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillText(a.tagline, x + cw / 2, y0 + 158 + oy);
+
+    ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 28, y0 + 178 + oy); ctx.lineTo(x + cw - 28, y0 + 178 + oy); ctx.stroke();
+
+    ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.75)";
+    wrapText(a.desc, x + cw / 2, y0 + 204 + oy, cw - 52, 19);
+
+    // 새 스킬
+    let sy = y0 + 288 + oy;
+    ctx.fillStyle = "rgba(255,255,255,.05)";
+    ctx.beginPath(); ctx.roundRect(x + 24, sy - 26, cw - 48, 58, 10); ctx.fill();
+    ctx.textAlign = "left";
+    ctx.font = "26px " + FONT; ctx.fillStyle = "#fff";
+    ctx.fillText(a.skill.icon, x + 40, sy - 2);
+    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
+    ctx.fillText("새 스킬", x + 76, sy - 12);
+    ctx.font = "700 15px " + FONT; ctx.fillStyle = a.color;
+    ctx.fillText(a.skill.name, x + 76, sy + 5);
+    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillText(a.skill.desc, x + 76, sy + 22);
+
+    // 새 특성 / 지급 무기
+    ctx.textAlign = "center";
+    sy = y0 + 364 + oy;
+    if (a.traits && a.traits.length) {
+      ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
+      ctx.fillText("새 특성", x + cw / 2, sy);
+      ctx.font = "600 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.8)";
+      ctx.fillText(a.traits.map(t => t.icon + " " + t.name).join("   "), x + cw / 2, sy + 20);
+    }
+    if (a.grant) {
+      ctx.font = "600 12px " + FONT; ctx.fillStyle = "#ffd36e";
+      ctx.fillText("무기 지급 · " + WEAPONS[a.grant].icon + " " + WEAPONS[a.grant].name, x + cw / 2, sy + 46);
+    }
+
+    ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 20 + oy);
+
+    if (hovered && mouse.clicked) Game.applyChoice(a);
+  }
+
+  ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
+  ctx.fillText("한 번 고르면 이번 판에서는 되돌릴 수 없습니다", W / 2, H - 34);
+}
+
 function drawLevelUp() {
   ctx.fillStyle = "rgba(6,6,14,.78)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const tp = Game.traitPick && player.cls;
   ctx.font = "800 42px " + FONT;
-  ctx.fillStyle = tp ? player.cls.color : "#ffd34d";
-  ctx.fillText(tp ? player.cls.name + " 특성" : "LEVEL UP!", W / 2, 108);
+  ctx.fillStyle = tp ? advColor() : "#ffd34d";
+  ctx.fillText(tp ? advName() + " 특성" : "LEVEL UP!", W / 2, 108);
   ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
   ctx.fillText(tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
                   : "레벨 " + player.level + " · 하나를 선택하세요", W / 2, 142);
 
-  const cw = 300, ch = 300, gap = 26;
-  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = 190;
+  const cw = 300, ch = 356, gap = 26;
+  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = 178;
 
   for (let i = 0; i < 3; i++) {
     const c = Game.choices[i]; if (!c) continue;
@@ -2570,7 +3336,7 @@ function drawLevelUp() {
               : isT ? traitDef(player.cls.key, c.key)
               : PASSIVES[c.key];
     const tint = c.type === "heal" ? "#5fe08a" : isW ? "#ffd36e"
-               : isT ? (player.cls ? player.cls.color : "#c9a3ff") : "#8fd0ff";
+               : isT ? advColor() : "#8fd0ff";
 
     panel(x, y0 - (hovered ? 8 : 0), cw, ch, 18,
       hovered ? "rgba(30,28,46,.98)" : "rgba(14,14,24,.94)",
@@ -2580,7 +3346,7 @@ function drawLevelUp() {
     ctx.font = "52px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.icon, x + cw / 2, y0 + 66 + oy);
 
-    const kind = isW ? "무기" : isT ? (player.cls ? player.cls.name + " 전용" : "직업 특성") : "능력";
+    const kind = isW ? "무기" : isT ? advName() + " 전용" : "능력";
     ctx.font = "700 12px " + FONT; ctx.fillStyle = tint;
     ctx.fillText(c.isNew ? "NEW · " + kind : kind + " 강화", x + cw / 2, y0 + 112 + oy);
 
@@ -2601,7 +3367,8 @@ function drawLevelUp() {
       ctx.fillStyle = tint;
       ctx.fillText(label, x + cw / 2, y0 + 188 + oy);
     }
-    // 무기는 속성을 함께 보여준다 — 조합을 노릴 수 있어야 선택이 의미를 갖는다
+    // 무기는 속성과 '이걸 들면 열리는 조합'을 함께 보여준다.
+    // 조합이 있다는 걸 아는 것과, 지금 이 카드가 조합을 연다는 걸 아는 건 다르다.
     if (isW) {
       const E = ELEMENTS[def.element];
       const label = E.icon + " " + E.name;
@@ -2611,6 +3378,29 @@ function drawLevelUp() {
       ctx.beginPath(); ctx.roundRect(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, 9); ctx.fill();
       ctx.fillStyle = E.color;
       ctx.fillText(label, x + cw / 2, y0 + 188 + oy);
+
+      const opens = c.isNew ? combosIfAdded(def.element) : [];
+      if (opens.length) {
+        const pulse = .72 + Math.sin(performance.now() / 240) * .28;
+        for (let k = 0; k < Math.min(2, opens.length); k++) {
+          const cb = opens[k], by = y0 + 292 + k * 30 + oy;
+          const ea = ELEMENTS[cb.a], eb2 = ELEMENTS[cb.b];
+          ctx.save();
+          ctx.globalAlpha = pulse;
+          ctx.fillStyle = "rgba(70,52,16,.85)";
+          ctx.beginPath(); ctx.roundRect(x + 20, by - 12, cw - 40, 26, 8); ctx.fill();
+          ctx.strokeStyle = "#ffd34d"; ctx.lineWidth = 1.5; ctx.stroke();
+          ctx.restore();
+          ctx.textAlign = "left";
+          ctx.font = "11px " + FONT;
+          ctx.fillStyle = ea.color; ctx.fillText(ea.icon, x + 30, by + 1);
+          ctx.fillStyle = "rgba(255,255,255,.4)"; ctx.fillText("+", x + 45, by + 1);
+          ctx.fillStyle = eb2.color; ctx.fillText(eb2.icon, x + 55, by + 1);
+          ctx.font = "800 12px " + FONT; ctx.fillStyle = "#ffd34d";
+          ctx.fillText(cb.name + " 열림!", x + 76, by + 1);
+          ctx.textAlign = "center";
+        }
+      }
     }
 
     ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.68)";
@@ -2631,7 +3421,7 @@ function drawLevelUp() {
       if (d.radius && d.radius[c.level - 1] !== d.radius[c.level - 2]) parts.push("범위 +" + (d.radius[c.level - 1] - d.radius[c.level - 2]));
       if (d.cd && d.cd[c.level - 1] !== d.cd[c.level - 2]) parts.push("쿨다운 " + d.cd[c.level - 1].toFixed(2) + "초");
       ctx.font = "600 12px " + FONT; ctx.fillStyle = "#ffd36e";
-      wrapText(parts.join(" · "), x + cw / 2, y0 + 262 + oy, cw - 34, 16);
+      wrapText(parts.join(" · "), x + cw / 2, y0 + 258 + oy, cw - 34, 16);
     }
 
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
@@ -2660,7 +3450,7 @@ function drawEnd(win) {
     ["생존 시간", fmtTime(Game.time)],
     ["처치 수", String(Game.kills)],
     ["레벨", String(player.level)],
-    ["직업", player.cls ? player.cls.icon + " " + player.cls.name : "-"],
+    ["직업", player.cls ? advIcon() + " " + advName() + (player.advance.length ? " (" + player.cls.name + ")" : "") : "-"],
     ["누적 피해량", Math.round(Game.dmgDealt).toLocaleString("ko-KR")],
     ["획득 영혼", "🔮 +" + Game.soulsEarned],
   ];
@@ -2720,6 +3510,7 @@ function frame(now) {
 
   if (Game.state === "title") drawTitle();
   else if (Game.state === "altar") drawAltar();
+  else if (Game.state === "advance") drawAdvance();
   else if (Game.state === "levelup") drawLevelUp();
   else if (Game.state === "paused") drawPaused();
   else if (Game.state === "dead") drawEnd(false);

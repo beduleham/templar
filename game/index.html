@@ -1863,7 +1863,8 @@ function addPassive(key) {
 
 /* ---------- 게임 상태 ---------- */
 const Game = {
-  state: "title",        // title | playing | levelup | paused | dead | won
+  state: "intro",        // intro | title | altar | playing | levelup | advance | paused | dead | won
+  introT: 0,             // 시작 화면 연출 시간
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
@@ -1944,15 +1945,21 @@ const Game = {
   onKey(k) {
     if (k === "m") { Sfx.on = !Sfx.on; return; }
     if (k === "n") { this.showNames = !this.showNames; return; }   // 몬스터 이름표
+    if (this.state === "intro") {
+      if (k === "tab") { this.state = "altar"; return; }
+      if (k === " " || k === "enter") { this.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
+      return;
+    }
     if (this.state === "title") {
       if (k === "tab") { this.state = "altar"; return; }
+      if (k === "escape") { this.state = "intro"; return; }
       const i = "1234".indexOf(k);
       if (i >= 0 && CLASSES[i]) { selectedClass = i; return this.reset(); }
       if (k === " " || k === "enter") return this.reset();
       return;
     }
     if (this.state === "altar") {
-      if (k === "tab" || k === "escape") { this.state = "title"; return; }
+      if (k === "tab" || k === "escape") { this.state = this.introFrom || "intro"; return; }
       const i = "123456".indexOf(k);
       if (i >= 0 && ALTAR[i]) {
         if (Meta.buy(ALTAR[i].key)) Sfx.play(880, .14, "triangle", .8, 300);
@@ -5049,7 +5056,7 @@ function drawHUD() {
     ctx.globalAlpha = big ? 1 : .9;
     ctx.font = (big ? "800 26px " : "800 17px ") + FONT;
     ctx.fillStyle = "#ff9a5c";
-    ctx.fillText("⚔ " + Mission.text, W / 2, big ? 150 : 82);
+    ctx.fillText("❗ " + Mission.text, W / 2, big ? 150 : 82);
     if (Mission.sub) {
       ctx.font = (big ? "600 14px " : "600 11.5px ") + FONT;
       ctx.fillStyle = "rgba(255,255,255,.75)";
@@ -5177,6 +5184,143 @@ function panel(x, y, w, h, r = 14, fill = "rgba(12,12,22,.92)", stroke = "rgba(2
   ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke();
 }
 const inRect = (mx, my, x, y, w, h) => mx >= x && mx <= x + w && my >= y && my <= y + h;
+
+/* ---------- 시작 화면 ----------
+   바로 직업 선택으로 들어가면 '무슨 게임인지' 알기 전에 고르게 된다.
+   여기서 이름과 규칙 한 줄, 기록, 그리고 들어갈 문 두 개(시작 / 제단)만 보여준다.
+   배경은 실제 게임의 도형을 그대로 써서, 정지 화면이 아니라 세계의 한 장면이 되게 한다. */
+const introMobs = [];
+function drawIntro() {
+  Game.introT += 1 / 60;
+  const t = Game.introT;
+
+  // 배경 — 어둠 속에서 실루엣이 천천히 지나간다
+  ctx.fillStyle = "#07070d";
+  ctx.fillRect(0, 0, W, H);
+  const g0 = ctx.createRadialGradient(W / 2, H * .42, 60, W / 2, H * .42, W * .62);
+  g0.addColorStop(0, "rgba(60,44,96,.5)");
+  g0.addColorStop(1, "rgba(6,6,12,0)");
+  ctx.fillStyle = g0; ctx.fillRect(0, 0, W, H);
+
+  if (!introMobs.length)
+    for (let i = 0; i < 26; i++)
+      introMobs.push({ x: rnd(W), y: rnd(H), sp: rnd(9, 26), s: rnd(.5, 1.3),
+                       k: pick(["bat", "slime", "ghost", "zombie"]), ph: rnd(TAU) });
+  for (const m of introMobs) {
+    m.x -= m.sp / 60;
+    if (m.x < -40) { m.x = W + 40; m.y = rnd(H); }
+    const T = ENEMY_TYPES[m.k];
+    ctx.save();
+    ctx.globalAlpha = .16;
+    ctx.fillStyle = T.color;
+    const r = 13 * m.s, yy = m.y + Math.sin(t * 1.6 + m.ph) * 5;
+    ctx.beginPath(); ctx.arc(m.x, yy, r, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  // 불티
+  for (let i = 0; i < 40; i++) {
+    const a = (i * 97.3) % 1, sp = 14 + a * 30;
+    const yy = H - ((t * sp + a * H) % (H + 60)) + 30;
+    const xx = (i * 137.5) % W + Math.sin(t * .7 + i) * 14;
+    ctx.globalAlpha = .10 + a * .2;
+    ctx.fillStyle = "#ffb35c";
+    ctx.fillRect(xx, yy, 2, 2 + a * 3);
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  // 문장(紋章) — 방패와 검
+  const cx = W / 2, cy = 150;
+  const bob = Math.sin(t * 1.3) * 4;
+  ctx.save();
+  ctx.translate(cx, cy + bob);
+  ctx.globalAlpha = .28 + Math.sin(t * 2) * .08;
+  ctx.fillStyle = "#ffd36e";
+  ctx.beginPath(); ctx.arc(0, 0, 62, 0, TAU); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = "#2a2438";
+  ctx.beginPath();
+  ctx.moveTo(0, -46); ctx.lineTo(38, -28); ctx.lineTo(38, 14);
+  ctx.quadraticCurveTo(0, 52, 0, 52);
+  ctx.quadraticCurveTo(0, 52, -38, 14);
+  ctx.lineTo(-38, -28); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = "#ffd36e"; ctx.lineWidth = 3; ctx.stroke();
+  ctx.strokeStyle = "#ffe9b8"; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(0, 30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-16, -12); ctx.lineTo(16, -12); ctx.stroke();
+  ctx.restore();
+
+  // 제목
+  ctx.font = "800 66px " + FONT;
+  ctx.fillStyle = "#ffd36e";
+  ctx.fillText("템플러 서바이버즈", cx, 262);
+  ctx.font = "600 15px " + FONT;
+  ctx.fillStyle = "rgba(255,255,255,.62)";
+  ctx.fillText("중세 판타지 오토배틀 서바이벌", cx, 300);
+  ctx.font = "700 16px " + FONT;
+  ctx.fillStyle = "#ff9a5c";
+  ctx.fillText("15분을 버텨라", cx, 328);
+
+  // 기록
+  ctx.font = "600 13px " + FONT;
+  ctx.fillStyle = "rgba(255,255,255,.5)";
+  ctx.fillText("최고 기록 " + fmtTime(Game.bestTime)
+    + "   ·   모은 영혼 " + Meta.souls.toLocaleString("ko-KR"), cx, 358);
+
+  // 버튼 두 개
+  const bw = 260, bh = 58, gap = 18;
+  const bx = cx - bw - gap / 2, bx2 = cx + gap / 2;
+  const by = 396;
+  const hoverStart = inRect(mouse.x, mouse.y, bx, by, bw, bh);
+  const hoverAltar = inRect(mouse.x, mouse.y, bx2, by, bw, bh);
+
+  const pulse = .55 + Math.sin(t * 3) * .2;
+  panel(bx, by, bw, bh, 12,
+    hoverStart ? "rgba(255,211,110,.22)" : "rgba(24,20,38,.92)",
+    hoverStart ? "#ffd36e" : "rgba(255,211,110," + pulse.toFixed(2) + ")");
+  ctx.font = "800 20px " + FONT; ctx.fillStyle = "#ffd36e";
+  ctx.fillText("▶  게임 시작", bx + bw / 2, by + 24);
+  ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
+  ctx.fillText("스페이스 또는 클릭", bx + bw / 2, by + 43);
+
+  panel(bx2, by, bw, bh, 12,
+    hoverAltar ? "rgba(201,163,255,.2)" : "rgba(20,16,32,.9)",
+    hoverAltar ? "#c9a3ff" : "rgba(201,163,255,.34)");
+  ctx.font = "800 20px " + FONT; ctx.fillStyle = "#c9a3ff";
+  ctx.fillText("🔮  영혼의 제단", bx2 + bw / 2, by + 24);
+  ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
+  ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by + 43);
+
+  if (mouse.clicked) {
+    if (hoverStart) { Game.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
+    if (hoverAltar) { Game.introFrom = "intro"; Game.state = "altar"; return; }
+  }
+
+  // 조작 · 규칙 한 줄씩
+  const rows = [
+    ["🕹️", "이동만 조작한다", "WASD · 방향키 · 모바일은 드래그. 공격은 자동이다"],
+    ["⬆️", "레벨업마다 3택", "무기 6칸 · 능력 6칸 — 무엇을 포기할지가 빌드가 된다"],
+    ["⚜️", "각성 4단계", "3:00 · 6:00 · 9:00 · 12:00 — 레벨과 징표를 함께 채워야 열린다"],
+    ["☠️", "보스는 미션을 낸다", "표식을 부수기 전에는 거의 다치지 않는다"],
+  ];
+  let ry = 500;
+  ctx.textAlign = "left";
+  for (const [ic, head, body] of rows) {
+    ctx.font = "18px " + FONT; ctx.fillStyle = "#fff";
+    ctx.fillText(ic, cx - 330, ry);
+    ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.88)";
+    ctx.fillText(head, cx - 300, ry);
+    ctx.font = "500 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
+    ctx.fillText(body, cx - 300 + 140, ry);
+    ry += 26;
+  }
+  ctx.textAlign = "center";
+
+  ctx.font = "600 11px " + FONT;
+  ctx.fillStyle = "rgba(255,255,255,.3)";
+  ctx.fillText("M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지", cx, H - 26);
+}
 
 function drawTitle() {
   ctx.fillStyle = "rgba(8,8,16,.82)"; ctx.fillRect(0, 0, W, H);
@@ -5708,7 +5852,8 @@ function frame(now) {
     ctx.fillRect(0, 0, W, H);
   }
 
-  if (Game.state === "title") drawTitle();
+  if (Game.state === "intro") drawIntro();
+  else if (Game.state === "title") drawTitle();
   else if (Game.state === "altar") drawAltar();
   else if (Game.state === "advance") drawAdvance();
   else if (Game.state === "levelup") drawLevelUp();

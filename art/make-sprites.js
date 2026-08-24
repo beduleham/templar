@@ -155,6 +155,88 @@ const N = 4;                                   // 애니메이션 4프레임
         rect(g, 22, 14, 23, 15, 'G');                       // 눈
         return g;
       },
+      /* ---------- 바닥 타일 ----------
+         64px 네 변종. 애니메이션이 아니라 '어느 칸에 무엇을 깔지'의 선택지다.
+         이어 붙였을 때 이음매가 보이면 안 되므로 가장자리는 손대지 않고
+         안쪽에만 무늬를 넣는다. 값은 좌표 해시라 매번 같은 타일이 나온다. */
+      floor(f, S) {
+        const g = mk(S);
+        const H = (a, b) => {              // 결정적 잡음
+          let x = Math.imul(a * 374761393 + b * 668265263 + f * 2246822519, 1274126177);
+          x = (x ^ (x >>> 15)) >>> 0;
+          return x / 4294967296;
+        };
+        // 알갱이는 아주 옅게. 대비를 세우면 바닥이 TV 노이즈가 되어
+        // 그 위의 몬스터·이펙트와 싸운다(처음 만든 것이 실제로 그랬다).
+        for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+          const n = H(x, y);
+          g[y][x] = n > .965 ? 'B' : 'D';
+        }
+        // 판석 이음매 — 변종마다 나누는 자리가 달라야 넓게 깔았을 때 격자가 안 보인다
+        const cut = [[32, 32], [24, 40], [40, 24], [32, 20]][f];
+        for (let i = 0; i < S; i++) { g[cut[1]][i] = 'O'; g[i][cut[0]] = 'O'; }
+        for (let i = 0; i < S; i++) {                      // 이음매 아래쪽 하이라이트
+          if (cut[1] + 1 < S) g[cut[1] + 1][i] = 'D';
+          if (cut[0] + 1 < S) g[i][cut[0] + 1] = 'D';
+        }
+        // 판석마다 살짝 다른 밝기 — 완전히 균일하면 바닥이 아니라 벽지가 된다
+        for (const [x0, y0, x1, y1, ch] of [
+          [0, 0, cut[0] - 1, cut[1] - 1, H(1, 1) > .5 ? 'B' : null],
+          [cut[0] + 2, cut[1] + 2, S - 1, S - 1, H(2, 2) > .5 ? 'B' : null],
+        ]) {
+          if (!ch) continue;
+          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++)
+            if (g[y][x] === 'D' && H(x * 2, y * 2) > .93) g[y][x] = ch;
+        }
+        return g;
+      },
+
+      /* 바닥 장식 — 투명 배경에 드문드문 얹는다.
+         금·자갈·풀·뼈. 타일을 네 종류 더 만드는 것보다 이쪽이 변화가 크다. */
+      floordeco(f, S) {
+        const g = mk(S);
+        const H = (a, b) => {
+          let x = Math.imul(a * 2654435761 + b * 40503 + f * 97, 2246822519);
+          x = (x ^ (x >>> 13)) >>> 0;
+          return x / 4294967296;
+        };
+        if (f === 0) {                        // 갈라진 금
+          let x = 8, y = 10;
+          for (let i = 0; i < 46; i++) {
+            put(g, x, y, 'O'); put(g, x, y + 1, 'B');
+            x += H(i, 1) > .35 ? 1 : 0;
+            y += H(i, 2) > .6 ? 1 : (H(i, 3) > .82 ? -1 : 0);
+            if (x >= S - 2 || y >= S - 2 || y < 1) break;
+          }
+        } else if (f === 1) {                 // 자갈
+          for (let i = 0; i < 9; i++) {
+            const cx = 6 + H(i, 5) * (S - 14), cy = 6 + H(i, 9) * (S - 14);
+            const r = 1.5 + H(i, 3) * 2;
+            ell(g, cx, cy, r, r * .8, 'D');
+            put(g, cx, cy - r, 'B');
+            for (let k = -r; k <= r; k++) put(g, cx + k, cy + r * .8 + 1, 'O');
+          }
+        } else if (f === 2) {                 // 풀포기
+          for (let i = 0; i < 5; i++) {
+            const cx = 10 + H(i, 7) * (S - 20), cy = 16 + H(i, 11) * (S - 26);
+            for (let k = -2; k <= 2; k++) {
+              const hgt = 5 + H(i * 5 + k, 2) * 7;
+              line(g, cx + k * 2, cy, cx + k * 2 + (k > 0 ? 2 : -2), cy - hgt, k === 0 ? 'B' : 'D', 1);
+            }
+          }
+        } else {                              // 흩어진 뼈
+          for (let i = 0; i < 3; i++) {
+            const cx = 12 + H(i, 4) * (S - 24), cy = 12 + H(i, 8) * (S - 24);
+            const a = H(i, 6) * Math.PI;
+            const dx = Math.cos(a) * 7, dy = Math.sin(a) * 7;
+            line(g, cx - dx, cy - dy, cx + dx, cy + dy, 'B', 2);
+            ell(g, cx - dx, cy - dy, 2, 2, 'B');
+            ell(g, cx + dx, cy + dy, 2, 2, 'B');
+          }
+        }
+        return g;
+      },
+
       /* ---------- 이펙트 ----------
          몬스터·주인공과 달리 검은 윤곽을 두르지 않는다. 빛이기 때문이다.
          B = 속성색 · G = 밝은 속성색 · W = 흰 심지. 이 세 겹이 타격감을 만든다. */

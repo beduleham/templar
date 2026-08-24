@@ -406,6 +406,22 @@
       "glow": "#ffffff",
       "h": 32,
       "fps": 20
+    },
+    "floor": {
+      "shape": "floor",
+      "fx": true,
+      "color": "#1b1b2e",
+      "glow": "#ffffff",
+      "h": 64,
+      "fps": 1
+    },
+    "floordeco": {
+      "shape": "floordeco",
+      "fx": true,
+      "color": "#33334c",
+      "glow": "#ffffff",
+      "h": 64,
+      "fps": 1
     }
   }
 }

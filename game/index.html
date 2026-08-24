@@ -1402,40 +1402,106 @@ function pxPal(col) {
 }
 const pxBand = (k, w) => k < w * .22 ? 0 : k < w * .55 ? 1 : 2;
 
+/* 큰 이펙트는 '면적'만큼 칸을 찍으면 안 된다.
+   전사 4차 천지개벽은 사거리 869 짜리 베기를 12개 뿌린다 — 7만 칸이고
+   실측에서 프레임이 458ms 까지 튀었다(눈에 보이는 멈춤).
+
+   그래서 속은 평평하게 한 번에 칠하고 가장자리만 격자 칸으로 찍는다.
+   픽셀 아트가 원래 그렇게 읽힌다 — 평평한 면과 또렷한 테두리.
+   비용이 면적이 아니라 둘레에 붙어서, 869든 92든 값이 비슷해진다. */
+
+// 윤곽선을 따라 칸을 찍는다. 칸은 전부 band 0(가장 밝은 색)으로 간다.
+function pxEdge(pts, n) {
+  for (let i = 0; i < n - 2; i += 2) {
+    const x0 = pts[i], y0 = pts[i + 1], x1 = pts[i + 2], y1 = pts[i + 3];
+    const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / PIX);
+    for (let j = 0; j <= steps; j++) {
+      const u = steps ? j / steps : 0;
+      pxPush(0, x0 + (x1 - x0) * u, y0 + (y1 - y0) * u);
+    }
+  }
+}
+
+const pxOut = new Float32Array(512);   // 윤곽 좌표 버퍼 — 매 프레임 새로 만들지 않는다
+
 // 픽셀 호 — 휘두르는 베기. 양 끝이 가늘어야 칼자국이 된다.
 function pxArc(cx, cy, R, a0, a1, thick, cols) {
-  const steps = Math.max(6, Math.ceil(Math.abs(a1 - a0) * R / PIX));
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps, a = a0 + (a1 - a0) * t;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const w = thick * Math.pow(Math.sin(Math.PI * t), .6);
-    for (let k = 0; k <= w; k += PIX) pxPush(pxBand(k, w), cx + ca * (R - k), cy + sa * (R - k));
+  const N = 26;
+  const wAt = t => thick * Math.pow(Math.sin(Math.PI * t), .6);
+  for (let layer = 0; layer < 2; layer++) {
+    const k = layer ? .5 : 1;
+    ctx.fillStyle = cols[layer ? 1 : 2];
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const t = i / N, a = a0 + (a1 - a0) * t, x = cx + Math.cos(a) * R, y = cy + Math.sin(a) * R;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    for (let i = N; i >= 0; i--) {
+      const t = i / N, a = a0 + (a1 - a0) * t, r = R - wAt(t) * k;
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    ctx.closePath(); ctx.fill();
   }
+  let n = 0;                                   // 바깥 테두리만 칸으로
+  for (let i = 0; i <= N && n < pxOut.length - 1; i++) {
+    const a = a0 + (a1 - a0) * i / N;
+    pxOut[n++] = cx + Math.cos(a) * R; pxOut[n++] = cy + Math.sin(a) * R;
+  }
+  pxEdge(pxOut, n);
   pxFlush(cols);
 }
 
 // 픽셀 창 — 앞으로 내지르는 빛. 호로 그리면 부채꼴이 화면 1/3을 덮는다.
 function pxLance(cx, cy, ang, len, w0, cols) {
   const dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx;
-  const steps = Math.ceil(len / PIX);
-  for (let i = 0; i <= steps; i++) {
-    const u = i / steps;
-    // 뿌리에서 부풀었다가 끝까지 고르게 좁아져 한 점으로 모인다.
-    // 끝에서만 좁히면 창이 아니라 몽둥이가 된다.
-    const w = w0 * Math.pow(1 - u, .75) * Math.min(1, u * 12 + .18);
-    const bx = cx + dx * len * u, by = cy + dy * len * u;
-    for (let k = -w; k <= w; k += PIX) pxPush(pxBand(Math.abs(k), w), bx + nx * k, by + ny * k);
-    pxPush(0, bx, by);                      // 길이를 관통하는 심지 — 있어야 '빛'이 된다
+  const N = 24;
+  // 뿌리에서 부풀었다가 끝까지 고르게 좁아져 한 점으로 모인다.
+  // 끝에서만 좁히면 창이 아니라 몽둥이가 된다.
+  const wAt = u => w0 * Math.pow(1 - u, .75) * Math.min(1, u * 12 + .18);
+  for (let layer = 0; layer < 2; layer++) {
+    const k = layer ? .5 : 1;
+    ctx.fillStyle = cols[layer ? 1 : 2];
+    ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const u = i / N, w = wAt(u) * k, bx = cx + dx * len * u, by = cy + dy * len * u;
+      const x = bx + nx * w, y = by + ny * w;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    for (let i = N; i >= 0; i--) {
+      const u = i / N, w = wAt(u) * k, bx = cx + dx * len * u, by = cy + dy * len * u;
+      ctx.lineTo(bx - nx * w, by - ny * w);
+    }
+    ctx.closePath(); ctx.fill();
   }
+  for (const s of [1, -1]) {                   // 양 테두리
+    let n = 0;
+    for (let i = 0; i <= N && n < pxOut.length - 1; i++) {
+      const u = i / N, w = wAt(u), bx = cx + dx * len * u, by = cy + dy * len * u;
+      pxOut[n++] = bx + nx * w * s; pxOut[n++] = by + ny * w * s;
+    }
+    pxEdge(pxOut, n);
+  }
+  let n = 0;                                   // 길이를 관통하는 심지 — 있어야 '빛'이 된다
+  pxOut[n++] = cx; pxOut[n++] = cy;
+  pxOut[n++] = cx + dx * len; pxOut[n++] = cy + dy * len;
+  pxEdge(pxOut, n);
   pxFlush(cols);
 }
 
 // 픽셀 고리 — 퍼져 나가는 파동
 function pxRing(cx, cy, R, thick, cols) {
+  for (let layer = 0; layer < 2; layer++) {
+    const w = thick * (layer ? .5 : 1);
+    ctx.fillStyle = cols[layer ? 1 : 2];
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, TAU);
+    ctx.arc(cx, cy, Math.max(0, R - w), 0, TAU, true);
+    ctx.fill();
+  }
   const steps = Math.max(12, Math.ceil(TAU * R / PIX));
-  for (let i = 0; i < steps; i++) {
-    const a = i / steps * TAU, ca = Math.cos(a), sa = Math.sin(a);
-    for (let k = 0; k <= thick; k += PIX) pxPush(pxBand(k, thick), cx + ca * (R - k), cy + sa * (R - k));
+  for (let i = 0; i <= steps; i++) {
+    const a = i / steps * TAU;
+    pxPush(0, cx + Math.cos(a) * R, cy + Math.sin(a) * R);
   }
   pxFlush(cols);
 }

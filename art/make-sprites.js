@@ -155,6 +155,179 @@ const N = 4;                                   // 애니메이션 4프레임
         rect(g, 22, 14, 23, 15, 'G');                       // 눈
         return g;
       },
+      /* 주인공 — 직업 4종 × 동작 4종.
+         몬스터와 달리 단색이 아니다. 살·강철·가죽에 직업색(A)을 얹는다.
+         항상 오른쪽을 보게 그리고, 왼쪽은 게임에서 flip 으로 뒤집는다.
+
+         실패 기록: ① 망토를 몸 폭만큼 넓게 → 치마 ② 무기를 얇게 → 안 보인다
+         ③ 영창에 두 팔을 올렸더니 → 살색 덩어리. 그래서 몸은 좁게(11px),
+         무기는 굵고 밝게, 영창은 지팡이 끝 하나에 빛을 모은다. */
+      hero(f, S, def) {
+        const g = mk(S);
+        const st = def.state, cl = def.cls;
+        const cx = 15, feet = 28;
+        // 세로 리듬
+        const bob = st === 'walk' ? [0, -1, 0, -1][f]
+          : st === 'idle' ? [0, 0, -1, 0][f]
+          : st === 'cast' ? [0, -1, -2, -1][f] : [0, 0, 1, 0][f];
+        const sw = st === 'walk' ? [3, 0, -3, 0][f] : st === 'attack' ? [1, 0, -2, -1][f] : 0;
+        const ty = 13 + bob, by = 22 + bob;        // 몸통 위 / 허리
+        const hy = ty - 6;                         // 머리 중심
+
+        // ── 망토 ── 몸 왼쪽 뒤로만. 다리까지 덮으면 치마가 된다.
+        const flare = st === 'walk' ? [3, 1, 4, 1][f]
+          : st === 'attack' ? [0, 3, 6, 3][f]
+          : st === 'cast' ? [2, 4, 5, 4][f] : [0, 0, 1, 0][f];
+        for (let y = ty - 1; y <= feet - 3; y++) {
+          const t = (y - ty + 1) / (feet - 2 - ty);
+          rect(g, cx - 2, y, cx - 4 - t * (2 + flare), y, t > .55 ? 'a' : 'A');
+        }
+
+        // ── 다리 ──
+        for (const s2 of [-1, 1]) {
+          const off = s2 * sw * .55;
+          rect(g, cx + s2 * 3 - 1 + off, by - 1, cx + s2 * 3 + 1 + off, feet - 2, 'l');
+          rect(g, cx + s2 * 3 - 2 + off, feet - 1, cx + s2 * 3 + 2 + off, feet, 'L');
+        }
+
+        // ── 몸통 ──
+        const armor = cl === 'paladin' ? 'M' : cl === 'warrior' ? 'm' : cl === 'rogue' ? 'l' : 'A';
+        rect(g, cx - 5, ty, cx + 5, by, armor);
+        ell(g, cx, ty + 1, 6, 3, armor);                  // 어깨
+        if (cl === 'mage')                                 // 로브 — 살짝만 퍼진다
+          for (let y = by; y <= feet - 2; y++)
+            rect(g, cx - 4 - (y - by) * .35, y, cx + 4 + (y - by) * .35, y, 'A');
+        if (cl === 'paladin') {                            // 가슴 십자
+          rect(g, cx - 1, ty + 2, cx + 1, by - 5, 'A');
+          rect(g, cx - 3, ty + 4, cx + 3, ty + 5, 'A');
+        } else if (cl === 'warrior') {                     // 어깨 갑판
+          for (const s2 of [-1, 1]) rect(g, cx + s2 * 4, ty - 1, cx + s2 * 6, ty + 2, 'M');
+          rect(g, cx - 5, ty + 4, cx + 5, ty + 5, 'A');
+        } else if (cl === 'rogue') {
+          line(g, cx - 4, by - 4, cx + 4, ty + 1, 'A', 3); // 가슴을 지르는 띠
+        }
+        rect(g, cx - 5, by - 3, cx + 5, by - 2, 'L');       // 허리띠
+        rect(g, cx - 1, by - 3, cx, by - 2, 'G');           // 버클
+
+        // ── 머리 · 투구 ──
+        ell(g, cx, hy, 4, 4, 'S');
+        if (cl === 'paladin') {
+          rect(g, cx - 4, hy - 5, cx + 4, hy + 3, 'M');     // 전면 투구
+          rect(g, cx - 4, hy - 6, cx + 4, hy - 6, 'm');
+          line(g, cx - 1, hy - 7, cx - 5, hy - 12 - (f & 1), 'A', 3);  // 깃털
+        } else if (cl === 'warrior') {
+          rect(g, cx - 4, hy - 5, cx + 4, hy - 1, 'm');     // 뿔 투구
+          for (const s2 of [-1, 1]) {
+            line(g, cx + s2 * 4, hy - 4, cx + s2 * 7, hy - 8, 'M', 2);
+            put(g, cx + s2 * 8, hy - 9, 'M');
+          }
+          rect(g, cx - 3, hy + 2, cx + 3, hy + 4, 'L');     // 수염
+        } else if (cl === 'rogue') {
+          ell(g, cx, hy - 1, 4.5, 4.5, 'L');                // 두건
+          rect(g, cx - 4, hy - 1, cx + 4, hy + 2, 'L');
+          rect(g, cx - 1, hy, cx + 4, hy + 1, 'S');         // 드러난 눈매
+          line(g, cx - 4, hy + 1, cx - 8 - flare, hy + 5, 'l', 2);   // 두건 꼬리
+        } else {
+          rect(g, cx - 3, hy + 2, cx + 2, hy + 5, 'M');     // 흰 수염
+          rect(g, cx - 5, hy - 3, cx + 5, hy - 2, 'A');     // 모자 챙
+          for (let i = 0; i <= 9; i++) {                    // 고깔 — 빠르게 좁아진다
+            const w = 3.6 - i * .4;
+            if (w < 0) break;
+            rect(g, cx - w, hy - 4 - i, cx + w, hy - 4 - i, 'A');
+          }
+          put(g, cx, hy - 14, 'G');
+        }
+
+        // ── 손 위치와 무기 각도 ── [x, y, 각도] · 프레임을 넘지 않게 잡은 값
+        const POSE = {
+          idle: [[5, by - 5, .50], [5, by - 5, .45], [5, by - 6, .55], [5, by - 5, .45]],
+          walk: [[6, by - 6, .35], [5, by - 5, .55], [4, by - 5, .40], [5, by - 6, .50]],
+          attack: [[1, ty - 2, -2.2], [6, ty + 1, -0.9], [4, by - 5, 0.15], [6, by - 2, 0.9]],
+          cast: [[4, ty, -0.95], [4, ty - 1, -0.98], [4, ty - 1, -1.00], [4, ty - 1, -0.98]],
+        }[st][f];
+        // 평상시 자세는 직업마다 다르다. 도끼를 수평으로 들면 걸레가 되고
+        // 지팡이를 수평으로 들면 빗자루가 된다.
+        const rest = (st === 'idle' || st === 'walk')
+          ? (cl === 'mage' ? -1.45 : cl === 'warrior' ? -0.60 : 0) : 0;
+        // 지팡이를 세우면 보석이 얼굴에 겹친다 — 손을 두 칸 밖으로
+        const hx = cx + POSE[0] + (rest && cl === 'mage' ? 2 : 0), hh = POSE[1], ang = rest || POSE[2];
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        const px = -dy, py = dx;                            // 무기 축의 수직
+        line(g, cx + 4, ty + 2, hx, hh, 'S', 2);            // 앞팔
+        rect(g, hx - 1, hh - 1, hx + 1, hh + 1, 'L');       // 장갑
+
+        // ── 무기 ── 굵고 끝에 흰 광택. 얇으면 화면에서 사라진다.
+        const blade = (len, t, col) => {
+          line(g, hx, hh, hx + dx * len, hh + dy * len, col, t);
+          line(g, hx + dx * (len - 2) + px, hh + dy * (len - 2) + py,
+                  hx + dx * len + px, hh + dy * len + py, 'W', 1);
+        };
+        if (cl === 'paladin') {
+          line(g, hx - px * 3, hh - py * 3, hx + px * 3, hh + py * 3, 'L', 2);  // 코등이
+          blade(11, 2, 'M');
+          ell(g, cx - 7, ty + 3, 3, 4, 'M');                // 방패
+          rect(g, cx - 8, ty + 2, cx - 6, ty + 4, 'A');
+        } else if (cl === 'warrior') {
+          line(g, hx - dx * 4, hh - dy * 4, hx + dx * 8, hh + dy * 8, 'L', 3);  // 자루
+          const ax = hx + dx * 8, ay = hh + dy * 8;                             // 도끼 날
+          line(g, ax + px * 4, ay + py * 4, ax - px * 4, ay - py * 4, 'M', 2);
+          line(g, ax + dx * 2 + px * 3, ay + dy * 2 + py * 3,
+                  ax + dx * 2 - px * 3, ay + dy * 2 - py * 3, 'M', 2);
+          put(g, ax + dx * 2 + px * 3, ay + dy * 2 + py * 3, 'W');
+        } else if (cl === 'rogue') {
+          blade(8, 2, 'M');
+          const bx = cx - 5, bb = ty + 4;                   // 왼손 단검
+          line(g, bx, bb, bx - dx * 6, bb - dy * 6, 'M', 2);
+        } else {
+          line(g, hx - dx * 3, hh - dy * 3, hx + dx * 9, hh + dy * 9, 'L', 3);  // 지팡이
+          const ox2 = hx + dx * 10, oy2 = hh + dy * 10;
+          const R = st === 'cast' ? [2.5, 3.2, 3.8, 3.2][f] : 2.5;
+          ell(g, ox2, oy2, R, R, 'G'); ell(g, ox2, oy2, R * .55, R * .55, 'W');
+        }
+
+        outline(g);
+
+        // ── 내부 경계 ── 윤곽은 겉만 잡는다. 안쪽도 갈라줘야 형태가 읽힌다.
+        rect(g, cx - 5, by - 4, cx + 5, by - 4, 'O');        // 허리 위
+        rect(g, cx, by - 1, cx, feet - 2, 'O');              // 두 다리 사이
+        if (cl === 'paladin' || cl === 'warrior') {
+          rect(g, cx - 3, hy - 1, cx + 3, hy, 'O');          // 투구 틈
+          eyes(g, cx + 1, hy - 1, 2, 'G', 1);
+        } else if (cl === 'rogue') {
+          rect(g, cx - 2, hy - 1, cx + 4, hy - 1, 'O');
+          eyes(g, cx + 1, hy, 2, 'G', 1);
+        } else {
+          eyes(g, cx + 1, hy, 2, 'O', 1);
+        }
+
+        // ── 동작 효과 ── 휘두른 자취 · 영창의 빛 (윤곽 뒤라 지워지지 않는다)
+        if (st === 'attack' && f >= 1 && f <= 2) {
+          const a0 = f === 1 ? -1.5 : -.7, a1 = f === 1 ? -.2 : .9;
+          const R = f === 1 ? 12 : 14;
+          for (let i = 0; i <= 16; i++) {
+            const a = a0 + (a1 - a0) * i / 16;
+            put(g, cx + 2 + Math.cos(a) * R, ty + 3 + Math.sin(a) * R, i % 3 === 2 ? 'W' : 'G');
+          }
+        }
+        if (st === 'cast') {
+          const R2 = [2, 3, 4, 3][f];                        // 치켜든 무기 앞의 빛
+          const tx = cx + 7, tt = ty - 7;
+          ell(g, tx, tt, R2, R2, 'G'); ell(g, tx, tt, R2 * .5, R2 * .5, 'W');
+          for (let i = 0; i < 6; i++) {
+            const a = i / 6 * Math.PI * 2 + f * .4;
+            put(g, tx + Math.cos(a) * (R2 + 2), tt + Math.sin(a) * (R2 + 2), 'W');
+          }
+          const R = [3, 5, 7, 5][f];                         // 발밑 마법진
+          for (let i = 0; i < 18; i++) {
+            const a = i / 18 * Math.PI * 2;
+            put(g, cx + Math.cos(a) * R * 1.6, feet - 1 + Math.sin(a) * R * .45,
+              i % 3 === 0 ? 'W' : 'G');
+          }
+          for (let i = 0; i < 4; i++)                        // 떠오르는 불티
+            put(g, cx - 7 + i * 5, ty - 4 - ((f * 3 + i * 5) % 9), 'G');
+        }
+        return g;
+      },
       // 보스 — 64px. 위엄은 덩치만으로 안 된다. 형태가 읽히려면 '여백'이 있어야 한다.
       //   실패 기록: ① 망토를 넓게 → 드레스 ② 팔을 망토 안에 → 개미
       //   ③ 전부 키웠더니 프레임을 넘어 잘리고 어깨·팔이 한 덩어리로 뭉갰다.
@@ -234,9 +407,16 @@ const N = 4;                                   // 애니메이션 4프레임
         B: def.color,
         D: toHex(mix(base, [0, 0, 0], .3)),      // 그늘
         G: toHex(mix(base, [255, 255, 255], .62)), // 광택 · 눈
+        // 주인공용 — 단색 실루엣으로는 영웅이 안 된다. 살·강철·가죽을 따로 둔다.
+        A: def.color,                              // 직업색
+        a: toHex(mix(base, [0, 0, 0], .42)),        // 직업색 그늘 (망토 안쪽)
+        S: '#f2d8b4', s: '#c49a72',                 // 살 · 살 그늘
+        M: '#d9dee9', m: '#8d94a8',                 // 강철 · 강철 그늘
+        L: '#6d4c33', l: '#452e1f',                 // 가죽 · 가죽 그늘
+        W: '#ffffff',
       };
       for (let f = 0; f < N; f++) {
-        const g = SIL[def.shape](f, S);
+        const g = SIL[def.shape](f, S, def);
         for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
           const v = g[y][x];
           if (v === '.') continue;

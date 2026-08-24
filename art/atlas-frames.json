@@ -138,5 +138,133 @@
     "n": 4,
     "fps": 8,
     "s": 0.438
+  },
+  "hero_paladin_idle": {
+    "x": 0,
+    "y": 672,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 6
+  },
+  "hero_paladin_walk": {
+    "x": 0,
+    "y": 704,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 10
+  },
+  "hero_paladin_attack": {
+    "x": 0,
+    "y": 736,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 14
+  },
+  "hero_paladin_cast": {
+    "x": 0,
+    "y": 768,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 12
+  },
+  "hero_warrior_idle": {
+    "x": 0,
+    "y": 800,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 6
+  },
+  "hero_warrior_walk": {
+    "x": 0,
+    "y": 832,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 10
+  },
+  "hero_warrior_attack": {
+    "x": 0,
+    "y": 864,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 14
+  },
+  "hero_warrior_cast": {
+    "x": 0,
+    "y": 896,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 12
+  },
+  "hero_rogue_idle": {
+    "x": 0,
+    "y": 928,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 6
+  },
+  "hero_rogue_walk": {
+    "x": 0,
+    "y": 960,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 10
+  },
+  "hero_rogue_attack": {
+    "x": 0,
+    "y": 992,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 14
+  },
+  "hero_rogue_cast": {
+    "x": 0,
+    "y": 1024,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 12
+  },
+  "hero_mage_idle": {
+    "x": 0,
+    "y": 1056,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 6
+  },
+  "hero_mage_walk": {
+    "x": 0,
+    "y": 1088,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 10
+  },
+  "hero_mage_attack": {
+    "x": 0,
+    "y": 1120,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 14
+  },
+  "hero_mage_cast": {
+    "x": 0,
+    "y": 1152,
+    "w": 32,
+    "h": 32,
+    "n": 4,
+    "fps": 12
   }
 }

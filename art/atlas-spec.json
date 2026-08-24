@@ -118,6 +118,150 @@
       "glow": "#ffd9a8",
       "h": 64,
       "fps": 8
+    },
+    "hero_paladin_idle": {
+      "shape": "hero",
+      "cls": "paladin",
+      "state": "idle",
+      "color": "#ffd36e",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 6
+    },
+    "hero_paladin_walk": {
+      "shape": "hero",
+      "cls": "paladin",
+      "state": "walk",
+      "color": "#ffd36e",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "hero_paladin_attack": {
+      "shape": "hero",
+      "cls": "paladin",
+      "state": "attack",
+      "color": "#ffd36e",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 14
+    },
+    "hero_paladin_cast": {
+      "shape": "hero",
+      "cls": "paladin",
+      "state": "cast",
+      "color": "#ffd36e",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 12
+    },
+    "hero_warrior_idle": {
+      "shape": "hero",
+      "cls": "warrior",
+      "state": "idle",
+      "color": "#ff8a5c",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 6
+    },
+    "hero_warrior_walk": {
+      "shape": "hero",
+      "cls": "warrior",
+      "state": "walk",
+      "color": "#ff8a5c",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "hero_warrior_attack": {
+      "shape": "hero",
+      "cls": "warrior",
+      "state": "attack",
+      "color": "#ff8a5c",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 14
+    },
+    "hero_warrior_cast": {
+      "shape": "hero",
+      "cls": "warrior",
+      "state": "cast",
+      "color": "#ff8a5c",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 12
+    },
+    "hero_rogue_idle": {
+      "shape": "hero",
+      "cls": "rogue",
+      "state": "idle",
+      "color": "#8ef0b0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 6
+    },
+    "hero_rogue_walk": {
+      "shape": "hero",
+      "cls": "rogue",
+      "state": "walk",
+      "color": "#8ef0b0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "hero_rogue_attack": {
+      "shape": "hero",
+      "cls": "rogue",
+      "state": "attack",
+      "color": "#8ef0b0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 14
+    },
+    "hero_rogue_cast": {
+      "shape": "hero",
+      "cls": "rogue",
+      "state": "cast",
+      "color": "#8ef0b0",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 12
+    },
+    "hero_mage_idle": {
+      "shape": "hero",
+      "cls": "mage",
+      "state": "idle",
+      "color": "#9bb8ff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 6
+    },
+    "hero_mage_walk": {
+      "shape": "hero",
+      "cls": "mage",
+      "state": "walk",
+      "color": "#9bb8ff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 10
+    },
+    "hero_mage_attack": {
+      "shape": "hero",
+      "cls": "mage",
+      "state": "attack",
+      "color": "#9bb8ff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 14
+    },
+    "hero_mage_cast": {
+      "shape": "hero",
+      "cls": "mage",
+      "state": "cast",
+      "color": "#9bb8ff",
+      "glow": "#fff2c0",
+      "h": 32,
+      "fps": 12
     }
   }
 }

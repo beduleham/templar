@@ -414,6 +414,165 @@ function updateLandmarks() {
   }
 }
 
+/* ---------- 대형 구조물 ----------
+   지형지물(상자·제단·비석)은 한 번 만지고 끝나는 '점'이다.
+   구조물은 '장소'다 — 켜 두고 그 자리를 지켜야 값을 한다.
+
+   규칙 하나로 긴장이 생긴다: 켜기 전에는 적이 건드리지 않고,
+   켜는 순간부터 주변의 적이 갉아먹는다. 그래서 켠 다음이 진짜 판이다.
+   가만히 켜 놓고 도망가면 시간만 흐르고, 붙어서 싸우면 더 빨리 부서진다.
+
+   크기는 기존 지형의 두 배 이상이다(반지름 110~180. 폐허가 40~96). */
+const ST_CELL = 1520;
+const structState = new Map();   // "cx,cy" -> "gone"
+const structures = [];           // 지금 근처에 있는 것만 실체화
+const stActive = new Map();      // "cx,cy" -> { t, hp, max, fireT }
+
+const ST_KINDS = {
+  spire: {
+    name: "빛의 첨탑", icon: "🔆", color: "#ffd36e", r: 128, dur: 22, hp: 900,
+    desc: "주변의 적을 빛줄기로 꿰뚫는다",
+    aura: 0,                                   // 켜면 알아서 쏜다 — 곁에 있을 필요가 없다
+    range: 430, cd: .5, targets: 3,
+  },
+  font: {
+    name: "마나 샘", icon: "💧", color: "#7fd2ff", r: 116, dur: 26, hp: 700,
+    desc: "곁에 있으면 자원이 두 배로 찬다",
+    aura: 2.3, resMul: 2,
+  },
+  bastion: {
+    name: "수호 성채", icon: "🛡️", color: "#c9d6ff", r: 150, dur: 24, hp: 1400,
+    desc: "곁에 있으면 받는 피해가 줄고 적의 탄이 막힌다",
+    aura: 2.0, armor: .5, blockShots: true,
+  },
+  forge: {
+    name: "전쟁 대장간", icon: "🔥", color: "#ff8a5c", r: 122, dur: 20, hp: 800,
+    desc: "곁에 있으면 피해가 오르고 쿨다운이 준다",
+    aura: 2.1, dmg: 1.5, cd: .7,
+  },
+};
+const ST_LIST = Object.keys(ST_KINDS);
+
+function updateStructures() {
+  structures.length = 0;
+  const cx0 = Math.floor(player.x / ST_CELL), cy0 = Math.floor(player.y / ST_CELL);
+  for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) {
+    for (let cy = cy0 - 1; cy <= cy0 + 1; cy++) {
+      const h = hash2(cx * 17 + 401, cy * 23 + 197);
+      if (h < .58) continue;                   // 칸의 40% 정도
+      const key = cx + "," + cy;
+      if (structState.get(key) === "gone") continue;
+      const kind = ST_LIST[Math.floor(hash2(cx * 5 + 71, cy * 9 + 13) * ST_LIST.length) % ST_LIST.length];
+      const K = ST_KINDS[kind];
+      const x = cx * ST_CELL + ST_CELL * (.22 + hash2(cx + 61, cy) * .56);
+      const y = cy * ST_CELL + ST_CELL * (.22 + hash2(cx, cy + 61) * .56);
+      if (Math.abs(x) < 620 && Math.abs(y) < 620) continue;   // 시작 지점 근처는 비운다
+      const r = K.r * (.86 + hash2(cx * 3 + 9, cy * 7 + 5) * .38);
+      const st = stActive.get(key) || null;
+      const s = { key, kind, K, x, y, r, st, seed: h };
+      structures.push(s);
+    }
+  }
+}
+// 구조물의 충돌 몸통. 건물 폭 전체를 막으면 곁에 붙어 싸울 수가 없어 중심부만 막는다.
+// 충돌·발사체 차단은 지형과 같은 길로 처리한다 — 밀어내기와 탄 막기를 다시 짤 이유가 없다.
+// wall: true 라 일반 지형 파괴 코드가 건드리지 않는다(체력은 구조물 쪽이 따로 센다).
+const ST_OBS = { name: "구조물", block: true, stop: true, reflect: false, breakable: false, color: "#7a7488" };
+function pushStructureColliders() {
+  for (const s of structures)
+    obstacles.push({ key: "st" + s.key, kind: s.kind, K: ST_OBS, wall: true,
+                     x: s.x, y: s.y, r: s.r * .52,
+                     st: { hp: Infinity, max: Infinity }, seed: s.seed, struct: true });
+}
+
+/* 켠다. 켜는 순간부터 적이 갉아먹기 시작한다. */
+function activateStructure(s) {
+  if (s.st) return;
+  const K = s.K;
+  const hp = Math.round(K.hp * (1.15 + Game.time / 110));  // 뒤로 갈수록 단단해야 켤 값을 한다
+  s.st = { t: K.dur, hp, max: hp, fireT: 0 };
+  stActive.set(s.key, s.st);
+  Game.lmFlash = 2.6;
+  Game.lmFlashText = K.icon + " " + K.name + " 가동 — " + K.desc;
+  spawnFx(fxKey("boom", "holy"), s.x, s.y, s.r * 1.6, 0);
+  spawnParticles(s.x, s.y, 30, K.color, 300, .9, 5);
+  cam.shake = 10;
+  Sfx.play(300, .5, "triangle", .9, 620);
+}
+
+/* 켜져 있는 동안 — 수명·피해·효과를 한 자리에서 처리한다 */
+function updateStructureEffects(dt) {
+  for (const s of structures) {
+    const st = s.st;
+    if (!st) continue;
+    const K = s.K;
+    st.t -= dt;
+
+    // 적이 갉아먹는다. 몸집이 클수록 더 많이 문다.
+    const near = hash.query(s.x, s.y, s.r + 40, scratch3);
+    let biters = 0;
+    for (let i = 0; i < near.length; i++) {
+      const e = near[i];
+      if (!e.active) continue;
+      const rr = s.r + e.r;
+      if (dist2(e.x, e.y, s.x, s.y) < rr * rr) biters += e.boss ? 6 : (e.rank && e.rank.key !== "common") ? 2.5 : 1;
+    }
+    // 무는 수를 세되 상한을 둔다. 상한이 없으면 후반(적 200마리)에는 켜는 순간
+    // 무너져서 '켤 수 있는 시기'가 사라진다 — 실측에서 20초짜리가 8.2초에 부서졌다.
+    if (biters) st.hp -= Math.min(biters, 18) * 5.5 * dt;
+
+    if (st.t <= 0 || st.hp <= 0) {
+      structState.set(s.key, "gone");
+      stActive.delete(s.key);
+      s.st = null;
+      Game.lmFlash = 2;
+      Game.lmFlashText = st.hp <= 0 ? K.name + " 이(가) 무너졌다" : K.name + " 의 힘이 다했다";
+      spawnFx(fxKey("boom", "physical"), s.x, s.y, s.r * 2, 0);
+      spawnParticles(s.x, s.y, 40, K.color, 320, 1, 6);
+      cam.shake = 14;
+      Sfx.play(120, .5, "sawtooth", .8, -70);
+      continue;
+    }
+
+    // 빛의 첨탑 — 알아서 쏜다
+    if (K.range) {
+      st.fireT -= dt;
+      if (st.fireT <= 0) {
+        st.fireT = K.cd;
+        const targets = nearestEnemies(s.x, s.y, K.range, K.targets);
+        const dmg = 60 + player.level * 14 + Game.time * .9;
+        for (let i = 0; i < targets.length; i++) {
+          const e = targets[i];
+          if (!e || !e.active) continue;
+          damageEnemy(e, dmg, s.x, s.y, 150, "holy");
+          spawnBeam(s.x, s.y - s.r * .55, e.x, e.y, K.color);
+        }
+        if (targets.length) Sfx.throttled("spire", 140, () => Sfx.play(880, .12, "triangle", .35, 320));
+      }
+    }
+
+    // 곁에 있어야 받는 버프
+    if (K.aura) {
+      const ar = s.r * K.aura;
+      if (dist2(player.x, player.y, s.x, s.y) < ar * ar) {
+        if (K.resMul) player.stRes = K.resMul;
+        if (K.armor) player.dynArmor *= K.armor;
+        if (K.dmg) player.dynDmg *= K.dmg;
+        if (K.cd) player.dynCd *= K.cd;
+        if (K.blockShots) {
+          for (const p of eshots) {
+            if (!p.active) continue;
+            if (dist2(p.x, p.y, s.x, s.y) < ar * ar) {
+              p.active = false;
+              spawnFx(fxKey("hit", "holy"), p.x, p.y, 26, 0);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 /* ---------- 지형: 벽과 바위 ----------
    길을 막는 것이 있어야 '어디로 갈지'가 판단이 된다.
    충돌은 전부 원으로 처리한다 — 사각형은 모서리에 끼는 문제가 생기고,
@@ -494,6 +653,8 @@ function updateObstacles() {
       if (Math.abs(x) < 260 && Math.abs(y) < 260) continue;          // 시작 지점은 비워둔다
       let blocked = false;                                           // 지형지물을 막지 않는다
       for (const lm of landmarks) if (dist2(lm.x, lm.y, x, y) < 130 * 130) { blocked = true; break; }
+      // 구조물은 훨씬 커서 그 위에 바위가 서면 건물이 안 보인다
+      for (const s of structures) { const rr = s.r * 1.5; if (dist2(s.x, s.y, x, y) < rr * rr) { blocked = true; break; } }
       if (blocked) continue;
       // 어떤 지형인지는 좌표로 결정된다 (같은 자리에 늘 같은 것이 선다)
       const t = hash2(cx * 13 + 7, cy * 29 + 3);
@@ -526,6 +687,7 @@ function updateObstacles() {
       obstacles.push({ key, kind, K, wall: !K.breakable, x, y, r, st, seed: h, huge });
     }
   }
+  pushStructureColliders();
   // 보스가 소환한 지형
   for (let i = spawnedObs.length - 1; i >= 0; i--) {
     const o = spawnedObs[i];
@@ -1334,6 +1496,8 @@ const pickups    = makePool(72,  () => ({ x: 0, y: 0, kind: "heart", bob: 0 }));
 const particles  = makePool(500, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, r: 3, color: "#fff", drag: .92 }));
 const numbers    = makePool(120, () => ({ x: 0, y: 0, vy: 0, life: 0, text: "", color: "#fff", size: 14 }));
 const bolts      = makePool(24,  () => ({ x: 0, y: 0, life: 0, seed: 0 }));
+// 첨탑이 쏘는 빛줄기 — 즉시 맞히고 자취만 잠깐 남는다
+const beams      = makePool(32,  () => ({ x0: 0, y0: 0, x1: 0, y1: 0, life: 0, color: "#fff" }));
 // 이펙트 — 스프라이트를 한 바퀴 재생하고 사라진다.
 // 타격은 초당 수백 번 일어나므로 풀이 차면 가장 오래된 것을 밀어낸다(allocEvict).
 const fxs        = makePool(112, () => ({ x: 0, y: 0, key: "", life: 0, maxLife: 1, scale: 1, rot: 0 }));
@@ -1402,6 +1566,12 @@ function pxPal(col) {
 }
 const PJ_STEEL = ["#e2e6ef", "#b9c0d1", "#8f96ab"];   // 단검 — 색이 고정이라 미리 만든다
 const ESHOT_RING = ["#ff4d6d", "#ff4d6d", "#ff4d6d"];  // 적 탄의 붉은 테두리
+// 두 색을 섞는다 (t=0 이면 앞, 1 이면 뒤). 구조물이 꺼져 있을 때의 색에 쓴다.
+function mixHex(c1, c2, t) {
+  const p = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
+  const a = p(c1), b2 = p(c2);
+  return "#" + a.map((v, i) => Math.round(v + (b2[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
 const pxBand = (k, w) => k < w * .22 ? 0 : k < w * .55 ? 1 : 2;
 
 /* 큰 이펙트는 '면적'만큼 칸을 찍으면 안 된다.
@@ -1609,6 +1779,11 @@ function spawnHazard(x, y, r, dmg, life, color) {
   const h = allocEvict(hazards, null); if (!h) return;
   h.active = true; h.x = x; h.y = y; h.r = r; h.dmg = dmg;
   h.life = h.maxLife = life; h.color = color; h.tick = 0;
+}
+
+function spawnBeam(x0, y0, x1, y1, color) {
+  const b = allocEvict(beams, null); if (!b) return;
+  b.active = true; b.x0 = x0; b.y0 = y0; b.x1 = x1; b.y1 = y1; b.life = .22; b.color = color;
 }
 
 function spawnBolt(x, y) {
@@ -1970,7 +2145,7 @@ const player = {
   stats: null,
   base: { maxHp: 100, speed: 208 },
   // 직업 자원 · 조합 · 전용 특성
-  res: 0, noHit: 0, combos: new Set(), mastered: new Set(), traits: [], advance: [],
+  res: 0, noHit: 0, combos: new Set(), mastered: new Set(), traits: [], advance: [], stRes: 1,
   items: [], sigils: 0, buffFury: 0, buffWard: 0,
   tickA: 0, tickB: 0, shieldT: 0, shieldOn: 0, echoT: 0, echoSkill: null,
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
@@ -2014,6 +2189,7 @@ function updateResource(dt) {
   if (R.perSec) d += R.perSec;
   if (R.decay) d -= R.decay;
   if (R.noHitPerSec && player.noHit > 1.6) d += R.noHitPerSec;
+  if (d > 0) d *= player.stRes;                 // 마나 샘 — 차는 쪽만 배로, 빠지는 쪽은 그대로
   if (d) player.res = clamp(player.res + d * dt, 0, RES_MAX);
 }
 
@@ -2372,7 +2548,7 @@ const Game = {
   },
 
   reset() {
-    for (const pool of [enemies, projectiles, slashes, waves, gems, pickups, particles, numbers, bolts, eshots, hazards, fxs])
+    for (const pool of [enemies, projectiles, slashes, waves, gems, pickups, particles, numbers, bolts, beams, eshots, hazards, fxs])
       for (const o of pool) o.active = false;
     fxLive = 0;
     this.time = 0; this.kills = 0; this.dmgDealt = 0; this.spawnAcc = 0; this.bossIdx = 0;
@@ -2389,7 +2565,7 @@ const Game = {
     player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
     player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0;
+    lmState.clear(); landmarks.length = 0; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -2679,6 +2855,7 @@ function update(dt) {
 
   // 지형지물 — 근처 칸만 실체화하고 닿으면 발동
   updateLandmarks();
+  updateStructures();
   updateObstacles();
   pushOutOfObstacles(player, player.r);
   /* 막지 않는 지형의 효과.
@@ -2733,6 +2910,11 @@ function update(dt) {
     const rr = lm.r + player.r + 6;
     if (dist2(lm.x, lm.y, player.x, player.y) < rr * rr) touchLandmark(lm);
   }
+  // 구조물 — 가까이 가면 켜지고, 켜져 있는 동안 효과가 붙는다
+  for (const s of structures) {
+    const rr = s.r * .72 + player.r;
+    if (!s.st && dist2(s.x, s.y, player.x, player.y) < rr * rr) activateStructure(s);
+  }
   if (player.buffFury > 0) player.buffFury -= dt;
   if (player.buffWard > 0) player.buffWard -= dt;
   // 흡혈은 초당 상한을 둬서 무한 회복이 되지 않게 한다
@@ -2750,6 +2932,11 @@ function update(dt) {
   player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
   player.dynCrit = 0; player.dynCritMul = 2; player.dynProjSpeed = 1;
   player.dynHoming = 0; player.dynBurnAmp = 1;
+  /* 구조물은 반드시 이 초기화 뒤에 와야 한다. 앞에 두면 버프를 곱해도 같은 프레임
+     끝에서 지워진다 — 지형 감속이 한 번도 작동하지 않았던 것과 같은 함정이고,
+     실제로 수호 성채의 방어 배수가 1.00 으로 측정됐다. */
+  player.stRes = 1;
+  updateStructureEffects(dt);
   // 곁에 붙은 적 수는 여러 직업·전직이 함께 쓰므로 공용으로 한 번만 센다
   {
     const R = 155 * s.area;
@@ -3129,6 +3316,11 @@ function update(dt) {
     if (!f.active) continue;
     f.life -= dt;
     if (f.life <= 0) { f.active = false; fxLive--; }
+  }
+  for (const b of beams) {
+    if (!b.active) continue;
+    b.life -= dt;
+    if (b.life <= 0) b.active = false;
   }
   for (const b of bolts) {
     if (!b.active) continue;
@@ -3703,6 +3895,7 @@ function drawWorld() {
 
   // 지형 — 종류마다 실루엣이 다르다. 무엇이 막고 무엇이 튕기는지 한눈에 보여야 한다.
   for (const o of obstacles) {
+    if (o.struct) continue;                    // 구조물은 따로 그린다
     const sx = o.x - cam.x, sy = o.y - cam.y;
     if (sx < -100 || sx > W + 100 || sy < -100 || sy > H + 100) continue;
     ctx.save();
@@ -4124,6 +4317,21 @@ function drawWorld() {
     pxDisc(sx, sy, p.r - 1, pxPal(p.color));
   }
 
+  drawStructures();
+
+  // 첨탑의 빛줄기
+  for (const b of beams) {
+    if (!b.active) continue;
+    const x0 = b.x0 - cam.x, y0 = b.y0 - cam.y, x1 = b.x1 - cam.x, y1 = b.y1 - cam.y;
+    const t = b.life / .22;
+    ctx.save();
+    ctx.globalAlpha = t;
+    ctx.globalCompositeOperation = "lighter";
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    pxLance(x0, y0, Math.atan2(y1 - y0, x1 - x0), len, 5 + t * 5, pxPal(b.color));
+    ctx.restore();
+  }
+
   /* 이펙트 — 가산 합성(lighter)이라 여러 발이 겹치면 흰빛으로 타오른다.
      알파를 수명보다 빠르게 떨어뜨려 잔상이 남지 않게 한다. */
   ctx.save();
@@ -4166,6 +4374,168 @@ function drawWorld() {
     ctx.fillText(n.text, nx, ny);
   }
   ctx.globalAlpha = 1;
+}
+
+/* 대형 구조물 그리기.
+   건물은 화면에서 가장 큰 물체라 크기가 변한다 — 스프라이트로 확대하면 어긋난다.
+   그래서 격자 렌더로 짓는다(docs/art-spec.md 12·13절과 같은 규칙).
+
+   실루엣이 멀리서 구분되어야 한다. 색만 다르면 '뭔가 큰 것'으로만 보인다.
+   그래서 종류마다 윗부분의 형태를 다르게 한다 —
+   첨탑은 뾰족하게, 샘은 낮고 둥글게, 성채는 톱니, 대장간은 굴뚝. */
+function drawStructures() {
+  for (const s of structures) {
+    const sx = s.x - cam.x, sy = s.y - cam.y;
+    const R = s.r;
+    if (sx < -R - 120 || sx > W + R + 120 || sy < -R - 160 || sy > H + R + 160) continue;
+    const K = s.K, st = s.st, on = !!st;
+    const cols = pxPal(K.color);
+    // 종류마다 꼭대기가 다르다. 한 값으로 붙이면 첨탑에서는 글자가 건물을 가린다.
+    const topY = s.kind === "spire" ? -R * 2.05 : s.kind === "bastion" ? -R * 1.45
+               : s.kind === "forge" ? -R * 1.72 : -R * 1.22;
+    const P = PIX;
+    const q = v => Math.round(v / P) * P;
+    const box = (x0, y0, x1, y1) => ctx.rect(q(sx + x0), q(sy + y0), q(x1 - x0), q(y1 - y0));
+
+    // 바닥 그림자 — 큰 것일수록 깊게
+    ctx.save();
+    ctx.globalAlpha = .34;
+    ctx.fillStyle = "#000";
+    ctx.beginPath(); ctx.ellipse(sx, sy + R * .3, R * .62, R * .24, 0, 0, TAU); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 가동 중이면 발밑에 진영이 돈다
+    if (on) {
+      const ar = K.aura ? R * K.aura : R * 1.15;
+      ctx.globalAlpha = .10 + .05 * Math.sin(Game.time * 3);
+      ctx.fillStyle = K.color;
+      ctx.beginPath(); ctx.ellipse(sx, sy + R * .3, ar, ar * .42, 0, 0, TAU); ctx.fill();
+      ctx.globalAlpha = .5;
+      ctx.fillStyle = cols[0];
+      ctx.beginPath();
+      const steps = Math.max(16, Math.ceil(TAU * ar / (P * 3)));
+      for (let i = 0; i < steps; i++) {
+        const a = i / steps * TAU + Game.time * .4;
+        ctx.rect(q(sx + Math.cos(a) * ar), q(sy + R * .3 + Math.sin(a) * ar * .42), P, P);
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── 몸통 ── 꺼져 있으면 어둡다. 켜야 색이 산다.
+    // 꺼져 있어도 종류색을 살짝 섞는다. 전부 같은 회색이면 멀리서 무엇인지 몰라
+    // 갈지 말지를 정할 수가 없다.
+    const dark = pxPalCache[K.color + "|off"] ||
+      (pxPalCache[K.color + "|off"] = mixHex(K.color, "#43424f", .72));
+    const body = on ? cols[2] : dark;
+    const trim = on ? cols[1] : mixHex(K.color, "#5a5967", .6);
+    const lit  = on ? cols[0] : mixHex(K.color, "#6a6979", .5);
+    const base = R * .5;                       // 반폭
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    box(-base, -R * .12, base, R * .3);        // 기단
+    if (s.kind === "spire") {
+      box(-base * .42, -R * 1.5, base * .42, -R * .1);          // 오벨리스크 몸
+      for (let i = 0; i < 7; i++) {                              // 끝으로 갈수록 좁아진다
+        const w = base * .42 * (1 - i / 7), y = -R * 1.5 - i * P * 2.2;
+        box(-w, y - P * 2.2, w, y);
+      }
+    } else if (s.kind === "font") {
+      box(-base * .9, -R * .5, base * .9, -R * .05);             // 낮고 넓은 수반
+      for (const sgn of [-1, 1]) box(sgn * base * .78, -R * .95, sgn * base * .58, -R * .4);  // 기둥 둘
+      box(-base * .95, -R * 1.05, base * .95, -R * .9);          // 상인방
+    } else if (s.kind === "bastion") {
+      box(-base * .82, -R * 1.05, base * .82, -R * .05);         // 성벽
+      for (let i = -3; i <= 3; i++)                              // 톱니
+        box(i * base * .26 - base * .1, -R * 1.28, i * base * .26 + base * .1, -R * 1.02);
+      for (const sgn of [-1, 1]) box(sgn * base * .95, -R * 1.15, sgn * base * .68, -R * .02);  // 망루
+    } else {
+      box(-base * .8, -R * .8, base * .8, -R * .05);             // 대장간 몸채
+      box(-base * .95, -R * .95, base * .95, -R * .74);          // 처마
+      box(base * .3, -R * 1.55, base * .68, -R * .8);            // 굴뚝
+    }
+    ctx.fill();
+
+    // ── 테두리·장식 ──
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    box(-base, -R * .12, base, -R * .12 + P);                    // 기단 윗선
+    box(-base, R * .3 - P, base, R * .3);
+    ctx.fill();
+
+    // ── 빛나는 심장부 ── 켜져 있으면 맥동한다
+    const pulse = on ? .55 + .45 * Math.abs(Math.sin(Game.time * 3.4)) : .22;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = lit;
+    ctx.beginPath();
+    if (s.kind === "spire") {
+      const y = -R * 1.5 - 7 * P * 2.2;                          // 꼭대기 수정
+      box(-P * 2, y - P * 5, P * 2, y);
+      box(-P * 3, y - P * 3, P * 3, y - P * 2);
+    } else if (s.kind === "font") {
+      box(-base * .74, -R * .42, base * .74, -R * .12);          // 찰랑이는 수면
+    } else if (s.kind === "bastion") {
+      box(-P * 3, -R * .78, P * 3, -R * .3);                     // 문장
+      box(-P * 6, -R * .64, P * 6, -R * .5);
+    } else {
+      box(-base * .34, -R * .58, base * .34, -R * .12);          // 화구
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // ── 어두운 구멍 ── 창·문·틈. 큰 면이 비어 있으면 건물이 아니라 판자로 보인다.
+    ctx.fillStyle = "rgba(12,12,20,.66)";
+    ctx.beginPath();
+    if (s.kind === "spire") {
+      for (let i = 0; i < 4; i++) box(-base * .42, -R * (.35 + i * .28), base * .42, -R * (.32 + i * .28));
+    } else if (s.kind === "font") {
+      box(-base * .18, -R * .95, base * .18, -R * .5);           // 기둥 사이 그늘
+    } else if (s.kind === "bastion") {
+      for (const sgn of [-1, 1]) {                                // 화살 구멍
+        box(sgn * base * .5 - P, -R * .88, sgn * base * .5 + P, -R * .66);
+        box(sgn * base * .5 - P, -R * .56, sgn * base * .5 + P, -R * .34);
+      }
+      box(-base * .17, -R * .34, base * .17, -R * .02);           // 성문
+    } else {
+      box(-base * .24, -R * .42, base * .24, -R * .04);           // 대장간 입구
+    }
+    ctx.fill();
+
+    // 굴뚝 연기 — 가동 중에만 오른다
+    if (on && s.kind === "forge") {
+      ctx.globalAlpha = .4;
+      ctx.fillStyle = "#9a9aa8";
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const u = ((Game.time * .55 + i * .2) % 1);
+        const yy = -R * 1.55 - u * R * .5, w = P * (1 + u * 3);
+        box(base * .49 - w + Math.sin(u * 6 + i) * P * 2, yy - P * 2, base * .49 + w + Math.sin(u * 6 + i) * P * 2, yy);
+      }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── 상태 ── 남은 시간과 체력. 언제 무너지는지 보여야 지킬지 뺄지 판단이 된다.
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if (on) {
+      const bw = R * 1.05, bx = sx - bw / 2, by = sy + topY - 16;
+      ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(bx - 2, by - 2, bw + 4, 12);
+      ctx.fillStyle = "#ff6b7f";
+      ctx.fillRect(bx, by, bw * clamp(st.hp / st.max, 0, 1), 4);
+      ctx.fillStyle = K.color;
+      ctx.fillRect(bx, by + 5, bw * clamp(st.t / K.dur, 0, 1), 3);
+      ctx.font = "700 12px " + FONT; ctx.fillStyle = K.color;
+      ctx.fillText(K.icon + " " + K.name + "  " + Math.ceil(st.t) + "초", sx, by - 12);
+    } else {
+      ctx.globalAlpha = .55 + Math.sin(Game.time * 2 + s.x * .01) * .2;
+      ctx.font = "700 12px " + FONT; ctx.fillStyle = K.color;
+      ctx.fillText(K.icon + " " + K.name, sx, sy + topY - 16);
+      ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.fillText(K.desc + " · 다가가면 가동", sx, sy + topY - 2);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
 }
 
 /* ---------- 직업 전용 특성 ----------
@@ -5548,6 +5918,17 @@ function drawHUD() {
       if (Math.abs(dx) > MM / 2 - 3 || Math.abs(dy) > MM / 2 - 3) continue;
       ctx.fillRect(ccx + dx - 2, ccy + dy - 2, 4, 4);
     }
+    // 대형 구조물 — 가장 크게. 멀리서도 갈 값이 있는지 보여야 한다
+    for (const s of structures) {
+      const dx = (s.x - player.x) * sc, dy = (s.y - player.y) * sc;
+      if (Math.abs(dx) > MM / 2 - 5 || Math.abs(dy) > MM / 2 - 5) continue;
+      ctx.fillStyle = s.K.color;
+      ctx.globalAlpha = s.st ? .55 + .45 * Math.abs(Math.sin(Game.time * 3)) : 1;
+      ctx.fillRect(ccx + dx - 4, ccy + dy - 4, 8, 8);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "rgba(0,0,0,.7)"; ctx.lineWidth = 1;
+      ctx.strokeRect(ccx + dx - 4, ccy + dy - 4, 8, 8);
+    }
     // 지형지물
     for (const lm of landmarks) {
       const dx = (lm.x - player.x) * sc, dy = (lm.y - player.y) * sc;
@@ -5636,6 +6017,29 @@ function drawHUD() {
   }
 
   // 화면 밖 지형지물 방향 표시 — 어디로 갈지 모르면 돌아다닐 수 없다
+  // 구조물 — 한 판에 몇 개 없고 크게 돌아갈 값이 있어서 더 멀리서도 알려준다
+  for (const s of structures) {
+    const sx = s.x - cam.x, sy = s.y - cam.y;
+    const m = 52;
+    if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
+    const d = Math.hypot(s.x - player.x, s.y - player.y);
+    if (d > 2600) continue;
+    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    const ang = Math.atan2(sy - player.sy, sx - player.sx);
+    ctx.save();
+    ctx.globalAlpha = clamp(1.5 - d / 2600, .35, .95) * (s.st ? .6 + .4 * Math.abs(Math.sin(Game.time * 4)) : 1);
+    ctx.translate(ax, ay); ctx.rotate(ang);
+    ctx.fillStyle = s.K.color;
+    ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-7, -10); ctx.lineTo(-7, 10); ctx.closePath(); ctx.fill();
+    ctx.rotate(-ang);
+    ctx.font = "700 11px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = s.K.color;
+    ctx.fillText(s.K.icon + " " + s.K.name, 0, -20);
+    ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
+    ctx.fillText(Math.round(d / 10) + "m" + (s.st ? " · 가동 중" : ""), 0, 20);
+    ctx.restore();
+  }
+
   for (const lm of landmarks) {
     const sx = lm.x - cam.x, sy = lm.y - cam.y;
     const m = 46;

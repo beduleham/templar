@@ -155,6 +155,87 @@ const N = 4;                                   // 애니메이션 4프레임
         rect(g, 22, 14, 23, 15, 'G');                       // 눈
         return g;
       },
+      /* ---------- 이펙트 ----------
+         몬스터·주인공과 달리 검은 윤곽을 두르지 않는다. 빛이기 때문이다.
+         B = 속성색 · G = 밝은 속성색 · W = 흰 심지. 이 세 겹이 타격감을 만든다. */
+
+      // 피격 — 사방으로 뻗는 가시. 고리로 그렸더니 삼각형이 되고 프레임을 넘었다.
+      hit(f, S) {
+        const g = mk(S), c = (S - 1) / 2;
+        const L = [6, 12, 14, 10][f], th = [3, 3, 2, 1][f];
+        const n = f === 0 ? 4 : 8;
+        for (let i = 0; i < n; i++) {
+          const a = i / n * Math.PI * 2 + Math.PI / 4;
+          const l = L * (i % 2 ? .55 : 1);
+          line(g, c + Math.cos(a) * 1.5, c + Math.sin(a) * 1.5,
+                  c + Math.cos(a) * l, c + Math.sin(a) * l, 'B', th);
+          line(g, c + Math.cos(a) * 1.5, c + Math.sin(a) * 1.5,
+                  c + Math.cos(a) * l * .6, c + Math.sin(a) * l * .6, 'W', Math.max(1, th - 1));
+        }
+        const cr = [4.5, 3.5, 2, 0][f];
+        if (cr) { ell(g, c, c, cr, cr, 'G'); ell(g, c, c, cr * .5, cr * .5, 'W'); }
+        return g;
+      },
+
+      // 폭발 — 흰 섬광에서 시작해 속성색 고리로 비어 간다
+      boom(f, S) {
+        const g = mk(S), c = (S - 1) / 2;
+        const R = [9, 16.5, 20.5, 22][f];
+        const inner = [0, 0, 8, 14][f];
+        // 흰 심지가 남는 경계. 뒤로 갈수록 심지가 사라지고 속성색만 남는다
+        const wCut = [.42, .32, .18, 0][f], gCut = [.75, .68, .6, .45][f];
+        for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+          const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
+          const a = Math.atan2(dy, dx);
+          // 정원이면 폭발이 아니라 공이다. 다만 주기가 낮으면 꽃잎이 된다 —
+          // 주기를 올리고 진폭을 낮춰 '울퉁불퉁한 덩어리'로 만든다.
+          const lump = 1 + Math.sin(a * 7 + f * 1.3) * .08
+                         + Math.sin(a * 11 - f * 2) * .05
+                         + Math.sin(a * 3 + f) * .05;
+          const rr = R * lump, ir = inner * lump;
+          if (d > rr || d < ir) continue;
+          const t = (d - ir) / Math.max(1, rr - ir);
+          g[y][x] = t < wCut ? 'W' : t < gCut ? 'G' : 'B';
+        }
+        for (let i = 0; i < 11; i++) {                 // 튀는 파편
+          const a = i / 11 * Math.PI * 2 + f * .5, d = Math.min(R + 3 + f * 2, c - 1);
+          put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, 'G');
+        }
+        return g;
+      },
+
+      // 베기 — 오른쪽을 향한 초승달. 호출부가 각도를 돌려서 쓴다.
+      // 얇으면 칼자국이 아니라 쉼표로 보인다. 가운데를 두껍게, 양 끝을 뾰족하게.
+      slash(f, S) {
+        const g = mk(S), c = (S - 1) / 2;
+        const span = [.9, 1.7, 2.1, 1.7][f];
+        const R = [12, 16, 19, 21][f];
+        const th = [5, 7, 5, 2.5][f];
+        const off = [-.5, -.15, .2, .5][f];            // 위에서 아래로 쓸린다
+        for (let i = 0; i <= 140; i++) {
+          const a = off - span / 2 + span * i / 140;
+          const taper = Math.pow(Math.sin(Math.PI * i / 140), .65);
+          const w = th * taper;
+          for (let k = 0; k <= w; k += .5)
+            put(g, c + Math.cos(a) * (R - k), c + Math.sin(a) * (R - k),
+              k < w * .35 ? 'W' : k < w * .7 ? 'G' : 'B');
+        }
+        return g;
+      },
+
+      // 시전 섬광 — 무기 끝에서 한 번 터진다
+      cast(f, S) {
+        const g = mk(S), c = (S - 1) / 2;
+        const R = [4, 8, 11, 13][f], th = [3, 2, 2, 1][f];
+        for (let i = 0; i < 8; i++) {
+          const a = i / 8 * Math.PI * 2 + f * .2, L = R * (i % 2 ? .5 : 1);
+          line(g, c, c, c + Math.cos(a) * L, c + Math.sin(a) * L, i % 2 ? 'B' : 'W', th);
+        }
+        const cr = [4.5, 5.5, 3.5, 1.5][f];
+        ell(g, c, c, cr, cr, 'B'); ell(g, c, c, cr * .6, cr * .6, 'W');
+        return g;
+      },
+
       /* 주인공 — 직업 4종 × 동작 4종.
          몬스터와 달리 단색이 아니다. 살·강철·가죽에 직업색(A)을 얹는다.
          항상 오른쪽을 보게 그리고, 왼쪽은 게임에서 flip 으로 뒤집는다.
@@ -425,7 +506,7 @@ const N = 4;                                   // 애니메이션 4프레임
         }
       }
       frames[key] = { x: 0, y: y0, w: S, h: S, n: N, fps: def.fps || 8 };
-      if (S !== 32) frames[key].s = +(28 / S).toFixed(3);
+      if (S !== 32 && !def.fx) frames[key].s = +(28 / S).toFixed(3);
       y0 += S;
     }
     return { url: cv.toDataURL('image/png'), frames, W, H: y0 };

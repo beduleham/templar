@@ -1,0 +1,45 @@
+name: Supabase connection check
+
+# 이 저장소의 개발 환경에서는 supabase.co 로의 아웃바운드가 막혀 있어
+# 연결 확인을 GitHub Actions 러너에서 대신 수행한다.
+# Actions 탭 → 이 워크플로 → Run workflow 로 수동 실행할 수 있다.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "supabase/**"
+      - "scripts/supabase-check.mjs"
+      - ".github/workflows/supabase-check.yml"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 시크릿 설정 여부 확인
+        id: guard
+        env:
+          URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 시크릿이 없습니다."
+            echo "저장소 Settings → Secrets and variables → Actions 에서 두 값을 등록하세요."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.configured == 'true'
+        with:
+          node-version: 22
+
+      - name: 연결·스키마·RLS 확인
+        if: steps.guard.outputs.configured == 'true'
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: node scripts/supabase-check.mjs

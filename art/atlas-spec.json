@@ -359,54 +359,6 @@
       "h": 48,
       "fps": 13
     },
-    "fx_slash_physical": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#93a6c4",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
-    "fx_slash_fire": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#ff8a3c",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
-    "fx_slash_frost": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#7fd2ff",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
-    "fx_slash_storm": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#ffe066",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
-    "fx_slash_holy": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#ffc266",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
-    "fx_slash_blood": {
-      "shape": "slash",
-      "fx": true,
-      "color": "#e0426a",
-      "glow": "#ffffff",
-      "h": 48,
-      "fps": 17
-    },
     "fx_cast_physical": {
       "shape": "cast",
       "fx": true,

@@ -204,25 +204,6 @@ const N = 4;                                   // 애니메이션 4프레임
         return g;
       },
 
-      // 베기 — 오른쪽을 향한 초승달. 호출부가 각도를 돌려서 쓴다.
-      // 얇으면 칼자국이 아니라 쉼표로 보인다. 가운데를 두껍게, 양 끝을 뾰족하게.
-      slash(f, S) {
-        const g = mk(S), c = (S - 1) / 2;
-        const span = [.9, 1.7, 2.1, 1.7][f];
-        const R = [12, 16, 19, 21][f];
-        const th = [5, 7, 5, 2.5][f];
-        const off = [-.5, -.15, .2, .5][f];            // 위에서 아래로 쓸린다
-        for (let i = 0; i <= 140; i++) {
-          const a = off - span / 2 + span * i / 140;
-          const taper = Math.pow(Math.sin(Math.PI * i / 140), .65);
-          const w = th * taper;
-          for (let k = 0; k <= w; k += .5)
-            put(g, c + Math.cos(a) * (R - k), c + Math.sin(a) * (R - k),
-              k < w * .35 ? 'W' : k < w * .7 ? 'G' : 'B');
-        }
-        return g;
-      },
-
       // 시전 섬광 — 무기 끝에서 한 번 터진다
       cast(f, S) {
         const g = mk(S), c = (S - 1) / 2;

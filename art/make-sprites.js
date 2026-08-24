@@ -31,9 +31,13 @@ const N = 4;                                   // 애니메이션 4프레임
           if (dx * dx + dy * dy <= 1) put(g, x, y, ch);
         }
     };
+    // 좌우 대칭으로 그릴 때 x0 > x1 이 되는 호출이 많다.
+    // 정렬하지 않으면 루프가 돌지 않아 한쪽이 통째로 빠진다(실제로 보스의 왼쪽 어깨와 깃이 없었다).
     const rect = (g, x0, y0, x1, y1, ch) => {
-      for (let y = Math.round(y0); y <= Math.round(y1); y++)
-        for (let x = Math.round(x0); x <= Math.round(x1); x++) put(g, x, y, ch);
+      const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
+      const ay = Math.min(y0, y1), by = Math.max(y0, y1);
+      for (let y = Math.round(ay); y <= Math.round(by); y++)
+        for (let x = Math.round(ax); x <= Math.round(bx); x++) put(g, x, y, ch);
     };
     const line = (g, x0, y0, x1, y1, ch, t = 1) => {
       const n = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))) * 2 + 1;
@@ -119,17 +123,20 @@ const N = 4;                                   // 애니메이션 4프레임
       humanoid(f, S) {
         const g = mk(S);
         const sw = [0, 2, 0, -2][f];
-        ell(g, 15.5, 9, 4, 4, 'B');                         // 머리
-        rect(g, 11.5, 13, 19.5, 22, 'B');                   // 몸통
-        line(g, 11.5, 14, 7 - sw, 20 + sw, 'B', 3);         // 팔 — 몸통 밖으로 빼야 보인다
-        line(g, 19.5, 14, 24 + sw, 20 - sw, 'B', 3);
-        line(g, 13.5, 22, 13.5 - sw, 28, 'B', 3);           // 다리
-        line(g, 17.5, 22, 17.5 + sw, 28, 'B', 3);
+        // 몸통을 넓히고 어깨를 굽힌다. 가는 막대기는 어떤 색을 입혀도 허약해 보인다.
+        rect(g, 9.5, 13, 22.5, 23, 'B');                    // 몸통 — 넓게
+        ell(g, 16, 13, 7, 4, 'B');                          // 굽은 어깨
+        ell(g, 16, 9, 4.5, 4.5, 'B');                       // 머리 — 어깨 사이에 파묻힌다
+        line(g, 10, 15, 6 - sw, 22 + sw, 'B', 4);           // 팔 — 굵게, 앞으로 늘어뜨린다
+        line(g, 22, 15, 26 + sw, 22 - sw, 'B', 4);
+        line(g, 13, 23, 12.5 - sw, 29, 'B', 4);             // 다리 — 굵게
+        line(g, 19, 23, 19.5 + sw, 29, 'B', 4);
         shade(g, 19);
         outline(g);
-        eyes(g, 15.5, 8, 2, 'G', 1);
+        eyes(g, 16, 8, 2, 'G', 1);
         return g;
       },
+
       // 사냥개 — 네 다리가 달린다
       hound(f, S) {
         const g = mk(S);
@@ -148,42 +155,57 @@ const N = 4;                                   // 애니메이션 4프레임
         rect(g, 22, 14, 23, 15, 'G');                       // 눈
         return g;
       },
-      // 보스 — 64px. 크기가 아니라 형태가 달라야 한다.
-      // 처음엔 망토를 넓게 폈더니 드레스로 보였다 — 어깨를 세우고 팔을 붙여 사람 형태를 남긴다.
+      // 보스 — 64px. 위엄은 덩치만으로 안 된다. 형태가 읽히려면 '여백'이 있어야 한다.
+      //   실패 기록: ① 망토를 넓게 → 드레스 ② 팔을 망토 안에 → 개미
+      //   ③ 전부 키웠더니 프레임을 넘어 잘리고 어깨·팔이 한 덩어리로 뭉갰다.
+      //   그래서 세로 구역을 나누고 구역 사이에 틈을 남긴다.
       boss(f, S) {
         const g = mk(S);
-        const p = [0, 1, 2, 1][f];              // 숨 쉬듯 오르내린다
-        const sh = 32 + p * .4;                 // 어깨선
-        // 망토 — 어깨 아래로만. 위까지 덮으면 드레스가 된다.
-        for (let y = sh + 5; y <= 54; y++) {
-          const w = 9 + (y - sh - 5) * .44;
-          rect(g, 31.5 - w, y, 31.5 + w, y, 'B');
+        const p = [0, 1, 2, 1][f];
+        const cx = 31.5;
+        const sh = 30 + p * .4;                 // 어깨선
+
+        // ── 망토 (아래) ── 최대 폭을 프레임 안에 묶는다
+        for (let y = sh + 10; y <= 56; y++) {
+          const w = 9 + (y - sh - 10) * .48;
+          rect(g, cx - w, y, cx + w, y, 'B');
         }
-        for (let x = 19; x <= 44; x++) {        // 자락
-          const h = 2 + Math.sin((x + f * 3) * .8) * 2;
-          rect(g, x, 54, x, 54 + h, 'B');
+        for (let x = 12; x <= 51; x++) {
+          const h = 2 + Math.sin((x + f * 3) * .7) * 2;
+          rect(g, x, 56, x, 56 + h, 'B');
         }
-        // 어깨 — 각지게. 실루엣의 뼈대다.
-        rect(g, 16, sh, 47, sh + 6, 'B');
-        // 팔 — 망토 폭(±9~19) 밖으로 빼야 보인다. 안에 두면 개미처럼 보인다.
+        // ── 몸통 ── 망토보다 좁게 해서 어깨가 튀어나와 보이게
+        rect(g, cx - 8, sh + 2, cx + 8, sh + 14, 'B');
+
+        // ── 어깨 갑판 ── 몸통 밖으로 확실히 튀어나온다
         for (const s2 of [-1, 1]) {
-          line(g, 31.5 + s2 * 14, sh + 4, 31.5 + s2 * 22, sh + 16 + p, 'B', 5);
-          line(g, 31.5 + s2 * 22, sh + 16 + p, 31.5 + s2 * 20, sh + 24 + p, 'B', 4);
+          rect(g, cx + s2 * 9, sh - 1, cx + s2 * 21, sh + 7, 'B');
+          line(g, cx + s2 * 15, sh - 1, cx + s2 * 17, sh - 8, 'B', 3);   // 갑판 가시 하나만
         }
-        // 머리 — 목을 짧게 하고 크게
-        rect(g, 27, sh - 6, 36, sh, 'B');
-        ell(g, 31.5, sh - 13, 9, 9, 'B');
-        // 뿔 — 짧고 굵게 바깥으로
+        // ── 팔 ── 갑판 아래로. 망토(폭 9~22)보다 바깥에 두어 실루엣이 살아난다
         for (const s2 of [-1, 1]) {
-          line(g, 31.5 + s2 * 7, sh - 19, 31.5 + s2 * 15, sh - 26 - p, 'B', 4);
-          line(g, 31.5 + s2 * 15, sh - 26 - p, 31.5 + s2 * 20, sh - 23 - p, 'B', 3);
+          line(g, cx + s2 * 17, sh + 7, cx + s2 * 25, sh + 18 + p, 'B', 5);
+          for (let k = -1; k <= 1; k++)          // 발톱
+            line(g, cx + s2 * 25, sh + 18 + p, cx + s2 * 27, sh + 25 + p + k * 2, 'B', 2);
         }
-        shade(g, sh + 16);
+        // ── 깃 ── 머리 뒤로만. 어깨와 겹치지 않게 위쪽에만.
+        for (const s2 of [-1, 1]) rect(g, cx + s2 * 10, sh - 14, cx + s2 * 13, sh - 2, 'B');
+        // ── 머리 ──
+        ell(g, cx, sh - 10, 7.5, 7, 'B');
+        // ── 뿔 ── 굵고 크게, 바깥 위로
+        for (const s2 of [-1, 1]) {
+          line(g, cx + s2 * 6, sh - 14, cx + s2 * 14, sh - 21 - p, 'B', 5);
+          line(g, cx + s2 * 14, sh - 21 - p, cx + s2 * 21, sh - 16 - p, 'B', 4);
+        }
+        // ── 왕관 ── 가운데 하나만 높게. 여러 개면 뿔과 뒤엉킨다.
+        line(g, cx, sh - 16, cx, sh - 26 - p, 'B', 4);
+        rect(g, cx - 4, sh - 18, cx + 3, sh - 15, 'B');
+
+        shade(g, sh + 10);
         outline(g);
-        eyes(g, 31.5, sh - 15, 4, 'G', 3);
-        // 가슴의 표식
-        rect(g, 30, sh + 10, 33, sh + 21, 'G');
-        rect(g, 25, sh + 13, 38, sh + 16, 'G');
+        eyes(g, cx, sh - 12, 4, 'G', 3);
+        rect(g, cx - 2, sh + 4, cx + 1, sh + 14, 'G');       // 가슴 표식
+        rect(g, cx - 6, sh + 7, cx + 5, sh + 10, 'G');
         return g;
       },
     };

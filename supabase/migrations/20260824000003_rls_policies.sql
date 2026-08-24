@@ -379,3 +379,24 @@ create policy system_audit_logs_insert on system_audit_logs
 
 -- 권한 자체도 회수해 service_role 이외에는 변경 경로를 남기지 않는다
 revoke update, delete, truncate on system_audit_logs from authenticated, anon;
+
+-- ── 역할별 권한 ─────────────────────────────────────────────────────────────
+-- RLS는 "권한이 있는 역할"에 대해서만 의미가 있다. 권한 자체를 명시해
+-- 호스팅 환경의 기본값에 의존하지 않는다.
+grant usage on schema public to anon, authenticated;
+
+grant select, insert, update, delete
+  on projects, spec_epics, spec_features, spec_tasks, project_ndas,
+     bids, bid_items, contracts, milestones, as_subscriptions
+  to authenticated;
+
+grant select, update on profiles to authenticated;
+grant insert on profiles to authenticated;
+grant select on as_payment_logs to authenticated;
+
+-- 감사 로그는 조회와 추가만 가능하다
+grant select, insert on system_audit_logs to authenticated;
+revoke update, delete, truncate on system_audit_logs from authenticated, anon;
+
+-- 비로그인(anon)에는 어떤 테이블 권한도 주지 않는다.
+-- 정책 이전에 권한 단계에서 먼저 막힌다.

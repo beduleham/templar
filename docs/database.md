@@ -92,19 +92,59 @@ NDA 게이트의 실제 구현은 `archon_can_view_spec()` 이며 `spec_epics` /
 정적 배포(GitHub Pages)에서도 Supabase는 그대로 쓸 수 있다. 브라우저가 anon
 키로 직접 붙고 RLS가 통제하는 구조라 서버가 필요 없다.
 
-1. Supabase 프로젝트 생성 후 `supabase/migrations` 를 적용
-   (`supabase db push` 또는 SQL 에디터에 순서대로 붙여넣기)
-2. 저장소 Settings → Secrets → Actions 에 아래 두 값을 등록
+### 1. 프로젝트 만들기
 
-   | 시크릿 | 값 |
-   | --- | --- |
-   | `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 프로젝트의 anon public 키 |
+[supabase.com/dashboard](https://supabase.com/dashboard) → **New project**
+→ 이름 `archon`, 리전 `Northeast Asia (Seoul)` 권장 → 생성까지 1~2분.
 
-3. `.github/workflows/deploy-pages.yml` 의 build 단계에 두 값을 주입
+### 2. 스키마 적용
 
-anon 키는 공개돼도 되는 값이다(RLS가 통제). **service_role 키는 절대 클라이언트
-번들이나 저장소에 넣지 않는다** — 모든 RLS를 우회한다.
+좌측 **SQL Editor** → **New query** →
+[`supabase/schema.sql`](../supabase/schema.sql) 전체를 붙여넣고 **Run**.
+(마이그레이션 3개를 순서대로 합쳐둔 파일이다. `supabase` CLI를 쓴다면
+`supabase db push` 로 대체할 수 있다.)
+
+적용 결과 확인:
+
+```sql
+select count(*) from pg_tables   where schemaname = 'public';  -- 13
+select count(*) from pg_policies where schemaname = 'public';  -- 32
+```
+
+데모 데이터가 필요하면 이어서 [`supabase/seed.sql`](../supabase/seed.sql) 실행.
+(시드는 `auth.users` 를 직접 INSERT 하므로 실제 로그인 계정과는 별개다.)
+
+### 3. 키 확인 및 점검
+
+**Project Settings → API** 에서 `Project URL` 과 `anon public` 키를 복사한 뒤:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co \
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon public 키> \
+npm run supabase:check
+```
+
+13개 테이블이 **존재 + 비로그인 차단됨** 으로 나오면 정상이다. 테이블이
+비로그인 상태에서 조회되면 RLS가 적용되지 않은 것이니 2단계를 다시 확인한다.
+스크립트는 service_role 키가 들어오면 즉시 중단하고 폐기를 안내한다.
+
+### 4. 배포에 주입
+
+저장소 **Settings → Secrets and variables → Actions → New repository secret**
+
+| 시크릿 | 값 |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon public 키 |
+
+`.github/workflows/deploy-pages.yml` 이 이미 두 값을 빌드에 주입한다.
+시크릿이 비어 있으면 앱은 클라이언트 도메인 스토어(데모 모드)로 동작한다.
+
+### 키 취급
+
+anon 키는 브라우저 번들에 포함되는 **공개 값**이다(보안은 RLS가 담당).
+**service_role 키는 저장소·번들·환경 변수 어디에도 넣지 않는다** — 모든 RLS를
+우회하므로 유출 시 전체 데이터가 노출된다.
 
 ## 남은 작업
 

@@ -1399,6 +1399,8 @@ function pxPal(col) {
   }
   return c;
 }
+const PJ_STEEL = ["#e2e6ef", "#b9c0d1", "#8f96ab"];   // 단검 — 색이 고정이라 미리 만든다
+const ESHOT_RING = ["#ff4d6d", "#ff4d6d", "#ff4d6d"];  // 적 탄의 붉은 테두리
 const pxBand = (k, w) => k < w * .22 ? 0 : k < w * .55 ? 1 : 2;
 
 /* 큰 이펙트는 '면적'만큼 칸을 찍으면 안 된다.
@@ -1485,6 +1487,27 @@ function pxLance(cx, cy, ang, len, w0, cols) {
   pxOut[n++] = cx + dx * len; pxOut[n++] = cy + dy * len;
   pxEdge(pxOut, n);
   pxFlush(cols);
+}
+
+// 픽셀 원 — 발사체. 무기마다 색이 제각각이라 스프라이트로는 못 한다
+// (아틀라스에 색깔 수만큼 줄을 넣을 수는 없다).
+function pxDisc(cx, cy, r, cols) {
+  // 원을 그린 뒤 테두리에 칸을 덧찍는 게 아니라, 가로줄로 직접 찍는다.
+  // 안쪽까지 전부 격자에 맞고(진짜 픽셀 원), 테두리를 따로 도는 비용도 없다.
+  const gx = Math.round(cx / PIX) * PIX, gy = Math.round(cy / PIX) * PIX;
+  for (let layer = 0; layer < 2; layer++) {
+    const rr = layer ? r * .58 : r;
+    if (rr < PIX) continue;
+    ctx.fillStyle = cols[layer ? 1 : 2];
+    ctx.beginPath();
+    const rows = Math.floor(rr / PIX);
+    for (let i = -rows; i <= rows; i++) {
+      const y = i * PIX;
+      const w = Math.max(PIX, Math.round(Math.sqrt(rr * rr - y * y) / PIX) * PIX);
+      ctx.rect(gx - w, gy + y, w * 2, PIX);
+    }
+    ctx.fill();
+  }
 }
 
 // 픽셀 고리 — 퍼져 나가는 파동
@@ -3994,40 +4017,41 @@ function drawWorld() {
     ctx.restore();
   }
 
-  // 발사체
+  /* 발사체 — 뿌연 광원 원을 걷어내고 평평한 면 + 격자 테두리로.
+     테두리 칸은 색이 같은 동안 모았다가 색이 바뀔 때만 칠한다.
+     탄 하나마다 칠하면 화면에 300발일 때 그만큼 path 를 여는 셈이다. */
+  let pjCols = null;
   for (const p of projectiles) {
     if (!p.active) continue;
     const sx = p.x - cam.x, sy = p.y - cam.y;
     if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.angle);
-    if (p.kind === "flame") {
-      const t = clamp(p.life / p.maxLife, 0, 1);
-      ctx.globalAlpha = t * .3;
-      ctx.fillStyle = "#ff7a1c";
-      ctx.beginPath(); ctx.arc(0, 0, p.r * 1.8, 0, TAU); ctx.fill();
-      ctx.globalAlpha = t * .9;
-      ctx.fillStyle = "#ff9a3c";
-      ctx.beginPath(); ctx.arc(0, 0, p.r * (1.25 - t * .35), 0, TAU); ctx.fill();
-      ctx.fillStyle = "#ffe08a";
-      ctx.beginPath(); ctx.arc(0, 0, p.r * .45 * t, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 1;
-    } else if (p.kind === "dagger") {
-      ctx.fillStyle = "#cfd6e6";
-      ctx.beginPath(); ctx.moveTo(p.r * 1.7, 0); ctx.lineTo(-p.r * .5, -p.r * .45); ctx.lineTo(-p.r * .5, p.r * .45);
+    if (p.kind === "dagger") {
+      // 회전이 필요한 것은 꼭짓점을 직접 돌린다. 회전된 좌표계에서 칸을 찍으면
+      // 격자가 화면과 어긋나 안티에일리어싱이 되돌아온다.
+      const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
+      const tip = p.r * 1.7, back = -p.r * .5, half = p.r * .45;
+      const rot = (x, y, o) => { pxOut[o] = sx + x * ca - y * sa; pxOut[o + 1] = sy + x * sa + y * ca; };
+      rot(tip, 0, 0); rot(back, -half, 2); rot(back, half, 4); rot(tip, 0, 6);
+      if (pjCols !== PJ_STEEL) { if (pjCols) pxFlush(pjCols); pjCols = PJ_STEEL; }
+      ctx.fillStyle = PJ_STEEL[2];
+      ctx.beginPath(); ctx.moveTo(pxOut[0], pxOut[1]);
+      ctx.lineTo(pxOut[2], pxOut[3]); ctx.lineTo(pxOut[4], pxOut[5]);
       ctx.closePath(); ctx.fill();
-      ctx.fillStyle = "#8a6a3a"; ctx.fillRect(-p.r * 1.2, -p.r * .22, p.r * .8, p.r * .44);
+      pxEdge(pxOut, 8);
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.angle);
+      ctx.fillStyle = "#6d4c33"; ctx.fillRect(-p.r * 1.2, -p.r * .22, p.r * .8, p.r * .44);
       ctx.fillStyle = "#e8c96a"; ctx.fillRect(-p.r * .62, -p.r * .6, p.r * .22, p.r * 1.2);
+      ctx.restore();
     } else {
-      ctx.globalAlpha = .25; ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(0, 0, p.r * 1.8, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(0, 0, p.r, 0, TAU); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,.75)";
-      ctx.beginPath(); ctx.arc(0, 0, p.r * .45, 0, TAU); ctx.fill();
+      const flame = p.kind === "flame";
+      const cols = pxPal(flame ? "#ff8a3c" : p.color);
+      if (pjCols !== cols) { if (pjCols) pxFlush(pjCols); pjCols = cols; }
+      // 불꽃은 날아가면서 사그라든다
+      const t = clamp(p.life / p.maxLife, 0, 1);
+      pxDisc(sx, sy, flame ? p.r * (.75 + t * .45) : p.r, cols);
     }
-    ctx.restore();
   }
+  if (pjCols) pxFlush(pjCols);
 
   // 번개
   for (const b of bolts) {
@@ -4053,18 +4077,14 @@ function drawWorld() {
     ctx.restore();
   }
 
-  // 적이 쏜 탄 — 아군 탄과 헷갈리지 않게 붉은 테두리를 두른다
+  /* 적이 쏜 탄 — 아군 탄과 헷갈리면 안 된다.
+     아군 탄은 무기의 속성색, 적 탄은 무조건 붉은 테를 두른다. */
   for (const p of eshots) {
     if (!p.active) continue;
     const sx = p.x - cam.x, sy = p.y - cam.y;
     if (sx < -30 || sx > W + 30 || sy < -30 || sy > H + 30) continue;
-    ctx.globalAlpha = .3; ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(sx, sy, p.r * 2.1, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = p.color;
-    ctx.beginPath(); ctx.arc(sx, sy, p.r, 0, TAU); ctx.fill();
-    ctx.strokeStyle = "#ff4d6d"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(sx, sy, p.r + 2, 0, TAU); ctx.stroke();
+    pxDisc(sx, sy, p.r + 2, ESHOT_RING);
+    pxDisc(sx, sy, p.r - 1, pxPal(p.color));
   }
 
   /* 이펙트 — 가산 합성(lighter)이라 여러 발이 겹치면 흰빛으로 타오른다.

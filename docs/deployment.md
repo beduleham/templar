@@ -38,8 +38,10 @@
 현재 데모는 서버·외부 서비스 없이 동작하도록 구현돼 있습니다. 실제 운영 전환에는
 다음 연동이 필요하며, 각 교체 지점은 코드 주석에 명시돼 있습니다.
 
-1. **Supabase** — `src/lib/domain/store.ts`의 클라이언트 스토어를 Auth/DB/Realtime과
-   RLS 정책으로 교체. `canViewSpecDetail`이 RLS 대응 지점입니다.
+1. **Supabase** — 스키마·RLS·마이그레이션은 `supabase/` 에 작성돼 있고
+   `./scripts/db-test.sh` 로 검증됩니다(규칙 19건 + RLS 19건). 남은 일은
+   `src/lib/domain/store.ts`의 클라이언트 스토어를 Supabase 레포지토리로
+   교체하는 것입니다. 자세한 내용은 `docs/database.md` 참고.
 2. **LLM** — `src/lib/domain/spec-engine.ts`의 결정적 생성기를 Vercel AI SDK 기반
    `/api/spec/generate`로 교체.
 3. **PG사** — `src/services/escrow.ts`의 `mockEscrowService`를 실제 결제·정산 어댑터로
@@ -50,9 +52,10 @@
 ## 검증 명령
 
 ```bash
-npm run lint     # ESLint
-npm test         # Vitest 단위 테스트
-npm run build    # 타입 체크 + 정적 빌드
+npm run lint        # ESLint
+npm test            # Vitest 단위 테스트
+npm run build       # 타입 체크 + 정적 빌드
+./scripts/db-test.sh  # DB 스키마·비즈니스 규칙·RLS 검증 (로컬 PostgreSQL 필요)
 ```
 
 E2E는 `scratchpad/e2e-journey.mjs`(Playwright)로 전체 여정을 검증합니다.

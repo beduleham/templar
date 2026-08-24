@@ -11,7 +11,9 @@ AI 기반 SI 플랫폼 — 대화형 AI 스펙 생성부터 입찰·계약, 마�
 - [Next.js](https://nextjs.org) 16 (App Router) + TypeScript (strict, `any` 금지)
 - Tailwind CSS v4 + [shadcn/ui](https://ui.shadcn.com) (Radix 기반, `src/components/ui`)
 - Pretendard 웹폰트 (npm 패키지, 빌드 시 번들)
-- Supabase (Auth/DB/Realtime — 후속 태스크에서 연동 예정, 현재는 Mock Auth)
+- Supabase (PostgreSQL) — 스키마·비즈니스 규칙·RLS는 `supabase/` 에 작성·검증
+  완료, 앱 연결은 대기 중 (현재 화면은 클라이언트 도메인 스토어로 동작).
+  자세한 내용은 [docs/database.md](docs/database.md)
 
 ## 개발
 
@@ -20,6 +22,8 @@ npm install
 npm run dev     # 개발 서버
 npm run build   # 타입 체크 + 프로덕션 빌드
 npm run lint    # ESLint
+npm test        # Vitest 단위 테스트
+npm run db:test # DB 스키마·비즈니스 규칙·RLS 검증 (로컬 PostgreSQL 14+ 필요)
 ```
 
 ## 라우팅 구조

@@ -1511,6 +1511,46 @@ function pxDisc(cx, cy, r, cols) {
   }
 }
 
+/* 바닥 장판 — 밟으면 아픈 구역.
+   발사체와 달리 '면'이라 속을 옅게 깔고 테두리를 또렷하게 해서
+   경계가 어디까지인지 보이게 한다. 평평한 원만 깔면 웅덩이가 아니라
+   그냥 색칠한 바닥이라, 끓어오르는 방울을 몇 개 띄운다. */
+function pxHazard(cx, cy, r, cols, seed, aFill, aEdge) {
+  const gx = Math.round(cx / PIX) * PIX, gy = Math.round(cy / PIX) * PIX;
+  const rows = Math.floor(r / PIX);
+  ctx.globalAlpha = aFill;
+  ctx.fillStyle = cols[2];
+  ctx.beginPath();
+  for (let i = -rows; i <= rows; i++) {
+    const y = i * PIX;
+    const w = Math.max(PIX, Math.round(Math.sqrt(r * r - y * y) / PIX) * PIX);
+    ctx.rect(gx - w, gy + y, w * 2, PIX);
+  }
+  ctx.fill();
+
+  ctx.globalAlpha = aEdge;
+  ctx.fillStyle = cols[0];
+  ctx.beginPath();
+  // 테두리는 한 칸씩 띄운다. 촘촘히 두르면 장판 하나당 200칸이라
+  // 오래 남는 효과치고 비싸고, 점선이 오히려 '여기까지가 구역'으로 더 잘 읽힌다.
+  const steps = Math.max(10, Math.ceil(TAU * r / (PIX * 2)));
+  for (let i = 0; i < steps; i++) {
+    const a = i / steps * TAU;
+    ctx.rect(Math.round((gx + Math.cos(a) * r) / PIX) * PIX,
+             Math.round((gy + Math.sin(a) * r) / PIX) * PIX, PIX, PIX);
+  }
+  for (let i = 0; i < 16; i++) {                          // 끓어오르는 방울
+    if ((Game.time * 2.4 + i * .37) % 1 > .5) continue;    // 저마다 다른 주기로 떴다 사라진다
+    const a = hash2(seed + i, 3) * TAU;
+    const d = Math.sqrt(hash2(seed + i, 9)) * r * .84;
+    const s = PIX * (1 + (i % 2));
+    ctx.rect(Math.round((gx + Math.cos(a) * d) / PIX) * PIX,
+             Math.round((gy + Math.sin(a) * d) / PIX) * PIX, s, s);
+  }
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
 // 픽셀 고리 — 퍼져 나가는 파동
 function pxRing(cx, cy, R, thick, cols) {
   for (let layer = 0; layer < 2; layer++) {
@@ -3993,12 +4033,8 @@ function drawWorld() {
     if (sx < -160 || sx > W + 160 || sy < -160 || sy > H + 160) continue;
     const t = h.life / h.maxLife;
     ctx.save();
-    ctx.globalAlpha = .16 + .16 * t;
-    ctx.fillStyle = h.color;
-    ctx.beginPath(); ctx.arc(sx, sy, h.r, 0, TAU); ctx.fill();
-    ctx.globalAlpha = .35 + .3 * Math.abs(Math.sin(Game.time * 4));
-    ctx.strokeStyle = h.color; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(sx, sy, h.r, 0, TAU); ctx.stroke();
+    pxHazard(sx, sy, h.r, pxPal(h.color), (h.x | 0) + (h.y | 0) * 7,
+      .16 + .16 * t, .38 + .28 * Math.abs(Math.sin(Game.time * 4)));
     ctx.restore();
   }
 

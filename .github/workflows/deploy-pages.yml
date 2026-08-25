@@ -44,3 +44,11 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./out
+          # gh-pages 는 두 사이트가 나눠 쓴다 — 루트는 이 사이트, /game/ 은 템플러.
+          # keep_files 가 없으면 out/ 에 없는 파일을 전부 지워서 game/ 이 통째로
+          # 사라진다(실제로 그랬다). 지우지 않도록 켜 둔다.
+          #
+          # 대가: 이 사이트에서 삭제된 파일도 gh-pages 에 남는다. 정적 내보내기의
+          # 자산은 이름에 해시가 붙어 쌓여도 무해하지만, 라우트를 지웠을 때는
+          # 옛 페이지가 계속 서빙되므로 그때만 손으로 지운다.
+          keep_files: true

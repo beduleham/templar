@@ -18,7 +18,7 @@ const SIZES = [
   ['폰 세로', 390, 844], ['폰 가로', 844, 390], ['작은 폰', 360, 640],
   ['태블릿 세로', 820, 1180], ['노트북', 1440, 900], ['와이드', 2560, 1080],
 ];
-const SCREENS = ['intro', 'title', 'altar', 'levelup', 'advance', 'dead', 'paused'];
+const SCREENS = ['intro', 'title', 'altar', 'options', 'levelup', 'advance', 'dead', 'paused'];
 
 (async () => {
   const b = await chromium.launch({
@@ -71,6 +71,7 @@ const SCREENS = ['intro', 'title', 'altar', 'levelup', 'advance', 'dead', 'pause
                          Game.checkAdvance(); },
         dead:    () => { selectedClass = 0; Game.reset(); Game.time = 300; Game.kills = 9000;
                          Game.state = 'dead'; Game.endRun(); },
+        options: () => { Game.optFrom = 'intro'; Game.state = 'options'; Game.wipeArm = 2; },
         paused:  () => { selectedClass = 0; Game.reset(); Game.state = 'paused'; Game.quitArm = 2; },
       };
 

@@ -427,7 +427,7 @@ class SpatialHash {
    주워서 소지품(3칸)에 넣고 Q 로 쓴다. 언제 쓰느냐가 판단이 되도록
    즉발형과 지속형을 섞어 둔다. */
 const CONSUMABLES = {
-  bomb: { name: "화염병", icon: "💣", color: "#ff8a3c",
+  bomb: { name: "화염병", icon: "💣", px: "bomb", color: "#ff8a3c",
     desc: "주변을 크게 폭발시킨다",
     use(p) {
       spawnWave({ x: p.x, y: p.y, maxR: 420 * p.stats.area,
@@ -435,20 +435,20 @@ const CONSUMABLES = {
         color: "#ff8a3c", element: "fire" });
       cam.shake = 16; Sfx.play(120, .4, "sawtooth", 1, -60);
     } },
-  sand: { name: "시간의 모래", icon: "⏳", color: "#9ce0c0",
+  sand: { name: "시간의 모래", icon: "⏳", px: "sand", color: "#9ce0c0",
     desc: "6초간 화면의 모든 적이 느려진다",
     use(p) {
       for (const e of enemies) if (e.active) e.slow = Math.max(e.slow, 6);
       spawnWave({ x: p.x, y: p.y, maxR: 900, dmg: 0, life: .8, color: "#9ce0c0", element: "frost" });
       Sfx.play(300, .6, "sine", .8, -160);
     } },
-  fury: { name: "광란의 물약", icon: "🧪", color: "#ff6b4a",
+  fury: { name: "광란의 물약", icon: "🧪", px: "flask", color: "#ff6b4a",
     desc: "12초간 공격 속도 +60%",
     use(p) { p.buffFury = 12; Sfx.play(440, .3, "square", .8, 300); } },
-  ward: { name: "수호의 부적", icon: "🔰", color: "#8fd0ff",
+  ward: { name: "수호의 부적", icon: "🔰", px: "shield", color: "#8fd0ff",
     desc: "8초간 받는 피해 -60%",
     use(p) { p.buffWard = 8; p.iframe = Math.max(p.iframe, .5); Sfx.play(520, .35, "triangle", .8, 200); } },
-  soul: { name: "영혼석", icon: "💠", color: "#c9a3ff",
+  soul: { name: "영혼석", icon: "💠", px: "orb", color: "#c9a3ff",
     desc: "경험치를 크게 얻는다",
     use(p) {
       p.xp += p.xpNext * .55;
@@ -468,9 +468,9 @@ const lmState = new Map();     // "cx,cy" -> "done" | "fighting"
 const landmarks = [];          // 지금 근처에 있는 것만 실체화
 
 const LM_TYPES = {
-  chest:    { name: "보물 상자",   icon: "🧰", color: "#e8c96a", r: 20 },
-  shrine:   { name: "봉인된 제단", icon: "⛩️", color: "#c9a3ff", r: 26 },
-  monolith: { name: "고대 비석",   icon: "🗿", color: "#8fd0ff", r: 24 },
+  chest:    { name: "보물 상자",   icon: "🧰", px: "gem", color: "#e8c96a", r: 20 },
+  shrine:   { name: "봉인된 제단", icon: "⛩️", px: "shrine", color: "#c9a3ff", r: 26 },
+  monolith: { name: "고대 비석",   icon: "🗿", px: "stance", color: "#8fd0ff", r: 24 },
 };
 
 function updateLandmarks() {
@@ -511,23 +511,23 @@ const stActive = new Map();      // "cx,cy" -> { t, hp, max, fireT }
 
 const ST_KINDS = {
   spire: {
-    name: "빛의 첨탑", icon: "🔆", color: "#ffd36e", r: 128, dur: 22, hp: 900,
+    name: "빛의 첨탑", icon: "🔆", px: "skill", color: "#ffd36e", r: 128, dur: 22, hp: 900,
     desc: "주변의 적을 빛줄기로 꿰뚫는다",
     aura: 0,                                   // 켜면 알아서 쏜다 — 곁에 있을 필요가 없다
     range: 430, cd: .5, targets: 3,
   },
   font: {
-    name: "마나 샘", icon: "💧", color: "#7fd2ff", r: 116, dur: 26, hp: 700,
+    name: "마나 샘", icon: "💧", px: "orb", color: "#7fd2ff", r: 116, dur: 26, hp: 700,
     desc: "곁에 있으면 자원이 두 배로 찬다",
     aura: 2.3, resMul: 2,
   },
   bastion: {
-    name: "수호 성채", icon: "🛡️", color: "#c9d6ff", r: 150, dur: 24, hp: 1400,
+    name: "수호 성채", icon: "🛡️", px: "shield", color: "#c9d6ff", r: 150, dur: 24, hp: 1400,
     desc: "곁에 있으면 받는 피해가 줄고 적의 탄이 막힌다",
     aura: 2.0, armor: .5, blockShots: true,
   },
   forge: {
-    name: "전쟁 대장간", icon: "🔥", color: "#ff8a5c", r: 122, dur: 20, hp: 800,
+    name: "전쟁 대장간", icon: "🔥", px: "flame", color: "#ff8a5c", r: 122, dur: 20, hp: 800,
     desc: "곁에 있으면 피해가 오르고 쿨다운이 준다",
     aura: 2.1, dmg: 1.5, cd: .7,
   },
@@ -574,7 +574,7 @@ function activateStructure(s) {
   s.st = { t: K.dur, hp, max: hp, fireT: 0 };
   stActive.set(s.key, s.st);
   Game.lmFlash = 2.6;
-  Game.lmFlashText = K.icon + " " + K.name + " 가동 — " + K.desc;
+  Game.lmFlashText = K.name + " 가동 — " + K.desc;
   spawnFx(fxKey("boom", "holy"), s.x, s.y, s.r * 1.6, 0);
   spawnParticles(s.x, s.y, 30, K.color, 300, .9, 5);
   cam.shake = 10;
@@ -1306,7 +1306,7 @@ const COMBOS = [
    fire는 실제 발사체를 스폰하고, 지속형(오라/궤도)은 update에서 처리한다. */
 const WEAPONS = {
   dagger: {
-    name: "투척 단검", icon: "🗡️", element: "physical", desc: "가장 가까운 적에게 단검을 던진다. 관통.",
+    name: "투척 단검", icon: "🗡️", element: "physical", px: "dagger", desc: "가장 가까운 적에게 단검을 던진다. 관통.",
     cd: [1.15, 1.05, .95, .85, .74, .64, .55, .46],
     dmg: [8, 12, 17, 25, 36, 51, 71, 98],
     count: [1, 1, 2, 2, 3, 3, 4, 5],
@@ -1332,7 +1332,7 @@ const WEAPONS = {
   },
 
   aura: {
-    name: "성역", icon: "✨", element: "holy", desc: "몸 주위에 신성한 결계를 둘러 접근한 적을 태운다.",
+    name: "성역", icon: "✨", element: "holy", px: "aura", desc: "몸 주위에 신성한 결계를 둘러 접근한 적을 태운다.",
     cd: [.62, .57, .52, .47, .42, .37, .32, .27],
     dmg: [6, 9, 13, 18, 26, 36, 50, 70],
     radius: [54, 60, 68, 79, 93, 111, 134, 164],
@@ -1369,7 +1369,7 @@ const WEAPONS = {
   },
 
   whip: {
-    name: "쇠사슬 플레일", icon: "⛓️", element: "physical", desc: "바라보는 방향으로 넓게 후려친다.",
+    name: "쇠사슬 플레일", icon: "⛓️", element: "physical", px: "whip", desc: "바라보는 방향으로 넓게 후려친다.",
     cd: [1.4, 1.3, 1.2, 1.08, .96, .85, .74, .62],
     dmg: [15, 21, 30, 42, 59, 82, 114, 158],
     count: [1, 1, 2, 2, 2, 3, 3, 4],
@@ -1394,7 +1394,7 @@ const WEAPONS = {
      탄 크기 · 관통 · 발 수까지 레벨에 묶어 후반에 비약하게 만든다.
      대신 1~3레벨은 다른 무기보다 확실히 약하다 — 그게 대가다. */
   orb: {
-    name: "마법 화살", icon: "🔮", element: "frost", desc: "적을 쫓는 마력탄. 키울수록 커지고 꿰뚫는다.",
+    name: "마법 화살", icon: "🔮", element: "frost", px: "orb", desc: "적을 쫓는 마력탄. 키울수록 커지고 꿰뚫는다.",
     cd: [2.1, 1.95, 1.8, 1.6, 1.35, 1.15, .95, .78],
     dmg: [16, 22, 30, 42, 60, 86, 124, 178],
     count: [1, 1, 1, 2, 2, 3, 3, 4],
@@ -1418,7 +1418,7 @@ const WEAPONS = {
   },
 
   bolt: {
-    name: "천벌의 번개", icon: "⚡", element: "storm", desc: "무작위 적에게 번개를 내리친다. 주변에도 피해.",
+    name: "천벌의 번개", icon: "⚡", element: "storm", px: "bolt", desc: "무작위 적에게 번개를 내리친다. 주변에도 피해.",
     cd: [3.8, 3.5, 3.2, 2.85, 2.45, 2.05, 1.65, 1.3],
     dmg: [34, 46, 62, 86, 120, 170, 240, 330],
     count: [1, 1, 2, 2, 3, 4, 5, 7],
@@ -1447,7 +1447,7 @@ const WEAPONS = {
   },
 
   orbit: {
-    name: "수호 성서", icon: "📖", element: "holy", desc: "몸 주위를 도는 성서가 닿는 적을 친다.",
+    name: "수호 성서", icon: "📖", element: "holy", px: "tome", desc: "몸 주위를 도는 성서가 닿는 적을 친다.",
     cd: [0, 0, 0, 0, 0, 0, 0, 0],           // 항시 발동 (update에서 처리)
     dmg: [16, 23, 33, 47, 67, 95, 135, 192],
     count: [2, 2, 3, 4, 4, 5, 6, 8],
@@ -1500,7 +1500,7 @@ const WEAPONS = {
   },
 
   flame: {
-    name: "불꽃 파도", icon: "🔥", element: "fire", desc: "바라보는 방향으로 화염을 뿜어 화상을 입힌다.",
+    name: "불꽃 파도", icon: "🔥", element: "fire", px: "flame", desc: "바라보는 방향으로 화염을 뿜어 화상을 입힌다.",
     cd: [1.55, 1.44, 1.32, 1.2, 1.07, .95, .84, .72],
     dmg: [9, 13, 18, 25, 35, 49, 68, 95],
     count: [3, 4, 5, 6, 8, 10, 12, 15],
@@ -1524,7 +1524,7 @@ const WEAPONS = {
   },
 
   scythe: {
-    name: "피의 낫", icon: "🩸", element: "blood", desc: "사방으로 피의 파동을 퍼뜨린다. 적중 시 체력을 조금 회복.",
+    name: "피의 낫", icon: "🩸", element: "blood", px: "scythe", desc: "사방으로 피의 파동을 퍼뜨린다. 적중 시 체력을 조금 회복.",
     cd: [2.6, 2.4, 2.2, 2.0, 1.82, 1.64, 1.46, 1.28],
     dmg: [20, 28, 39, 55, 77, 108, 152, 214],
     radius: [92, 106, 124, 146, 174, 208, 250, 300],
@@ -1541,15 +1541,15 @@ const WEAPONS = {
 
 /* ---------- 패시브 정의 ---------- */
 const PASSIVES = {
-  power:   { name: "성전사의 힘", icon: "💪", desc: "모든 피해 +12%",       apply: (s, l) => s.damage *= 1 + .12 * l },
-  haste:   { name: "신속한 기도", icon: "⏱️", desc: "공격 쿨다운 -8%",      apply: (s, l) => s.cooldown *= Math.pow(.92, l) },
-  area:    { name: "확장된 신앙", icon: "🌐", desc: "공격 범위 +10%",       apply: (s, l) => s.area *= 1 + .10 * l },
-  boots:   { name: "순례자의 신발", icon: "👟", desc: "이동 속도 +10%",     apply: (s, l) => s.speed *= 1 + .10 * l },
-  armor:   { name: "성갑옷", icon: "🛡️", desc: "받는 피해 -8%",            apply: (s, l) => s.armor *= Math.pow(.92, l) },
-  vitality:{ name: "생명력", icon: "❤️", desc: "최대 체력 +20, 즉시 회복",  apply: (s, l) => s.maxHp += 20 * l },
-  regen:   { name: "재생의 축복", icon: "🌿", desc: "초당 체력 0.6 회복",   apply: (s, l) => s.regen += .6 * l },
-  magnet:  { name: "영혼 자석", icon: "🧲", desc: "경험치 획득 범위 +30%",  apply: (s, l) => s.magnet *= 1 + .30 * l },
-  greed:   { name: "탐욕", icon: "💎", desc: "경험치 획득량 +15%",          apply: (s, l) => s.xpGain *= 1 + .15 * l },
+  power:   { name: "성전사의 힘", icon: "💪", px: "power", desc: "모든 피해 +12%",       apply: (s, l) => s.damage *= 1 + .12 * l },
+  haste:   { name: "신속한 기도", icon: "⏱️", px: "clock", desc: "공격 쿨다운 -8%",      apply: (s, l) => s.cooldown *= Math.pow(.92, l) },
+  area:    { name: "확장된 신앙", icon: "🌐", px: "ring", desc: "공격 범위 +10%",       apply: (s, l) => s.area *= 1 + .10 * l },
+  boots:   { name: "순례자의 신발", icon: "👟", px: "boot", desc: "이동 속도 +10%",     apply: (s, l) => s.speed *= 1 + .10 * l },
+  armor:   { name: "성갑옷", icon: "🛡️", px: "shield", desc: "받는 피해 -8%",            apply: (s, l) => s.armor *= Math.pow(.92, l) },
+  vitality:{ name: "생명력", icon: "❤️", px: "vigor", desc: "최대 체력 +20, 즉시 회복",  apply: (s, l) => s.maxHp += 20 * l },
+  regen:   { name: "재생의 축복", icon: "🌿", px: "leaf", desc: "초당 체력 0.6 회복",   apply: (s, l) => s.regen += .6 * l },
+  magnet:  { name: "영혼 자석", icon: "🧲", px: "magnet", desc: "경험치 획득 범위 +30%",  apply: (s, l) => s.magnet *= 1 + .30 * l },
+  greed:   { name: "탐욕", icon: "💎", px: "gem", desc: "경험치 획득량 +15%",          apply: (s, l) => s.xpGain *= 1 + .15 * l },
 };
 
 /* ---------- 오브젝트 풀 ---------- */
@@ -2368,7 +2368,7 @@ function useItem() {
   const key = player.items.shift();
   const C = CONSUMABLES[key];
   C.use(player);
-  spawnNumber(player.x, player.y - 30, C.icon + " " + C.name, C.color, 18);
+  spawnNumber(player.x, player.y - 30, C.name, C.color, 18);
 }
 
 function useSkill() {
@@ -2395,7 +2395,7 @@ function procCombo(key, x, y) {
   e.count++; e.flash = .9;
   if (x !== undefined && Math.random() < .22) {
     const c = COMBOS.find(c => c.key === key);
-    if (c) spawnNumber(x, y - 34, c.icon + " " + c.name, "#ffd9a0", 15);
+    if (c) spawnNumber(x, y - 34, c.name, "#ffd9a0", 15);
   }
 }
 function resetCombos() { for (const k in comboProcs) delete comboProcs[k]; }
@@ -3483,18 +3483,18 @@ function update(dt) {
         spawnNumber(player.x, player.y - 26, "영혼 흡수!", "#9be7ff", 18);
       } else if (pk.kind === "sigil") {
         player.sigils++;
-        spawnNumber(player.x, player.y - 30, "🔯 전직의 징표!", "#ffd34d", 21);
+        spawnNumber(player.x, player.y - 30, "전직의 징표!", "#ffd34d", 21);
         Game.lmFlash = 3; Game.lmFlashText = "전직의 징표를 얻었다 (" + player.sigils + "개)";
         Game.checkAdvance();
       } else if (pk.kind.startsWith("item:")) {
         const key = pk.kind.slice(5), C = CONSUMABLES[key];
         if (player.items.length < MAX_ITEMS) {
           player.items.push(key);
-          spawnNumber(player.x, player.y - 26, C.icon + " " + C.name, C.color, 17);
+          spawnNumber(player.x, player.y - 26, C.name, C.color, 17);
         } else {
           // 소지품이 가득 차 있으면 그 자리에서 쓴다 — 주웠는데 사라지면 억울하다
           C.use(player);
-          spawnNumber(player.x, player.y - 26, C.icon + " 즉시 사용", C.color, 17);
+          spawnNumber(player.x, player.y - 26, C.name + " 즉시 사용", C.color, 17);
         }
       }
       Sfx.play(1046, .12, "sine", .8, 400);
@@ -4839,11 +4839,11 @@ function drawStructures() {
       ctx.fillStyle = K.color;
       ctx.fillRect(bx, by + 5, bw * clamp(st.t / K.dur, 0, 1), 3);
       ctx.font = "700 12px " + FONT; ctx.fillStyle = K.color;
-      ctx.fillText(K.icon + " " + K.name + "  " + Math.ceil(st.t) + "초", sx, by - 12);
+      iconText(K.px, K.name + "  " + Math.ceil(st.t) + "초", sx, by - 12, K.color, 2);
     } else {
       ctx.globalAlpha = .55 + Math.sin(Game.time * 2 + s.x * .01) * .2;
       ctx.font = "700 12px " + FONT; ctx.fillStyle = K.color;
-      ctx.fillText(K.icon + " " + K.name, sx, sy + topY - 16);
+      iconText(K.px, K.name, sx, sy + topY - 16, K.color, 2);
       ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
       ctx.fillText(K.desc + " · 다가가면 가동", sx, sy + topY - 2);
       ctx.globalAlpha = 1;
@@ -6026,10 +6026,6 @@ function advName() {
   return player.advance.length ? player.advance[player.advance.length - 1].name
                                : (player.cls ? player.cls.name : "");
 }
-function advIcon() {
-  return player.advance.length ? player.advance[player.advance.length - 1].icon
-                               : (player.cls ? player.cls.icon : "");
-}
 function advColor() {
   return player.advance.length ? player.advance[player.advance.length - 1].color
                                : (player.cls ? player.cls.color : "#fff");
@@ -6086,7 +6082,8 @@ function drawHUD() {
     if (player.advance.length) {
       ctx.textAlign = "right";
       ctx.font = "700 11px " + FONT; ctx.fillStyle = advColor();
-      ctx.fillText(advIcon() + " " + advName(), 248, 53);
+      drawMenuIcon("stance", 254, 49, advColor(), 2);
+      ctx.fillText(advName(), 268, 53);
       ctx.textAlign = "left";
     }
   }
@@ -6101,7 +6098,8 @@ function drawHUD() {
       const on = player.bulwark > .5;
       ctx.font = "700 12px " + FONT;
       ctx.fillStyle = on ? "#ffd36e" : "rgba(255,255,255,.35)";
-      ctx.fillText("🛡 방벽 " + (on ? "-" + Math.round((1 - player.dynArmor) * 100) + "%" : "대기"), 22, cy + 11);
+      drawMenuIcon("shield", 26, cy + 7, on ? "#ffd36e" : "#8a8598", 2);
+    ctx.fillText("방벽 " + (on ? "-" + Math.round((1 - player.dynArmor) * 100) + "%" : "대기"), 40, cy + 11);
       ctx.textAlign = "right";
       ctx.fillStyle = player.press > 0 ? "#ff9f6b" : "rgba(255,255,255,.3)";
       ctx.fillText("접전 ×" + player.press + "  (+" + Math.round((player.dynDmg - 1) * 100) + "%)", 248, cy + 11);
@@ -6109,7 +6107,8 @@ function drawHUD() {
       const st = Math.floor(player.channel), maxStage = 3 + traitLv("deepMana");
       ctx.font = "700 12px " + FONT;
       ctx.fillStyle = st > 0 ? "#9bb8ff" : "rgba(255,255,255,.35)";
-      ctx.fillText("✦ 영창", 22, cy + 11);
+      drawMenuIcon("skill", 26, cy + 7, "#9bb8ff", 2);
+    ctx.fillText("영창", 40, cy + 11);
       for (let i = 0; i < maxStage; i++) {
         ctx.fillStyle = i < st ? "#9bb8ff" : "rgba(255,255,255,.13)";
         ctx.beginPath(); ctx.roundRect(76 + i * 17, cy + 6, 13, 10, 3); ctx.fill();
@@ -6134,9 +6133,9 @@ function drawHUD() {
     ctx.lineWidth = fl > 0 ? 2 : 1; ctx.stroke();
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.font = "11px " + FONT;
-    ctx.fillStyle = ea.color; ctx.fillText(ea.icon, 21, cy + 12);
+    drawMenuIcon("element", 22, cy + 8, ea.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.3)"; ctx.fillText("+", 36, cy + 12);
-    ctx.fillStyle = eb.color; ctx.fillText(eb.icon, 46, cy + 12);
+    drawMenuIcon("element", 47, cy + 8, eb.color, 2);
     const done = player.mastered.has(cb.key);
     ctx.font = "700 11.5px " + FONT;
     ctx.fillStyle = done ? "#ffe9a8" : (fl > 0 ? "#fff3d0" : "#ffd9a0");
@@ -6167,9 +6166,9 @@ function drawHUD() {
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.font = "700 10px " + FONT;
     ctx.fillStyle = la >= COMBO_LEVEL ? ea.color : "rgba(255,255,255,.32)";
-    ctx.fillText(ea.icon + " " + la + "/" + COMBO_LEVEL, 21, cy + 11);
+    drawMenuIcon("element", 24, cy + 7, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, 36, cy + 11);
     ctx.fillStyle = lb >= COMBO_LEVEL ? eb.color : "rgba(255,255,255,.32)";
-    ctx.fillText(eb.icon + " " + lb + "/" + COMBO_LEVEL, 76, cy + 11);
+    drawMenuIcon("element", 79, cy + 7, eb.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, 91, cy + 11);
     ctx.textAlign = "right";
     ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
     ctx.fillText(c.name, 246, cy + 11);
@@ -6187,32 +6186,35 @@ function drawHUD() {
   // 처치 수 / 기록
   ctx.textAlign = "right"; ctx.font = "700 14px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.85)";
-  ctx.fillText("☠ " + Game.kills, W - 16, 32);
+  ctx.fillText(String(Game.kills), W - 16, 32);
+  drawMenuIcon("skull", W - 24 - ctx.measureText(String(Game.kills)).width, 31, "#e8e5da", 2);
   ctx.fillStyle = "rgba(255,255,255,.45)"; ctx.font = "600 12px " + FONT;
   ctx.fillText("최고 기록 " + fmtTime(Game.bestTime), W - 16, 50);
 
   // 보유 무기 / 패시브
   let ix = 14;
-  const drawSlot = (icon, level, tint) => {
+  /* 칸 안의 그림도 픽셀이다. 직업 특성은 68종이라 저마다 판을 뜰 수 없어
+     각성 색을 입힌 문장(紋章) 하나로 묶는다 — 이름은 레벨업 화면에서 이미 봤다. */
+  const drawSlot = (px, level, tint, col) => {
     ctx.fillStyle = "rgba(10,10,20,.66)";
     ctx.beginPath(); ctx.roundRect(ix, H - 54, 40, 40, 8); ctx.fill();
     ctx.strokeStyle = tint; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.font = "20px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff"; ctx.fillText(icon, ix + 20, H - 35);
-    ctx.font = "700 10px " + FONT; ctx.textAlign = "right";
+    drawMenuIcon(px, ix + 20, H - 37, col, 3);
+    ctx.font = "700 10px " + FONT; ctx.textAlign = "right"; ctx.textBaseline = "middle";
     ctx.fillStyle = level >= MAX_LEVEL ? "#ffd34d" : "rgba(255,255,255,.8)";
     ctx.fillText(level >= MAX_LEVEL ? "최대" : level + "렙", ix + 37, H - 20);
     ix += 46;
   };
-  for (const w of player.weapons) drawSlot(WEAPONS[w.key].icon, w.level, "rgba(255,210,120,.5)");
+  for (const w of player.weapons) {
+    const D = WEAPONS[w.key];
+    drawSlot(D.px, w.level, "rgba(255,210,120,.5)", ELEMENTS[D.element].color);
+  }
   ix += 12;
-  for (const p of player.passives) drawSlot(PASSIVES[p.key].icon, p.level, "rgba(140,200,255,.4)");
+  for (const p of player.passives) drawSlot(PASSIVES[p.key].px, p.level, "rgba(140,200,255,.4)", "#8fd0ff");
   if (player.traits.length) {
     ix += 12;
-    for (const t of player.traits) {
-      const d = traitDefByKey(t.key);
-      if (d) drawSlot(d.icon, t.level, (advColor() || "#c9a3ff") + "88");
-    }
+    for (const t of player.traits)
+      drawSlot("stance", t.level, (advColor() || "#c9a3ff") + "88", advColor() || "#c9a3ff");
   }
 
   // ── 미니맵 — 어디에 뭐가 있는지 한눈에
@@ -6362,7 +6364,7 @@ function drawHUD() {
     ctx.rotate(-ang);
     ctx.font = "700 11px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = s.K.color;
-    ctx.fillText(s.K.icon + " " + s.K.name, 0, -20);
+    iconText(s.K.px, s.K.name, 0, -20, s.K.color, 2);
     ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
     ctx.fillText(Math.round(d / 10) + "m" + (s.st ? " · 가동 중" : ""), 0, 20);
     ctx.restore();
@@ -6386,7 +6388,7 @@ function drawHUD() {
     ctx.closePath(); ctx.fill();
     ctx.rotate(-ang);
     ctx.font = "17px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(lm.T.icon, 0, -20);
+    drawMenuIcon(lm.T.px, 0, -20, lm.T.color, 3);
     ctx.font = "700 9px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
     ctx.fillText(Math.round(d / 10) + "m", 0, 18);
     ctx.restore();
@@ -6406,7 +6408,7 @@ function drawHUD() {
       ctx.lineWidth = C && i === 0 ? 2 : 1; ctx.stroke();
       if (C) {
         ctx.font = "21px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-        ctx.fillText(C.icon, bx + bw / 2, by + bw / 2);
+        drawMenuIcon(C.px, bx + bw / 2, by + bw / 2, C.color, 3);
       }
     }
     const lx = touch.seen ? 16 : W - 16;
@@ -6425,15 +6427,22 @@ function drawHUD() {
   ctx.textAlign = "right"; ctx.textBaseline = "middle";
   ctx.font = "700 14px " + FONT;
   ctx.fillStyle = player.sigils > 0 ? "#ffd34d" : "rgba(255,255,255,.28)";
-  ctx.fillText("🔯 " + player.sigils, W - 16, 68);
+  ctx.fillText(String(player.sigils), W - 16, 68);
+  drawMenuIcon("sigil", W - 24 - ctx.measureText(String(player.sigils)).width, 67, "#ffd34d", 2);
   let by2 = 90;
   if (player.buffFury > 0) {
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "#ff6b4a";
-    ctx.fillText("🧪 광란 " + player.buffFury.toFixed(1) + "초", W - 16, by2); by2 += 20;
+    { const t = "광란 " + player.buffFury.toFixed(1) + "초";
+      ctx.fillText(t, W - 16, by2);
+      drawMenuIcon("flask", W - 24 - ctx.measureText(t).width, by2 - 1, "#ff6b4a", 2); }
+    by2 += 20;
   }
   if (player.buffWard > 0) {
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "#8fd0ff";
-    ctx.fillText("🔰 수호 " + player.buffWard.toFixed(1) + "초", W - 16, by2); by2 += 20;
+    { const t = "수호 " + player.buffWard.toFixed(1) + "초";
+      ctx.fillText(t, W - 16, by2);
+      drawMenuIcon("shield", W - 24 - ctx.measureText(t).width, by2 - 1, "#8fd0ff", 2); }
+    by2 += 20;
   }
 
   // 보스 미션 — 지금 무엇을 해야 하는지 항상 보이게 둔다
@@ -6443,7 +6452,7 @@ function drawHUD() {
     ctx.globalAlpha = big ? 1 : .9;
     ctx.font = (big ? "800 26px " : "800 17px ") + FONT;
     ctx.fillStyle = "#ff9a5c";
-    ctx.fillText("❗ " + Mission.text, W / 2, big ? 150 : 82);
+    iconText("alert", Mission.text, W / 2, big ? 150 : 82, "#ff5b6b", big ? 3 : 2);
     if (Mission.sub) {
       ctx.font = (big ? "600 14px " : "600 11.5px ") + FONT;
       ctx.fillStyle = "rgba(255,255,255,.75)";
@@ -6472,7 +6481,7 @@ function drawHUD() {
     const a = .65 + Math.sin(performance.now() / 320) * .3;
     ctx.globalAlpha = a;
     ctx.font = "800 17px " + FONT; ctx.fillStyle = "#ffd34d";
-    ctx.fillText("⛩️ 전직 가능 — 전직의 징표가 필요하다", W / 2, 108);
+    iconText("shrine", "전직 가능 — 전직의 징표가 필요하다", W / 2, 108, "#c9a3ff", 2);
     ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
     ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, 128);
     ctx.globalAlpha = 1;
@@ -6500,7 +6509,7 @@ function drawHUD() {
     ctx.restore();
     ctx.globalAlpha = ready ? 1 : .4;
     ctx.font = "30px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff"; ctx.fillText(curSkill().icon, bx + bw / 2, by + 28);
+    drawMenuIcon("skill", bx + bw / 2, by + 26, C.color, 4);
     ctx.font = "700 11px " + FONT;
     ctx.fillStyle = ready ? C.resource.color : "rgba(255,255,255,.55)";
     ctx.fillText(Math.min(100, Math.floor(player.res)) + " / " + curSkill().cost, bx + bw / 2, by + 50);
@@ -6519,7 +6528,7 @@ function drawHUD() {
     ctx.globalAlpha = Math.min(1, a * 1.6);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const last = COMBOS.filter(c => (Game.comboFlashMaster ? player.mastered : player.combos).has(c.key)).slice(-1)[0];
-    const txt = last ? last.icon + " " + last.name + " — " + last.desc : "";
+    const txt = last ? last.name + " — " + last.desc : "";
     ctx.font = "600 14px " + FONT;
     const bwid = Math.max(300, ctx.measureText(txt).width + 60);
     ctx.fillStyle = "rgba(10,8,18,.82)";
@@ -6538,7 +6547,7 @@ function drawHUD() {
     ctx.globalAlpha = Math.min(1, a * 1.5);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 40px " + FONT; ctx.fillStyle = advColor();
-    ctx.fillText(advIcon() + "  " + advName(), W / 2, 132);
+    iconText("stance", advName(), W / 2, 132, advColor(), 3);
     ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
     ctx.fillText(player.advance.length >= 3 ? "★ 각성 완료 — 규칙이 바뀌었다"
                                             : "전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, 164);
@@ -6550,7 +6559,7 @@ function drawHUD() {
     ctx.globalAlpha = Math.min(1, Game.houndWarn / 2.4 * 1.8) * (.6 + Math.abs(Math.sin(Game.time * 8)) * .4);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 24px " + FONT; ctx.fillStyle = "#ff9f6b";
-    ctx.fillText("🐺 사냥개 무리가 온다 — 도망칠 수 없다", W / 2, 178);
+    iconText("wolf", "사냥개 무리가 온다 — 도망칠 수 없다", W / 2, 178, "#d8a86a", 3);
     ctx.globalAlpha = 1;
   }
 
@@ -6709,6 +6718,163 @@ const MENU_ICONS = {
         ".11111.",
         "..111..",
         "...1..."],
+  /* ── 무기 여덟 · 능력 아홉 · 소모품 다섯 · HUD 표시 ──
+     레벨업 화면은 한 판에 스물몇 번 뜨는데 그 한가운데에 52px 짜리 이모지가 떠 있었다.
+     이 게임에서 가장 오래, 가장 자주 보는 그림이 유일하게 픽셀이 아니었다. */
+  dagger: ["...2...",          // 투척 단검
+           "..122..",
+           "..112..",
+           "..112..",
+           ".00000.",
+           "...0...",
+           "..000.."],
+  aura: ["..000..",            // 성역 — 두른 결계
+         ".0...0.",
+         "0.222.0",
+         "0.212.0",
+         "0.222.0",
+         ".0...0.",
+         "..000.."],
+  whip: ["0......",            // 쇠사슬 플레일
+         ".0.....",
+         "..0....",
+         "...0...",
+         "...122.",
+         "..12221",
+         "...122."],
+  bolt: ["....22.",            // 천벌의 번개 — 지그재그라야 번개다
+         "...221.",
+         "..221..",
+         ".22222.",
+         "...122.",
+         "..122..",
+         ".12...."],
+  tome: ["0000000",            // 수호 성서
+         "0212120",
+         "0212120",
+         "0222220",
+         "0212120",
+         "0212120",
+         "0000000"],
+  flame: ["...2...",           // 불꽃 파도
+          "..222..",
+          ".22122.",
+          "2211122",
+          "2111112",
+          ".11111.",
+          "..111.."],
+  scythe: ["..2222.",          // 피의 낫 — 날은 초승달, 자루는 대각선
+           ".22..22",
+           ".2....2",
+           ".2...2.",
+           "..111..",
+           ".11....",
+           "11....."],
+  power: ["..000..",           // 성전사의 힘
+          ".02220.",
+          "0222220",
+          "0022200",
+          "..020..",
+          ".0000..",
+          "0000..."],
+  clock: ["..000..",           // 신속한 기도
+          ".02220.",
+          "0221220",
+          "0221120",
+          "0222220",
+          ".02220.",
+          "..000.."],
+  ring: ["..000..",            // 확장된 신앙
+         ".0...0.",
+         "0.....0",
+         "0.....0",
+         "0.....0",
+         ".0...0.",
+         "..000.."],
+  boot: ["..11...",            // 순례자의 신발
+         "..11...",
+         "..11...",
+         "..111..",
+         "..1112.",
+         "0111122",
+         "0000000"],
+  shield: ["0000000",          // 성갑옷 · 방벽 · 수호
+           "0222220",
+           "0221220",
+           ".02220.",
+           ".02220.",
+           "..020..",
+           "...0..."],
+  leaf: [".....22",            // 재생의 축복
+         "...2221",
+         "..22211",
+         ".222111",
+         "1221.1.",
+         "11...1.",
+         "1....1."],
+  magnet: ["00...00",          // 영혼 자석
+           "02...20",
+           "02...20",
+           "022.220",
+           "0222220",
+           ".02220.",
+           "..000.."],
+  skull: [".11111.",           // 처치 수 — 눈구멍을 비워야 해골로 읽힌다
+          "1111111",
+          "1..1..1",
+          "1..1..1",
+          "1111111",
+          ".11111.",
+          ".1.1.1."],
+  sigil: ["...0...",           // 전직의 징표 — 육각
+          ".00000.",
+          "00...00",
+          "0.....0",
+          "00...00",
+          ".00000.",
+          "...0..."],
+  flask: ["..000..",           // 광란의 물약
+          "..020..",
+          ".00200.",
+          ".02220.",
+          "0222220",
+          "0222220",
+          ".00000."],
+  alert: ["..222..",           // 미션
+          "..222..",
+          "..222..",
+          "..212..",
+          "..111..",
+          ".......",
+          "..222.."],
+  shrine: ["0000000",          // 봉인된 제단 — 문
+           ".00000.",
+           "..0.0..",
+           "0000000",
+           "..0.0..",
+           "..0.0..",
+           "..0.0.."],
+  wolf: ["11...11",            // 사냥개 무리 — 뾰족한 주둥이가 있어야 개다
+         "1111111",
+         "1..1..1",
+         "1111111",
+         ".11111.",
+         "..111..",
+         "...1..."],
+  bomb: ["....022",            // 화염병
+         "...00..",
+         "..000..",
+         ".02220.",
+         "0222220",
+         "0222220",
+         ".00000."],
+  sand: ["0000000",            // 시간의 모래
+         ".02220.",
+         "..222..",
+         "...2...",
+         "..111..",
+         ".01110.",
+         "0000000"],
   // 제단의 여섯 강화
   vigor: [".11.11.",
           "1221221",
@@ -7285,6 +7451,19 @@ function drawTitleFoot() {
   ctx.fillText(hint, W / 2, H - 26);
 }
 
+/* 「[그림] 글자」를 한 덩어리로 가운데에 놓는다.
+   이모지를 글자 사이에 끼워 넣던 자리를 대신한다 — 폭을 재서 그림 자리를 먼저 비운다. */
+function iconText(px, text, cx, y, col, cell) {
+  const g = (cell || 2) * 7, gap = 5;
+  const tw = ctx.measureText(text).width;
+  const x0 = cx - (g + gap + tw) / 2;
+  const keep = ctx.textAlign;
+  drawMenuIcon(px, x0 + g / 2, y, col, cell || 2);
+  ctx.textAlign = "left";
+  ctx.fillText(text, x0 + g + gap, y);
+  ctx.textAlign = keep;
+}
+
 /* 글자가 칸을 넘으면 글꼴을 줄인다.
    좁은 화면에서 제목이 화면 밖으로 잘려 나가는 것을 막는다 —
    자리를 넓힐 수 없을 때 줄일 수 있는 건 글자뿐이다. */
@@ -7563,7 +7742,7 @@ function drawAdvance() {
 
     ctx.textAlign = "center";
     ctx.font = "60px " + FONT; ctx.fillStyle = "#fff";
-    ctx.fillText(a.icon, x + cw / 2, y0 + 72 + oy);
+    drawMenuIcon("stance", x + cw / 2, y0 + 68 + oy, a.color, 8);
     ctx.font = "800 34px " + FONT; ctx.fillStyle = a.color;
     ctx.fillText(a.name, x + cw / 2, y0 + 132 + oy);
     ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
@@ -7581,7 +7760,7 @@ function drawAdvance() {
     ctx.beginPath(); ctx.roundRect(x + 24, sy - 26, cw - 48, 58, 10); ctx.fill();
     ctx.textAlign = "left";
     ctx.font = "26px " + FONT; ctx.fillStyle = "#fff";
-    ctx.fillText(a.skill.icon, x + 40, sy - 2);
+    drawMenuIcon("skill", x + 40, sy - 4, a.color, 4);
     ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
     ctx.fillText("새 스킬", x + 76, sy - 12);
     ctx.font = "700 15px " + FONT; ctx.fillStyle = a.color;
@@ -7596,11 +7775,12 @@ function drawAdvance() {
       ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
       ctx.fillText("새 특성", x + cw / 2, sy);
       ctx.font = "600 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.8)";
-      ctx.fillText(a.traits.map(t => t.icon + " " + t.name).join("   "), x + cw / 2, sy + 20);
+      ctx.fillText(a.traits.map(t => t.name).join("   ·   "), x + cw / 2, sy + 20);
     }
     if (a.grant) {
       ctx.font = "600 12px " + FONT; ctx.fillStyle = "#ffd36e";
-      ctx.fillText("무기 지급 · " + WEAPONS[a.grant].icon + " " + WEAPONS[a.grant].name, x + cw / 2, sy + 46);
+      iconText(WEAPONS[a.grant].px, "무기 지급 · " + WEAPONS[a.grant].name, x + cw / 2, sy + 46,
+        ELEMENTS[WEAPONS[a.grant].element].color, 2);
     }
 
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
@@ -7661,8 +7841,10 @@ function drawLevelUp() {
       hovered ? tint : "rgba(255,255,255,.12)");
     const oy = hovered ? -8 : 0;
 
-    ctx.font = "52px " + FONT; ctx.fillStyle = "#fff";
-    ctx.fillText(def.icon, x + cw / 2, y0 + 66 + oy);
+    /* 한 판에 스물몇 번 뜨는 화면의 한가운데다 — 여기가 마지막 이모지였다.
+       직업 특성은 68종이라 판을 따로 뜨지 않고 각성 색을 입힌 문장으로 묶는다. */
+    const pxKey = c.type === "heal" ? "vigor" : isT ? "stance" : def.px || "gem";
+    drawMenuIcon(pxKey, x + cw / 2, y0 + 62 + oy, tint, 8);
 
     const kind = isW ? "무기" : isT ? advName() + " 전용" : "능력";
     ctx.font = "700 12px " + FONT; ctx.fillStyle = tint;
@@ -7677,25 +7859,23 @@ function drawLevelUp() {
     }
     // 직업 특성은 자세 이름을 배지로 — 이 카드가 왜 이 직업의 것인지 보이게
     if (isT && player.cls) {
-      const label = "⚜ " + player.cls.stanceName;
       ctx.font = "700 11px " + FONT;
-      const tw = ctx.measureText(label).width + 20;
+      const tw = ctx.measureText(player.cls.stanceName).width + 34;
       ctx.fillStyle = "rgba(255,255,255,.07)";
       ctx.beginPath(); ctx.roundRect(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, 9); ctx.fill();
       ctx.fillStyle = tint;
-      ctx.fillText(label, x + cw / 2, y0 + 188 + oy);
+      iconText("stance", player.cls.stanceName, x + cw / 2, y0 + 188 + oy, tint, 2);
     }
     // 무기는 속성과 '이걸 들면 열리는 조합'을 함께 보여준다.
     // 조합이 있다는 걸 아는 것과, 지금 이 카드가 조합을 연다는 걸 아는 건 다르다.
     if (isW) {
       const E = ELEMENTS[def.element];
-      const label = E.icon + " " + E.name;
       ctx.font = "700 11px " + FONT;
-      const tw = ctx.measureText(label).width + 20;
+      const tw = ctx.measureText(E.name).width + 34;
       ctx.fillStyle = "rgba(255,255,255,.07)";
       ctx.beginPath(); ctx.roundRect(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, 9); ctx.fill();
       ctx.fillStyle = E.color;
-      ctx.fillText(label, x + cw / 2, y0 + 188 + oy);
+      iconText("element", E.name, x + cw / 2, y0 + 188 + oy, E.color, 2);
 
       // 이 카드를 고르면 열리는 조합 / 아직 모자란 조합을 함께 보여준다.
       // 조합이 최대 레벨을 요구하므로, "몇 단계 남았는지"가 보여야 강화할 마음이 생긴다.
@@ -7742,10 +7922,10 @@ function drawLevelUp() {
         const la = r.done ? COMBO_LEVEL : (cb.a === def.element ? c.level : r.la);
         const lb = r.done ? COMBO_LEVEL : (cb.b === def.element ? c.level : r.lb);
         ctx.fillStyle = ea.color;
-        ctx.fillText(ea.icon + " " + la + "/" + COMBO_LEVEL, x + 30, by + 1);
+        drawMenuIcon("element", x + 33, by - 3, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, x + 45, by + 1);
         ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", x + 78, by + 1);
         ctx.fillStyle = eb2.color;
-        ctx.fillText(eb2.icon + " " + lb + "/" + COMBO_LEVEL, x + 90, by + 1);
+        drawMenuIcon("element", x + 93, by - 3, eb2.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, x + 105, by + 1);
         ctx.font = r.done ? "800 12px " + FONT : "700 11px " + FONT;
         ctx.fillStyle = r.master ? "#ffe9a8" : r.done ? "#ffd34d" : "rgba(255,255,255,.55)";
         ctx.fillText(r.master ? "★ " + cb.name + " 완성!" : r.done ? cb.name + " 열림!" : cb.name, x + 146, by + 1);

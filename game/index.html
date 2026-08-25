@@ -113,8 +113,12 @@ const Sfx = {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = .25; this.master.connect(this.ctx.destination); }
   },
+  // 어트랙트 데모의 전투음이 메뉴에서 울리면 안 된다.
+  // setTimeout 으로 미룬 소리는 시뮬레이션이 끝난 뒤에 울리므로,
+  // '예약하는 시점'에도 이걸 봐야 한다.
+  muted() { return typeof Attract !== "undefined" && Attract.sim; },
   play(freq, dur, type = "square", vol = 1, slide = 0) {
-    if (!this.on || !this.ctx) return;
+    if (!this.on || !this.ctx || this.muted()) return;
     if (this.ctx.state === "suspended") this.ctx.resume();
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
@@ -126,6 +130,7 @@ const Sfx = {
   },
   // 같은 소리가 초당 수십 번 나지 않도록 제한
   throttled(key, ms, fn) {
+    if (this.muted()) return;           // 데모가 쿨다운을 소진해 진짜 소리를 막으면 안 된다
     const now = performance.now();
     if (this.last[key] && now - this.last[key] < ms) return;
     this.last[key] = now; fn();
@@ -134,9 +139,14 @@ const Sfx = {
   shoot()   { this.throttled("shoot", 70, () => this.play(700, .05, "triangle", .3, -300)); },
   hurt()    { this.play(150, .22, "sawtooth", .9, -90); },
   pickup()  { this.throttled("pickup", 55, () => this.play(880, .05, "sine", .35, 300)); },
-  levelup() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.play(f, .13, "triangle", .8), i * 70)); },
+  // 음을 차례로 늘어놓는다. 예약 시점에 데모면 아예 잡지 않는다.
+  arp(notes, gap, dur, type, vol) {
+    if (this.muted()) return;
+    notes.forEach((f, i) => setTimeout(() => this.play(f, dur, type, vol), i * gap));
+  },
+  levelup() { this.arp([523, 659, 784, 1046], 70, .13, "triangle", .8); },
   boss()    { this.play(70, .8, "sawtooth", 1, 40); },
-  dead()    { [400, 330, 260, 180].forEach((f, i) => setTimeout(() => this.play(f, .3, "sawtooth", .8), i * 130)); },
+  dead()    { this.arp([400, 330, 260, 180], 130, .3, "sawtooth", .8); },
 };
 
 /* ---------- 배경음악 ----------
@@ -301,6 +311,7 @@ canvas.addEventListener("touchmove", e => {
 canvas.addEventListener("touchend", e => { e.preventDefault(); touch.active = false; }, { passive: false });
 
 function inputVector() {
+  if (typeof Attract !== "undefined" && Attract.sim) return { x: Attract.bx, y: Attract.by };
   let dx = 0, dy = 0;
   if (keys.has("a") || keys.has("arrowleft"))  dx -= 1;
   if (keys.has("d") || keys.has("arrowright")) dx += 1;
@@ -2571,8 +2582,7 @@ function applyAdvance(a) {
   });
   player.iframe = Math.max(player.iframe, 1.2 + a.tier * .6);
   player.res = RES_MAX;                 // 새 스킬을 즉시 써볼 수 있게
-  [523, 659, 784, 1046, 1318, 1568].forEach((f, i) =>
-    setTimeout(() => Sfx.play(f, .2, "triangle", .95), i * 75));
+  Sfx.arp([523, 659, 784, 1046, 1318, 1568], 75, .2, "triangle", .95);
 }
 
 function addPassive(key) {
@@ -2599,6 +2609,7 @@ const Game = {
 
   // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
   endRun() {
+    if (Attract.sim) return;            // 어트랙트 데모는 기록·영혼을 남기지 않는다
     saveBest();
     this.soulsEarned = Math.floor(this.kills / 8) + Math.floor(this.time / 10) + (this.state === "won" ? 150 : 0);
     Meta.souls += this.soulsEarned;
@@ -3484,6 +3495,75 @@ function saveBest() {
   }
 }
 
+/* ---------- 어트랙트 모드 ----------
+   메뉴 뒤에서 실제 게임이 굴러간다. 시뮬레이션은 진짜와 같은 것을 쓴다 —
+   따로 만든 '데모용 가짜'는 게임이 바뀔 때마다 어긋나기 때문이다.
+
+   다만 데모가 진짜인 척하면 안 되므로 넷을 막는다.
+     1. 기록·영혼 정산   데모가 최고 기록을 갱신하면 안 된다
+     2. 소리             메뉴에서 전투음이 나면 안 된다
+     3. 화면 흔들림       메뉴가 흔들리면 글씨를 읽을 수 없다
+     4. 음악 전환         보스가 떠도 메뉴 음악이 유지돼야 한다 */
+const Attract = {
+  on: false, sim: false, life: 0, botT: 0, bx: 1, by: 0,
+
+  start() {
+    const keep = Game.state;
+    selectedClass = Math.floor(Math.random() * CLASSES.length);
+    Game.reset();                       // reset 은 끝에서 state 를 playing 으로 바꾼다
+    Game.state = keep;                  // 메뉴 상태를 곧바로 되돌린다
+    // 1레벨 빈 벌판은 데모가 안 된다. 볼거리가 있는 중반에서 시작한다.
+    Game.time = 150 + Math.random() * 190;
+    player.level = 9 + Math.floor(Math.random() * 9);
+    const keys = Object.keys(WEAPONS);
+    for (let i = 0; i < 3; i++) addWeapon(keys[Math.floor(Math.random() * keys.length)]);
+    for (const w of player.weapons) w.level = Math.min(MAX_LEVEL, 2 + Math.floor(Math.random() * 4));
+    recomputeStats();
+    player.hp = player.stats.maxHp;
+    this.on = true; this.life = 0; this.botT = 0;
+  },
+
+  stop() { this.on = false; },
+
+  /* 봇 — 여덟 방향 중 적이 가장 적은 쪽으로 흘러간다.
+     정교할 이유가 없다. 화면이 심심하지만 않으면 된다. */
+  steer() {
+    let best = 0, bestScore = -1e9;
+    for (let i = 0; i < 8; i++) {
+      const a = i / 8 * TAU;
+      const tx = player.x + Math.cos(a) * 210, ty = player.y + Math.sin(a) * 210;
+      let score = -Math.hypot(tx, ty) * .04;          // 원점에서 너무 멀어지지 않게
+      const near = hash.query(tx, ty, 190, scratch3);
+      for (let j = 0; j < near.length; j++) if (near[j].active) score -= 7;
+      if (score > bestScore) { bestScore = score; best = a; }
+    }
+    this.bx = Math.cos(best); this.by = Math.sin(best);
+  },
+
+  update(dt) {
+    this.life += dt;
+    this.botT -= dt;
+    if (this.botT <= 0) { this.botT = .45 + Math.random() * .7; this.steer(); }
+
+    const keepState = Game.state, keepShake = cam.shake, keepMode = Music.mode;
+    this.sim = true;
+    Game.state = "playing";
+    update(dt);
+    // 레벨업·전직 화면이 열리면 알아서 고른다 — 메뉴 위에 겹치면 안 된다
+    let g = 0;
+    while ((Game.state === "levelup" || Game.state === "advance") && g++ < 8)
+      Game.applyChoice(Game.choices[Math.floor(Math.random() * Game.choices.length)]);
+    const ended = Game.state === "dead" || Game.state === "won";
+    this.sim = false;
+    Game.state = keepState;
+    cam.shake = keepShake;
+    if (Music.mode !== keepMode) Music.setMode(keepMode);
+
+    // 죽었거나, 한 판이 너무 길어지면 새 판을 깐다 (직업도 바뀐다)
+    if (ended || this.life > 75) this.start();
+  },
+};
+
 /* ---------- 렌더 ---------- */
 const FONT = '"Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif';
 
@@ -3554,7 +3634,7 @@ function drawEnemy(e) {
   const T = e.type, bob = Math.sin(e.wob) * (T.shape === "ghost" ? 4 : 2);
   // 아틀라스가 로드돼 있으면 스프라이트로, 아니면 아래 도형 렌더링으로 폴백
   if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14, e.wob * .16, e.x > player.x)) {
-    if (e.boss || e.sigilKey || (e.rank && e.rank.ring)) drawEnemyHpBar(e, sx, sy);
+    if (!Attract.on && (e.boss || e.sigilKey || (e.rank && e.rank.ring))) drawEnemyHpBar(e, sx, sy);
     return;
   }
   if (e.burn > 0) {
@@ -4305,7 +4385,7 @@ function drawWorld() {
   ctx.fill();
 
   for (const e of enemies) if (e.active) drawEnemy(e);
-  drawEnemyNames();
+  if (!Attract.on) drawEnemyNames();
 
   // 지속형 무기(오라)는 플레이어 아래에 깔린다
   for (const w of player.weapons) {
@@ -4491,7 +4571,8 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  // 데미지 숫자
+  // 데미지 숫자 — 어트랙트 데모에서는 읽을 정보가 아니라 글자 노이즈다
+  if (Attract.on) { ctx.globalAlpha = 1; return; }
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.75)";
   for (const n of numbers) {
@@ -6376,66 +6457,213 @@ const inRect = (mx, my, x, y, w, h) => mx >= x && mx <= x + w && my >= y && my <
    바로 직업 선택으로 들어가면 '무슨 게임인지' 알기 전에 고르게 된다.
    여기서 이름과 규칙 한 줄, 기록, 그리고 들어갈 문 두 개(시작 / 제단)만 보여준다.
    배경은 실제 게임의 도형을 그대로 써서, 정지 화면이 아니라 세계의 한 장면이 되게 한다. */
-const introMobs = [];
-function drawIntro() {
+/* 규칙 줄의 작은 아이콘. 이모지를 쓰면 폰트라 OS 마다 다르게 뜨고,
+   무엇보다 이 게임의 다른 모든 것과 재질이 다르다. */
+function drawRuleIcon(kind, x, y) {
+  const P = PIX, R2 = (dx, dy, w, h) => pxR(x + dx * P, y + dy * P, w * P, h * P);
+  ctx.beginPath();
+  if (kind === "pad") {                       // 방향키
+    ctx.fillStyle = "#8ef0b0";
+    R2(-1, -4, 2, 2); R2(-1, 2, 2, 2); R2(-4, -1, 2, 2); R2(2, -1, 2, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(142,240,176,.35)"; ctx.beginPath(); R2(-1, -1, 2, 2); ctx.fill();
+  } else if (kind === "cards") {              // 카드 석 장
+    ctx.fillStyle = "#ffd36e";
+    for (let i = 0; i < 3; i++) R2(-4 + i * 3, -3 + (i === 1 ? -1 : 0), 2, 6);
+    ctx.fill();
+  } else if (kind === "steps") {              // 오르는 네 단계
+    ctx.fillStyle = "#c9a3ff";
+    for (let i = 0; i < 4; i++) R2(-4 + i * 2, 3 - (i + 1) * 1.6, 1.4, (i + 1) * 1.6);
+    ctx.fill();
+  } else {                                    // 해골
+    ctx.fillStyle = "#e8e5da";
+    R2(-3, -4, 6, 5); R2(-2, 1, 4, 2);
+    ctx.fill();
+    ctx.fillStyle = "#1a1a26"; ctx.beginPath();
+    R2(-2, -3, 1.6, 2); R2(.6, -3, 1.6, 2); R2(-.6, 1, 1.4, 2);
+    ctx.fill();
+  }
+}
+
+/* 메뉴의 작은 아이콘 한 벌.
+   이모지는 OS 폰트라 기기마다 다른 그림이 뜨고, 무엇보다 픽셀로 그린
+   나머지 전부와 재질이 어긋난다 — 로비만 남의 게임처럼 보인다.
+   그래서 작은 비트맵으로 직접 적어 둔다.
+   '.' 은 빈칸, 2 는 밝은 곳 · 1 은 몸통 · 0 은 어두운 곳(pxPal 과 같은 3톤). */
+const MENU_ICONS = {
+  orb: ["..000..",
+        ".02210.",
+        "0221110",
+        "0211110",
+        "0111110",
+        ".01110.",
+        "..000.."],
+  stance: ["...2...",          // 문장(紋章) — 자세
+           "..212..",
+           ".21112.",
+           "2111112",
+           "..111..",
+           ".11111.",
+           "...1..."],
+  weapon: ["...2...",          // 검 — 코등이를 폭 전체로 두면 나무처럼 보인다
+           "..121..",
+           "..121..",
+           "..121..",
+           ".00000.",
+           "...0...",
+           "..000.."],
+  element: ["...2...",         // 마름모 — 속성은 색으로 갈린다
+            "..222..",
+            ".22222.",
+            "2222222",
+            ".22222.",
+            "..222..",
+            "...2..."],
+  skill: ["...1...",           // 네 갈래 별
+          "...2...",
+          ".11211.",
+          "1222221",
+          ".11211.",
+          "...2...",
+          "...1..."],
+  gem: ["...2...",             // 전리품 — 게임 안의 보석과 같은 모양
+        "..212..",
+        ".21112.",
+        "2111112",
+        ".11111.",
+        "..111..",
+        "...1..."],
+  // 제단의 여섯 강화
+  vigor: [".11.11.",
+          "1221221",
+          "1222221",
+          "1222221",
+          ".12221.",
+          "..121..",
+          "...1..."],
+  edge: [".....22",
+         "....221",
+         "...2211",
+         "..2211.",
+         ".2211..",
+         "0011...",
+         "00....."],
+  swift: ["......2",
+          "....222",
+          "..2222.",
+          "122211.",
+          ".1111..",
+          "..11...",
+          "...1..."],
+  avarice: [".11111.",
+            "1222221",
+            "1211121",
+            "1222221",
+            ".11111.",
+            ".00000.",
+            "..000.."],
+  zeal: ["...2...",
+         "..222..",
+         ".22221.",
+         ".22211.",
+         "1222211",
+         ".00000.",
+         "...0..."],
+  rebirth: ["2.....2",
+            ".2...2.",
+            ".22.22.",
+            "..212..",
+            "..111..",
+            ".11111.",
+            "..111.."],
+};
+
+/* (x, y) 를 한가운데로 두고 그린다. cell 로 크기를 정한다.
+   글자 옆에 들어가는 자리는 cell 2 로 줄여 쓴다 — 판을 5×5 로 줄여도 봤는데
+   그 크기에서는 검도 별도 마름모도 전부 '+' 로 뭉개져 구분이 안 됐다.
+   칸이 세계의 PIX 보다 잘아지지만, 어차피 글자 옆이라 그쪽이 훨씬 잘 읽힌다. */
+function drawMenuIcon(kind, x, y, col, cell = PIX) {
+  const rows = MENU_ICONS[kind];
+  if (!rows) return false;
+  const pal = pxPal(col);                       // [밝음, 몸통, 바탕]
+  const h = rows.length, w = rows[0].length;
+  const x0 = Math.round((x - w * cell / 2) / cell) * cell;
+  const y0 = Math.round((y - h * cell / 2) / cell) * cell;
+  for (let k = 0; k < 3; k++) {
+    const ch = String(2 - k);                   // 2(밝음) → pal[0]
+    let any = false;
+    ctx.beginPath();
+    for (let r = 0; r < h; r++) for (let c = 0; c < w; c++)
+      if (rows[r][c] === ch) { ctx.rect(x0 + c * cell, y0 + r * cell, cell, cell); any = true; }
+    if (any) { ctx.fillStyle = pal[k]; ctx.fill(); }
+  }
+  return true;
+}
+
+/* 메뉴 세 화면의 공통 바탕.
+   뒤에서는 어트랙트 데모가 실제로 굴러간다 — 덮어 가리되 지우지는 않는다.
+   시작 · 직업 선택 · 제단이 같은 재질로 보이도록 한 곳에 모아 둔다. */
+function menuScrim(a) {
   Game.introT += 1 / 60;
   const t = Game.introT;
-
-  // 배경 — 어둠 속에서 실루엣이 천천히 지나간다
-  ctx.fillStyle = "#07070d";
+  ctx.fillStyle = "rgba(7,7,13," + a + ")";
   ctx.fillRect(0, 0, W, H);
-  const g0 = ctx.createRadialGradient(W / 2, H * .42, 60, W / 2, H * .42, W * .62);
-  g0.addColorStop(0, "rgba(60,44,96,.5)");
-  g0.addColorStop(1, "rgba(6,6,12,0)");
-  ctx.fillStyle = g0; ctx.fillRect(0, 0, W, H);
-
-  if (!introMobs.length)
-    for (let i = 0; i < 26; i++)
-      introMobs.push({ x: rnd(W), y: rnd(H), sp: rnd(9, 26), s: rnd(.5, 1.3),
-                       k: pick(["bat", "slime", "ghost", "zombie"]), ph: rnd(TAU) });
-  for (const m of introMobs) {
-    m.x -= m.sp / 60;
-    if (m.x < -40) { m.x = W + 40; m.y = rnd(H); }
-    const T = ENEMY_TYPES[m.k];
-    ctx.save();
-    ctx.globalAlpha = .16;
-    ctx.fillStyle = T.color;
-    const r = 13 * m.s, yy = m.y + Math.sin(t * 1.6 + m.ph) * 5;
-    ctx.beginPath(); ctx.arc(m.x, yy, r, 0, TAU); ctx.fill();
-    ctx.restore();
-  }
-  // 불티
-  for (let i = 0; i < 40; i++) {
-    const a = (i * 97.3) % 1, sp = 14 + a * 30;
-    const yy = H - ((t * sp + a * H) % (H + 60)) + 30;
-    const xx = (i * 137.5) % W + Math.sin(t * .7 + i) * 14;
-    ctx.globalAlpha = .10 + a * .2;
-    ctx.fillStyle = "#ffb35c";
-    ctx.fillRect(xx, yy, 2, 2 + a * 3);
+  // 위아래를 조금 더 눌러 글자가 앉을 자리를 만든다 (그라디언트 대신 띠로)
+  for (let i = 0; i < 10; i++) {
+    ctx.globalAlpha = .055;
+    ctx.fillStyle = "#05050a";
+    ctx.fillRect(0, i * 9, W, 9);
+    ctx.fillRect(0, H - 90 + i * 9, W, 9);
   }
   ctx.globalAlpha = 1;
+  // 불티
+  for (let i = 0; i < 40; i++) {
+    const p = (i * 97.3) % 1, sp = 14 + p * 30;
+    const yy = H - ((t * sp + p * H) % (H + 60)) + 30;
+    const xx = (i * 137.5) % W + Math.sin(t * .7 + i) * 14;
+    ctx.globalAlpha = .10 + p * .2;
+    ctx.fillStyle = "#ffb35c";
+    ctx.fillRect(xx, yy, 2, 2 + p * 3);
+  }
+  ctx.globalAlpha = 1;
+}
 
+function drawIntro() {
+  menuScrim(.52);
+  const t = Game.introT;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   // 문장(紋章) — 방패와 검
   const cx = W / 2, cy = 150;
-  const bob = Math.sin(t * 1.3) * 4;
+  /* 문장 — 방패와 십자. 베지어와 그라디언트로 그리면 이 화면만 매끈해서 뜬다.
+     방패 폭을 높이별로 구해 가로줄로 쌓는다(테두리는 한 겹 크게 깔고 그 위에 속). */
+  const bob = Math.round(Math.sin(t * 1.3) * 4 / PIX) * PIX;
+  const shieldW = (y, k) => {                     // y = -46 .. 52
+    if (y < -40) return (38 + k) * (1 - (-40 - y) / 9);   // 윗변 모서리
+    if (y <= 14) return 38 + k;
+    const u = (y - 14) / 38;
+    return (38 + k) * Math.sqrt(Math.max(0, 1 - u * u));  // 아래로 좁아져 뾰족해진다
+  };
+  const shield = (k, col) => {
+    ctx.fillStyle = col; ctx.beginPath();
+    for (let y = -49; y <= 53 + k; y += PIX) {
+      const w = shieldW(y, k);
+      if (w < PIX * .5) continue;
+      pxR(cx - w, cy + bob + y, w * 2, PIX);
+    }
+    ctx.fill();
+  };
   ctx.save();
-  ctx.translate(cx, cy + bob);
-  ctx.globalAlpha = .28 + Math.sin(t * 2) * .08;
-  ctx.fillStyle = "#ffd36e";
-  ctx.beginPath(); ctx.arc(0, 0, 62, 0, TAU); ctx.fill();
+  // 맥동하는 후광 — 방패 모서리(중심에서 68)보다 밖에 둬야 겹쳐 잘려 보이지 않는다
+  ctx.globalAlpha = .26 + Math.sin(t * 2) * .09;
+  pxRing(cx, cy + bob + 2, 76, PIX * 2, pxPal("#ffd36e"));
   ctx.globalAlpha = 1;
-  ctx.fillStyle = "#2a2438";
-  ctx.beginPath();
-  ctx.moveTo(0, -46); ctx.lineTo(38, -28); ctx.lineTo(38, 14);
-  ctx.quadraticCurveTo(0, 52, 0, 52);
-  ctx.quadraticCurveTo(0, 52, -38, 14);
-  ctx.lineTo(-38, -28); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = "#ffd36e"; ctx.lineWidth = 3; ctx.stroke();
-  ctx.strokeStyle = "#ffe9b8"; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(0, -30); ctx.lineTo(0, 30); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(-16, -12); ctx.lineTo(16, -12); ctx.stroke();
+  shield(4, "#ffd36e");                           // 테두리
+  shield(0, "#2a2438");                           // 속
+  ctx.fillStyle = "#ffe9b8"; ctx.beginPath();     // 십자
+  pxR(cx - PIX * 2, cy + bob - 30, PIX * 4, 60);
+  pxR(cx - 17, cy + bob - 14, 34, PIX * 4);
+  ctx.fill();
   ctx.restore();
 
   // 제목
@@ -6475,7 +6703,8 @@ function drawIntro() {
     hoverAltar ? "rgba(201,163,255,.2)" : "rgba(20,16,32,.9)",
     hoverAltar ? "#c9a3ff" : "rgba(201,163,255,.34)");
   ctx.font = "800 20px " + FONT; ctx.fillStyle = "#c9a3ff";
-  ctx.fillText("🔮  영혼의 제단", bx2 + bw / 2, by + 24);
+  ctx.fillText("영혼의 제단", bx2 + bw / 2 + 14, by + 24);
+  drawMenuIcon("orb", bx2 + bw / 2 - 62, by + 24, "#c9a3ff", 3);
   ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
   ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by + 43);
 
@@ -6487,16 +6716,15 @@ function drawIntro() {
 
   // 조작 · 규칙 한 줄씩
   const rows = [
-    ["🕹️", "이동만 조작한다", "WASD · 방향키 · 모바일은 드래그. 공격은 자동이다"],
-    ["⬆️", "레벨업마다 3택", "무기 6칸 · 능력 6칸 — 무엇을 포기할지가 빌드가 된다"],
-    ["⚜️", "각성 4단계", "3:00 · 6:00 · 9:00 · 12:00 — 레벨과 징표를 함께 채워야 열린다"],
-    ["☠️", "보스는 미션을 낸다", "표식을 부수기 전에는 거의 다치지 않는다"],
+    ["pad",   "이동만 조작한다", "WASD · 방향키 · 모바일은 드래그. 공격은 자동이다"],
+    ["cards", "레벨업마다 3택", "무기 6칸 · 능력 6칸 — 무엇을 포기할지가 빌드가 된다"],
+    ["steps", "각성 4단계", "3:00 · 6:00 · 9:00 · 12:00 — 레벨과 징표를 함께 채워야 열린다"],
+    ["skull", "보스는 미션을 낸다", "표식을 부수기 전에는 거의 다치지 않는다"],
   ];
   let ry = 500;
   ctx.textAlign = "left";
   for (const [ic, head, body] of rows) {
-    ctx.font = "18px " + FONT; ctx.fillStyle = "#fff";
-    ctx.fillText(ic, cx - 330, ry);
+    drawRuleIcon(ic, cx - 330, ry);
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.88)";
     ctx.fillText(head, cx - 300, ry);
     ctx.font = "500 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
@@ -6511,7 +6739,7 @@ function drawIntro() {
 }
 
 function drawTitle() {
-  ctx.fillStyle = "rgba(8,8,16,.82)"; ctx.fillRect(0, 0, W, H);
+  menuScrim(.68);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   ctx.font = "800 62px " + FONT;
@@ -6530,8 +6758,7 @@ function drawTitle() {
     aHover ? "rgba(38,28,58,.98)" : "rgba(16,14,28,.9)",
     aHover ? "#c9a3ff" : "rgba(201,163,255,.3)");
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.font = "20px " + FONT; ctx.fillStyle = "#fff";
-  ctx.fillText("🔮", abx + 16, aby + 23);
+  drawMenuIcon("orb", abx + 22, aby + 23, "#c9a3ff", 3);
   ctx.font = "700 14px " + FONT; ctx.fillStyle = "#c9a3ff";
   ctx.fillText("영혼의 제단", abx + 44, aby + 16);
   ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
@@ -6570,23 +6797,28 @@ function drawTitle() {
     ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x + 22, y0 + 124 + oy); ctx.lineTo(x + cw - 22, y0 + 124 + oy); ctx.stroke();
 
-    const row = (label, value, vy, valColor) => {
+    /* 값 앞에 붙는 그림은 이모지가 아니라 픽셀 글리프다.
+       오른쪽 정렬이라 글자 폭을 재서 그 왼쪽에 놓는다. */
+    const row = (label, value, vy, valColor, icon, iconColor) => {
       ctx.textAlign = "left";
       ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.38)";
       ctx.fillText(label, x + 22, vy);
+      ctx.font = "600 12.5px " + FONT;
+      const tw = ctx.measureText(value).width;
+      if (icon) drawMenuIcon(icon, x + cw - 26 - tw - 8, vy, iconColor || valColor || "#ffffff", 2);
       ctx.textAlign = "right";
-      ctx.font = "600 12.5px " + FONT; ctx.fillStyle = valColor || "rgba(255,255,255,.92)";
+      ctx.fillStyle = valColor || "rgba(255,255,255,.92)";
       ctx.fillText(value, x + cw - 22, vy);
     };
     const W_ = WEAPONS[c.start], E = ELEMENTS[W_.element];
     let ry = y0 + 140 + oy;
-    if (c.stance) { row("자세", "⚜ " + c.stanceName, ry, c.color); ry += 20; }
-    row("무기", W_.icon + " " + W_.name, ry); ry += 20;
-    row("속성", E.icon + " " + E.name, ry, E.color); ry += 20;
-    row("자원", c.resource.name, ry, c.resource.color); ry += 20;
-    row("스킬", c.skill.icon + " " + c.skill.name, ry); ry += 20;
+    if (c.stance) { row("자세", c.stanceName, ry, c.color, "stance"); ry += 20; }
+    row("무기", W_.name, ry, null, "weapon", "#d8d8e4"); ry += 20;
+    row("속성", E.name, ry, E.color, "element"); ry += 20;
+    row("자원", c.resource.name, ry, c.resource.color, "orb"); ry += 20;
+    row("스킬", c.skill.name, ry, null, "skill", c.color); ry += 20;
     // 직업마다 '한 마리의 무게'가 다르다는 걸 고르기 전에 보여준다
-    row("전리품", "💎 " + Math.round(c.gemChance * 100) + "%", ry, "rgba(120,230,180,.9)"); ry += 26;
+    row("전리품", Math.round(c.gemChance * 100) + "%", ry, "rgba(120,230,180,.9)", "gem", "#78e6b4"); ry += 26;
 
     // 자세와 자원이 차는 방식 — 직업의 성격이 여기서 갈린다
     ctx.textAlign = "center";
@@ -6621,11 +6853,11 @@ function drawTitle() {
     panel(cx, 616, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    ctx.fillStyle = ea.color; ctx.fillText(ea.icon, cx + 12, 633);
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 30, 633);
-    ctx.fillStyle = eb.color; ctx.fillText(eb.icon, cx + 42, 633);
+    drawMenuIcon("element", cx + 18, 633, ea.color, 2);
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 29, 636);
+    drawMenuIcon("element", cx + 46, 633, eb.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
-    ctx.fillText(cb.name, cx + 66, 633);
+    ctx.fillText(cb.name, cx + 62, 633);
     cx += chipW + chipGap;
   }
 
@@ -6646,7 +6878,7 @@ function wrapText(text, cx, y, maxW, lh) {
 }
 
 function drawAltar() {
-  ctx.fillStyle = "rgba(8,8,16,.9)"; ctx.fillRect(0, 0, W, H);
+  menuScrim(.7);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   ctx.font = "800 46px " + FONT; ctx.fillStyle = "#c9a3ff";
@@ -6655,7 +6887,9 @@ function drawAltar() {
   ctx.fillText("판이 끝나도 남는 강화. 다음 판의 시작 지점이 올라간다.", W / 2, 110);
 
   ctx.font = "800 24px " + FONT; ctx.fillStyle = "#ffd34d";
-  ctx.fillText("🔮 " + Meta.souls.toLocaleString("ko-KR") + " 영혼", W / 2, 152);
+  const soulTxt = Meta.souls.toLocaleString("ko-KR") + " 영혼";
+  ctx.fillText(soulTxt, W / 2 + 13, 152);
+  drawMenuIcon("orb", W / 2 - ctx.measureText(soulTxt).width / 2 - 2, 152, "#c9a3ff", 3);
 
   const cw = 380, ch = 132, gap = 22, cols = 3;
   const total = cols * cw + (cols - 1) * gap;
@@ -6675,9 +6909,8 @@ function drawAltar() {
       maxed ? "rgba(255,211,77,.5)" : afford ? (hovered ? "#c9a3ff" : "rgba(201,163,255,.35)") : "rgba(255,255,255,.1)");
 
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    ctx.font = "34px " + FONT; ctx.fillStyle = "#fff";
     ctx.globalAlpha = maxed || afford ? 1 : .45;
-    ctx.fillText(u.icon, x + 22, y + 44);
+    drawMenuIcon(u.key, x + 40, y + 44, maxed ? "#ffd34d" : "#c9a3ff", 4);
 
     ctx.font = "800 19px " + FONT; ctx.fillStyle = maxed ? "#ffd34d" : "#fff";
     ctx.fillText(u.name, x + 68, y + 36);
@@ -6699,7 +6932,10 @@ function drawAltar() {
     } else {
       ctx.font = "700 16px " + FONT;
       ctx.fillStyle = afford ? "#ffd34d" : "rgba(255,255,255,.3)";
-      ctx.fillText("🔮 " + cost, x + cw - 22, y + 82);
+      ctx.fillText(String(cost), x + cw - 22, y + 82);
+      ctx.globalAlpha = afford ? 1 : .4;
+      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(String(cost)).width - 9, y + 82, "#c9a3ff", 2);
+      ctx.globalAlpha = 1;
     }
 
     ctx.textAlign = "left";
@@ -7010,9 +7246,17 @@ function frame(now) {
   }
   if (Game.whiteFlash > 0) Game.whiteFlash = Math.max(0, Game.whiteFlash - dt * 1.6);
 
+  // 메뉴에서는 어트랙트 데모가, 판 중에는 진짜가 같은 고정 타임스텝으로 돈다
+  const inMenu = Game.state === "intro" || Game.state === "title" || Game.state === "altar";
+  if (inMenu) { if (!Attract.on) Attract.start(); }
+  else if (Attract.on) Attract.stop();
+
   acc += simDt;
   let guard = 0;
-  while (acc >= STEP && guard++ < 5) { update(STEP); acc -= STEP; }
+  while (acc >= STEP && guard++ < 5) {
+    if (inMenu) Attract.update(STEP); else update(STEP);
+    acc -= STEP;
+  }
 
   // 렌더
   const shx = cam.shake ? rnd(-cam.shake, cam.shake) : 0;
@@ -7020,10 +7264,12 @@ function frame(now) {
   ctx.save();
   ctx.translate(shx, shy);
   drawBackground();
-  if (Game.state !== "title" && Game.state !== "altar") drawWorld();
+  // 메뉴에서도 월드를 그린다 — 그 위를 각 메뉴가 반투명하게 덮는다
+  drawWorld();
   ctx.restore();
 
-  if (Game.state !== "title" && Game.state !== "altar") {
+  // 메뉴에서는 HUD 를 그리지 않는다. 뒤에서 데모가 굴러가도 그건 '배경'이지 내 판이 아니다.
+  if (!inMenu) {
     drawHUD();
     // 붉은 비네트.
     // 기사는 설계상 상시 피격당하므로 세기를 '남은 체력'에 연동한다 —

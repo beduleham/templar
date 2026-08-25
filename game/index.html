@@ -2601,7 +2601,7 @@ const Game = {
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
-  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0,
+  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
   showNames: true,
   lmFlash: 0, lmFlashText: "", advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
@@ -2646,7 +2646,10 @@ const Game = {
     return false;
   },
 
-  reset() {
+  /* clsIdx 를 주면 그 직업으로 판을 깐다.
+     어트랙트 데모가 전역 selectedClass 를 덮어쓰면, 타이틀에서 내가 고른 직업이
+     데모가 새 판을 깔 때마다 제멋대로 바뀐다 — 실제로 그랬다. */
+  reset(clsIdx) {
     for (const pool of [enemies, projectiles, slashes, waves, gems, pickups, particles, numbers, bolts, beams, eshots, hazards, fxs])
       for (const o of pool) o.active = false;
     fxLive = 0;
@@ -2671,7 +2674,7 @@ const Game = {
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
     this.comboFlash = 0; resetCombos(); this.slowmo = 0; this.whiteFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
-    player.cls = CLASSES[selectedClass];
+    player.cls = CLASSES[clsIdx != null ? clsIdx : selectedClass];
     recomputeStats();
     player.hp = player.stats.maxHp;
     addWeapon(player.cls.start);
@@ -2685,12 +2688,12 @@ const Game = {
     if (k === "m") { Sfx.on = !Sfx.on; Music.fade(Sfx.on ? Music.vol() : 0); return; }
     if (k === "n") { this.showNames = !this.showNames; return; }   // 몬스터 이름표
     if (this.state === "intro") {
-      if (k === "tab") { this.state = "altar"; return; }
+      if (k === "tab") { this.introFrom = "intro"; this.state = "altar"; return; }
       if (k === " " || k === "enter") { this.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
       return;
     }
     if (this.state === "title") {
-      if (k === "tab") { this.state = "altar"; return; }
+      if (k === "tab") { this.introFrom = "title"; this.state = "altar"; return; }
       if (k === "escape") { this.state = "intro"; return; }
       const i = "1234".indexOf(k);
       if (i >= 0 && CLASSES[i]) { selectedClass = i; return this.reset(); }
@@ -2700,21 +2703,36 @@ const Game = {
     if (this.state === "altar") {
       if (k === "tab" || k === "escape") { this.state = this.introFrom || "intro"; return; }
       const i = "123456".indexOf(k);
-      if (i >= 0 && ALTAR[i]) {
-        if (Meta.buy(ALTAR[i].key)) Sfx.play(880, .14, "triangle", .8, 300);
-        else Sfx.play(150, .1, "square", .35, -40);
-      }
+      if (i >= 0 && ALTAR[i]) this.buyAltar(ALTAR[i].key);
       return;
     }
-    if ((this.state === "dead" || this.state === "won") && (k === " " || k === "enter" || k === "r")) return this.reset();
+    /* 판이 끝난 뒤 갈 곳이 '다시 시작' 하나뿐이었다.
+       죽어서 영혼이 들어왔는데 제단으로 갈 길이 없어 새로고침 말고는 방법이 없었다. */
+    if (this.state === "dead" || this.state === "won") {
+      if (k === " " || k === "enter" || k === "r") return this.reset();
+      if (k === "escape") { this.state = "title"; return; }
+      if (k === "tab") { this.introFrom = "title"; this.state = "altar"; return; }
+      return;
+    }
     if (this.state === "playing" && (k === " " || k === "shift")) { useSkill(); return; }
     if (this.state === "playing" && (k === "q" || k === "e")) { useItem(); return; }
     if (this.state === "playing" && (k === "escape" || k === "p")) { this.state = "paused"; return; }
-    if (this.state === "paused" && (k === "escape" || k === "p")) { this.state = "playing"; return; }
+    if (this.state === "paused" && (k === "escape" || k === "p")) { this.state = "playing"; this.quitArm = 0; return; }
+    if (this.state === "paused" && k === "r") {
+      if (this.quitArm > 0) { this.quitArm = 0; return this.reset(); }
+      this.quitArm = 2.5; Sfx.play(300, .08, "square", .4, -60); return;
+    }
     if (this.state === "levelup" || this.state === "advance") {
       const i = "123".indexOf(k);
       if (i >= 0 && this.choices[i]) this.applyChoice(this.choices[i]);
     }
+  },
+
+  // 제단 구입 — 키와 클릭이 같은 길을 타야 연출이 어긋나지 않는다
+  buyAltar(key) {
+    if (Meta.buy(key)) { this.altarFlash = 1; Sfx.play(880, .14, "triangle", .8, 300); return true; }
+    Sfx.play(150, .1, "square", .35, -40);
+    return false;
   },
 
   /* --- 레벨업 --- */
@@ -3509,8 +3527,7 @@ const Attract = {
 
   start() {
     const keep = Game.state;
-    selectedClass = Math.floor(Math.random() * CLASSES.length);
-    Game.reset();                       // reset 은 끝에서 state 를 playing 으로 바꾼다
+    Game.reset(Math.floor(Math.random() * CLASSES.length));   // 끝에서 state 를 playing 으로 바꾼다
     Game.state = keep;                  // 메뉴 상태를 곧바로 되돌린다
     // 1레벨 빈 벌판은 데모가 안 된다. 볼거리가 있는 중반에서 시작한다.
     Game.time = 150 + Math.random() * 190;
@@ -6925,7 +6942,7 @@ function drawTitle() {
   ctx.fillText("영혼의 제단", abx + 44, aby + 16);
   ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
   ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  탭", abx + 44, aby + 33);
-  if (aHover && mouse.clicked) { Game.state = "altar"; return; }
+  if (aHover && mouse.clicked) { Game.introFrom = "title"; Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
   const cw = 268, ch = 406, gap = 18;
@@ -7060,23 +7077,79 @@ function wrapText(text, cx, y, maxW, lh) {
   if (line) ctx.fillText(line, cx, yy);
 }
 
+/* ---------- 제단 ----------
+   「영혼의 제단」이라면서 화면에 제단이 없었다. 강화 카드 여섯 장이 허공에 떠 있고
+   그 아래는 빈 판이었다. 돌 받침 · 기둥 · 대접, 그 위에 뜬 영혼 구슬을 격자로 찍는다.
+   모은 영혼도 숫자 줄이 아니라 이 구슬이 들고 있게 한다 — 그래야 장식이 아니라 물건이다. */
+function drawAltarStone(cx, floorY, lit) {
+  const t = Game.introT;
+  /* 돌색은 pxPal 에 맡기지 않는다. 자주색 계열은 밝기 판정에 걸려 세 톤이 전부
+     밝은 쪽으로 몰리고, 제단이 돌이 아니라 젖은 비누처럼 보였다. */
+  const st = ["#7a7392", "#4a4460", "#2b2540"]; // [윗면, 앞면, 그늘]
+  const bob = Math.round(Math.sin(t * 1.2) * 4 / PIX) * PIX;
+  const oy = floorY - 170 + bob;                // 구슬 중심 — 후광이 대접을 덮지 않는 높이
+
+  // 바닥 그림자
+  ctx.fillStyle = "rgba(0,0,0,.5)";
+  ctx.beginPath(); pxEllipse(cx, floorY - 3, 92, 15); ctx.fill();
+
+  /* 돌은 세 겹으로 쌓는다 — 앞면 · 윗면 · 그늘.
+     한 색으로 칠하면 계단이 아니라 사각형 더미가 된다. */
+  const slab = (w, top, h) => {
+    ctx.fillStyle = st[1]; ctx.beginPath(); pxR(cx - w, top, w * 2, h); ctx.fill();
+    ctx.fillStyle = st[0]; ctx.beginPath(); pxR(cx - w, top, w * 2, PIX); ctx.fill();
+    ctx.fillStyle = st[2]; ctx.beginPath();
+    pxR(cx - w, top + h - PIX, w * 2, PIX); pxR(cx + w - PIX, top, PIX, h); ctx.fill();
+  };
+  slab(88, floorY - 18, 18);                    // 아래 계단
+  slab(70, floorY - 33, 15);
+  slab(54, floorY - 46, 13);
+  slab(26, floorY - 112, 66);                   // 기둥
+  // 기둥에 세로 홈 — 밋밋한 기둥은 상자로 보인다
+  ctx.fillStyle = st[2]; ctx.beginPath();
+  for (let i = -1; i <= 1; i++) pxR(cx + i * 15 - PIX / 2, floorY - 106, PIX, 54);
+  ctx.fill();
+  slab(42, floorY - 126, 14);                   // 대접 받침
+  // 대접 안쪽 — 파여 있어야 무언가를 담은 것으로 읽힌다
+  ctx.fillStyle = "#241f33"; ctx.beginPath(); pxR(cx - 30, floorY - 126, 60, PIX * 2); ctx.fill();
+
+  // 구슬 — 켜지면(구입 직후) 확 밝아진다
+  const glow = .3 + Math.sin(t * 2.1) * .1 + lit * .7;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = Math.min(.85, glow);
+  pxRing(cx, oy, 40 + lit * 22, PIX * 2, pxPal("#c9a3ff"));
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  drawMenuIcon("orb", cx, oy, "#c9a3ff", 7);
+
+  /* 영혼 부스러기가 기둥을 타고 올라 구슬로 빨려 든다.
+     대접에서 구슬까지만 띄웠더니 거리가 24px 뿐이라 아무것도 안 보였다 — 기둥 전체를 쓴다. */
+  const rise = floorY - 40 - (oy + 14);
+  for (let i = 0; i < 22; i++) {
+    const a = (i * 61.7) % 1, ph = (t * (.32 + a * .3) + a) % 1;
+    const y = floorY - 40 - ph * rise;
+    ctx.globalAlpha = (ph < .12 ? ph / .12 : 1) * (1 - ph * .8) * .95;
+    ctx.fillStyle = "#d9c2ff";
+    // 오를수록 가운데로 모인다 — 구슬이 빨아들이는 것으로 읽힌다
+    ctx.fillRect(Math.round(cx + Math.sin(a * 19 + ph * 2.4) * 44 * (1 - ph * .86)),
+                 Math.round(y), PIX, PIX);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function drawAltar() {
   menuScrim(.7);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
-  ctx.font = "800 46px " + FONT; ctx.fillStyle = "#c9a3ff";
-  ctx.fillText("영혼의 제단", W / 2, 78);
-  ctx.font = "600 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
-  ctx.fillText("판이 끝나도 남는 강화. 다음 판의 시작 지점이 올라간다.", W / 2, 110);
+  ctx.font = "800 42px " + FONT; ctx.fillStyle = "#c9a3ff";
+  ctx.fillText("영혼의 제단", W / 2, 52);
+  ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+  ctx.fillText("판이 끝나도 남는 강화. 다음 판의 시작 지점이 올라간다.", W / 2, 78);
 
-  ctx.font = "800 24px " + FONT; ctx.fillStyle = "#ffd34d";
-  const soulTxt = Meta.souls.toLocaleString("ko-KR") + " 영혼";
-  ctx.fillText(soulTxt, W / 2 + 13, 152);
-  drawMenuIcon("orb", W / 2 - ctx.measureText(soulTxt).width / 2 - 2, 152, "#c9a3ff", 3);
-
-  const cw = 380, ch = 132, gap = 22, cols = 3;
+  const cw = 380, ch = 128, gap = 22, cols = 3;
   const total = cols * cw + (cols - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 240;
+  const x0 = (W - total) / 2, y0 = 104;
 
   for (let i = 0; i < ALTAR.length; i++) {
     const u = ALTAR[i];
@@ -7093,31 +7166,32 @@ function drawAltar() {
 
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.globalAlpha = maxed || afford ? 1 : .45;
-    drawMenuIcon(u.key, x + 40, y + 44, maxed ? "#ffd34d" : "#c9a3ff", 4);
+    drawMenuIcon(u.key, x + 40, y + 42, maxed ? "#ffd34d" : "#c9a3ff", 4);
 
     ctx.font = "800 19px " + FONT; ctx.fillStyle = maxed ? "#ffd34d" : "#fff";
-    ctx.fillText(u.name, x + 68, y + 36);
+    ctx.fillText(u.name, x + 68, y + 34);
     ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-    ctx.fillText(u.desc, x + 68, y + 58);
+    ctx.fillText(u.desc, x + 68, y + 56);
     ctx.globalAlpha = 1;
 
-    // 레벨 눈금
+    // 레벨 눈금 — 여기만 둥근 모서리를 쓰면 나머지 픽셀과 재질이 어긋난다
     for (let k = 0; k < u.max; k++) {
       const px = x + 68 + k * 20;
       ctx.fillStyle = k < lv ? "#c9a3ff" : "rgba(255,255,255,.13)";
-      ctx.beginPath(); ctx.roundRect(px, y + 78, 14, 8, 3); ctx.fill();
+      ctx.beginPath(); pxR(px, y + 76, 15, 9); ctx.fill();
+      if (k < lv) { ctx.fillStyle = "#efe4ff"; ctx.beginPath(); pxR(px, y + 76, 15, PIX); ctx.fill(); }
     }
 
     ctx.textAlign = "right";
     if (maxed) {
       ctx.font = "800 15px " + FONT; ctx.fillStyle = "#ffd34d";
-      ctx.fillText("최대", x + cw - 22, y + 82);
+      ctx.fillText("최대", x + cw - 22, y + 80);
     } else {
       ctx.font = "700 16px " + FONT;
       ctx.fillStyle = afford ? "#ffd34d" : "rgba(255,255,255,.3)";
-      ctx.fillText(String(cost), x + cw - 22, y + 82);
+      ctx.fillText(String(cost), x + cw - 22, y + 80);
       ctx.globalAlpha = afford ? 1 : .4;
-      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(String(cost)).width - 9, y + 82, "#c9a3ff", 2);
+      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(String(cost)).width - 9, y + 80, "#c9a3ff", 2);
       ctx.globalAlpha = 1;
     }
 
@@ -7125,15 +7199,20 @@ function drawAltar() {
     ctx.font = "700 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.28)";
     ctx.fillText("[" + (i + 1) + "]", x + 22, y + ch - 16);
 
-    if (hovered && mouse.clicked) {
-      if (Meta.buy(u.key)) Sfx.play(880, .14, "triangle", .8, 300);
-      else Sfx.play(150, .1, "square", .35, -40);
-    }
+    if (hovered && mouse.clicked) Game.buyAltar(u.key);
   }
 
-  ctx.textAlign = "center";
-  ctx.font = "700 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText("TAB / ESC 로 돌아가기", W / 2, H - 44);
+  // 제단 자체
+  drawAltarStone(W / 2, 636, Game.altarFlash);
+
+  // 모은 영혼 — 제단이 들고 있다
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "800 24px " + FONT;
+  ctx.fillStyle = Game.altarFlash > 0 ? "#fff" : "#ffd34d";
+  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼", W / 2, 668);
+
+  ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+  ctx.fillText("TAB / ESC 로 돌아가기", W / 2, 700);
 }
 
 function drawAdvance() {
@@ -7372,40 +7451,55 @@ function drawPaused() {
   ctx.fillStyle = "rgba(6,6,14,.75)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "800 46px " + FONT; ctx.fillStyle = "#fff";
-  ctx.fillText("일시정지", W / 2, H / 2 - 30);
+  ctx.fillText("일시정지", W / 2, H / 2 - 34);
   ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText("ESC 로 계속", W / 2, H / 2 + 16);
+  ctx.fillText("ESC 로 계속", W / 2, H / 2 + 10);
+  // 한 번에 판이 날아가면 안 된다 — 두 번째 R 을 받을 때만 버린다
+  if (Game.quitArm > 0) {
+    ctx.font = "700 15px " + FONT; ctx.fillStyle = "#ff9a5c";
+    ctx.fillText("한 번 더 R — 이 판을 버리고 처음부터", W / 2, H / 2 + 44);
+  } else {
+    ctx.font = "600 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
+    ctx.fillText("R  포기하고 다시 시작", W / 2, H / 2 + 44);
+  }
 }
 
 function drawEnd(win) {
   ctx.fillStyle = win ? "rgba(20,14,6,.85)" : "rgba(20,6,10,.85)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "800 58px " + FONT; ctx.fillStyle = win ? "#ffd34d" : "#ff5b6b";
-  ctx.fillText(win ? "생존 성공!" : "쓰러졌다...", W / 2, H / 2 - 96);
+  ctx.fillText(win ? "생존 성공!" : "쓰러졌다...", W / 2, H / 2 - 150);
 
   const rows = [
     ["생존 시간", fmtTime(Game.time)],
     ["처치 수", String(Game.kills)],
     ["레벨", String(player.level)],
-    ["직업", player.cls ? advIcon() + " " + advName() + (player.advance.length ? " (" + player.cls.name + ")" : "") : "-"],
+    ["직업", player.cls ? advName() + (player.advance.length ? " (" + player.cls.name + ")" : "") : "-"],
     ["누적 피해량", Math.round(Game.dmgDealt).toLocaleString("ko-KR")],
-    ["획득 영혼", "🔮 +" + Game.soulsEarned],
+    ["획득 영혼", "+" + Game.soulsEarned],
   ];
   ctx.font = "600 18px " + FONT;
   rows.forEach((r, i) => {
-    const y = H / 2 - 26 + i * 32;
+    const y = H / 2 - 66 + i * 32;
     ctx.textAlign = "right"; ctx.fillStyle = "rgba(255,255,255,.55)";
     ctx.fillText(r[0], W / 2 - 16, y);
     ctx.textAlign = "left"; ctx.fillStyle = "#fff";
     ctx.fillText(r[1], W / 2 + 16, y);
+    if (r[0] === "획득 영혼")
+      drawMenuIcon("orb", W / 2 + 24 + ctx.measureText(r[1]).width, y, "#c9a3ff", 2);
   });
 
   ctx.textAlign = "center";
   ctx.font = "700 17px " + FONT;
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
-  ctx.fillText("SPACE / R 로 다시 시작", W / 2, H / 2 + 150);
+  ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 146);
+  ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+  ctx.fillText("ESC  직업 다시 고르기   ·   TAB  영혼의 제단", W / 2, H / 2 + 176);
   ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
-  ctx.fillText("보유 영혼 " + Meta.souls.toLocaleString("ko-KR") + " — 타이틀의 제단에서 영구 강화를 살 수 있다", W / 2, H / 2 + 180);
+  ctx.textAlign = "center";
+  const have = "보유 영혼 " + Meta.souls.toLocaleString("ko-KR");
+  ctx.fillText(have, W / 2 + 12, H / 2 + 208);
+  drawMenuIcon("orb", W / 2 - ctx.measureText(have).width / 2 + 1, H / 2 + 208, "#c9a3ff", 2);
 }
 
 /* ---------- 메인 루프 ---------- */
@@ -7420,6 +7514,8 @@ function frame(now) {
   if (Game.advanceFlash > 0) Game.advanceFlash = Math.max(0, Game.advanceFlash - dt);
   if (Game.houndWarn > 0) Game.houndWarn = Math.max(0, Game.houndWarn - dt);
   if (Game.lmFlash > 0) Game.lmFlash = Math.max(0, Game.lmFlash - dt);
+  if (Game.altarFlash > 0) Game.altarFlash = Math.max(0, Game.altarFlash - dt * 1.8);
+  if (Game.quitArm > 0) Game.quitArm = Math.max(0, Game.quitArm - dt);
 
   // 전직 순간의 슬로모션 — 연출 타이머는 실시간, 시뮬레이션만 늦춘다
   let simDt = dt;

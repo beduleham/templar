@@ -32,7 +32,14 @@
    ========================================================================== */
 
 /* ---------- 설정 ---------- */
-const W = 1280, H = 720;          // 논리 해상도 (실제 크기는 CSS로 스케일)
+/* 논리 해상도. 고정이 아니라 화면 비율을 따라간다 — resize() 가 다시 잡는다.
+   예전에는 1280×720 으로 고정하고 min 스케일로 맞췄는데, 세로로 든 폰(390×844)에서는
+   390×219 짜리 띠가 됐다. 화면의 1/4 이다. */
+let W = 1280, H = 720;
+const VIEW_AREA = 1280 * 720;     // 가로 화면에서는 '보이는 넓이'를 지킨다 (넓게 보이면 그만큼 쉬워진다)
+const PORTRAIT_W = 520;           // 세로 화면의 가로 폭 — 글자가 읽히는 한계에서 잡았다
+// 좁은 화면에서는 메뉴를 다른 배치로 그린다
+const narrow = () => W < 900;
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
@@ -74,15 +81,32 @@ if (!ctx.roundRect) {
   };
 }
 
+/* 가로 화면은 넓이를 지킨다 — 16:10 이든 21:9 든 보이는 세계의 양이 같아야 공평하다.
+   세로 화면은 그럴 수 없다. 넓이를 지키면 논리 폭이 650을 넘어가고, 그러면 390px 짜리
+   폰에서 13px 글자가 7px 로 찍혀 읽히지 않는다. 그래서 폭을 먼저 정하고 높이를 늘린다 —
+   대신 세로로 들면 세계가 덜 보인다. 그건 화면 모양의 대가지 버그가 아니다. */
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const scale = Math.min(window.innerWidth / W, window.innerHeight / H);
+  const vw = Math.max(1, window.innerWidth), vh = Math.max(1, window.innerHeight);
+  const a = vw / vh;
+  if (a >= 1) {
+    const ac = clamp(a, 1.2, 2.4);
+    H = Math.round(Math.sqrt(VIEW_AREA / ac) / 2) * 2;
+    W = Math.round(H * ac / 2) * 2;
+  } else {
+    W = PORTRAIT_W;
+    H = Math.round(clamp(W / a, 700, 1240) / 2) * 2;
+  }
+  const scale = Math.min(vw / W, vh / H);
   canvas.style.width = Math.floor(W * scale) + "px";
   canvas.style.height = Math.floor(H * scale) + "px";
   canvas.width = Math.floor(W * dpr);
   canvas.height = Math.floor(H * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = true;
+  // 바닥 캐시는 화면 크기에 묶여 있다 — 크기가 바뀌면 다시 깔아야 한다
+  // (캔버스 자체는 drawBackground 가 필요한 칸 수에 맞춰 다시 잡는다)
+  floorTx = NaN; floorTy = NaN;
 }
 window.addEventListener("resize", resize);
 
@@ -277,7 +301,7 @@ const Music = {
 /* ---------- 입력 ---------- */
 const keys = new Set();
 const mouse = { x: W / 2, y: H / 2, down: false, clicked: false };
-const touch = { active: false, ox: 0, oy: 0, x: 0, y: 0 };
+const touch = { active: false, ox: 0, oy: 0, x: 0, y: 0, seen: false, press: "", pressT: 0 };
 
 addEventListener("keydown", e => {
   if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Tab"].includes(e.key)) e.preventDefault();
@@ -297,19 +321,66 @@ canvas.addEventListener("mousedown", e => { Sfx.init(); mouse.down = true; mouse
 addEventListener("mouseup", () => mouse.down = false);
 canvas.addEventListener("contextmenu", e => { e.preventDefault(); Sfx.init(); useSkill(); });
 
-// 모바일: 화면을 누른 지점 기준 가상 조이스틱
+/* ---------- 터치 조작 ----------
+   여기가 오래 비어 있었다. 터치는 가상 조이스틱(이동)만 처리했고
+   스킬은 SPACE·Shift·우클릭, 아이템은 Q·E — 전부 키보드와 마우스였다.
+   폰으로 열면 직업의 절반(직업 스킬)과 소모품이 통째로 잠겨 있었다.
+
+   그래서 화면에 버튼 두 개를 놓는다. 손가락은 여러 개니 조이스틱과 동시에 눌린다 —
+   changedTouches 를 하나만 보면 안 되고 식별자로 따로 추적해야 한다. */
+const touchBtns = () => {
+  const r = Math.max(38, Math.min(56, W * .07));
+  const m = r + 18;
+  return [
+    { key: "skill", x: W - m, y: H - m - r * 2 - 14, r, label: "스킬" },
+    { key: "item",  x: W - m - r * 2 - 14, y: H - m, r, label: "아이템" },
+  ];
+};
+let joyId = null;                         // 조이스틱을 잡고 있는 손가락
+
+function touchAt(p) {                     // 버튼 위인가
+  for (const b of touchBtns())
+    if ((p.x - b.x) ** 2 + (p.y - b.y) ** 2 < b.r * b.r * 1.35) return b;
+  return null;
+}
+
 canvas.addEventListener("touchstart", e => {
   e.preventDefault(); Sfx.init();
-  const t = e.changedTouches[0], p = canvasPos(t.clientX, t.clientY);
-  mouse.x = p.x; mouse.y = p.y; mouse.clicked = true;
-  touch.active = true; touch.ox = p.x; touch.oy = p.y; touch.x = p.x; touch.y = p.y;
+  touch.seen = true;                      // 터치 기기임이 확인된 뒤에만 버튼을 그린다
+  for (const t of e.changedTouches) {
+    const p = canvasPos(t.clientX, t.clientY);
+    if (Game.state === "playing") {
+      const b = touchAt(p);
+      if (b) {
+        if (b.key === "skill") useSkill(); else useItem();
+        touch.press = b.key; touch.pressT = .12;
+        continue;                         // 버튼을 누른 손가락은 조이스틱이 아니다
+      }
+    }
+    mouse.x = p.x; mouse.y = p.y; mouse.clicked = true;
+    if (joyId === null) {
+      joyId = t.identifier;
+      touch.active = true; touch.ox = p.x; touch.oy = p.y; touch.x = p.x; touch.y = p.y;
+    }
+  }
 }, { passive: false });
+
 canvas.addEventListener("touchmove", e => {
   e.preventDefault();
-  const t = e.changedTouches[0], p = canvasPos(t.clientX, t.clientY);
-  touch.x = p.x; touch.y = p.y;
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyId) continue;
+    const p = canvasPos(t.clientX, t.clientY);
+    touch.x = p.x; touch.y = p.y;
+  }
 }, { passive: false });
-canvas.addEventListener("touchend", e => { e.preventDefault(); touch.active = false; }, { passive: false });
+
+const endTouch = e => {
+  e.preventDefault();
+  for (const t of e.changedTouches)
+    if (t.identifier === joyId) { joyId = null; touch.active = false; }
+};
+canvas.addEventListener("touchend", endTouch, { passive: false });
+canvas.addEventListener("touchcancel", endTouch, { passive: false });
 
 function inputVector() {
   if (typeof Attract !== "undefined" && Attract.sim) return { x: Attract.bx, y: Attract.by };
@@ -6147,7 +6218,10 @@ function drawHUD() {
 
   // ── 미니맵 — 어디에 뭐가 있는지 한눈에
   {
-    const MM = 152, mx = W - MM - 16, my = H - MM - 76;
+    /* 오른쪽 아래는 터치 버튼 자리다 — 겹치면 미니맵을 누르다 스킬이 나간다.
+       터치 기기에서는 오른쪽 위로 올리고, 좁은 화면에서는 크기도 줄인다. */
+    const MM = narrow() ? 116 : 152;
+    const mx = W - MM - 16, my = touch.seen ? 86 : H - MM - 76;
     const RANGE = 2400, sc = (MM / 2 - 6) / RANGE;
     ctx.save();
     ctx.fillStyle = "rgba(8,8,16,.78)";
@@ -6322,7 +6396,8 @@ function drawHUD() {
   // 소지품 (Q 로 사용)
   {
     const bw = 40, gap = 6;
-    const bx0 = W - 16 - (bw * MAX_ITEMS + gap * (MAX_ITEMS - 1));
+    const slotW = bw * MAX_ITEMS + gap * (MAX_ITEMS - 1);
+    const bx0 = touch.seen ? 16 : W - 16 - slotW;
     for (let i = 0; i < MAX_ITEMS; i++) {
       const bx = bx0 + i * (bw + gap), by = H - 54;
       const key = player.items[i], C = key ? CONSUMABLES[key] : null;
@@ -6335,13 +6410,15 @@ function drawHUD() {
         ctx.fillText(C.icon, bx + bw / 2, by + bw / 2);
       }
     }
-    ctx.font = "600 10px " + FONT; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    const lx = touch.seen ? 16 : W - 16;
+    ctx.font = "600 10px " + FONT;
+    ctx.textAlign = touch.seen ? "left" : "right"; ctx.textBaseline = "middle";
     ctx.fillStyle = player.items.length ? "rgba(255,255,255,.6)" : "rgba(255,255,255,.25)";
-    ctx.fillText("Q 사용", W - 16, H - 66);
+    if (!touch.seen) ctx.fillText("Q 사용", lx, H - 66);
     if (player.items.length) {
       const C0 = CONSUMABLES[player.items[0]];
       ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
-      ctx.fillText(C0.name, W - 16, H - 6);
+      ctx.fillText(C0.name, lx, H - 6);
     }
   }
 
@@ -6411,8 +6488,8 @@ function drawHUD() {
     ctx.globalAlpha = 1;
   }
 
-  // 능동 스킬
-  if (player.cls) {
+  // 능동 스킬 — 터치에서는 오른쪽 아래 버튼이 같은 일을 하므로 그리지 않는다
+  if (player.cls && !touch.seen) {
     const C = player.cls, ready = player.res >= curSkill().cost;
     const bw = 62, bx = W / 2 - bw / 2, by = H - 106;
     ctx.save();
@@ -6483,8 +6560,65 @@ function drawHUD() {
     ctx.globalAlpha = clamp((8 - Game.time) / 3, 0, 1);
     ctx.textAlign = "center"; ctx.font = "600 15px " + FONT;
     ctx.fillStyle = "rgba(255,255,255,.75)";
-    ctx.fillText("WASD 이동  ·  공격은 자동  ·  SPACE 직업 스킬  ·  Q 아이템  ·  맵의 🧰⛩️🗿 을 찾아라", W / 2, H - 100);
+    const tip = touch.seen
+      ? "끌어서 이동  ·  공격은 자동  ·  오른쪽 아래 버튼으로 스킬과 아이템"
+      : "WASD 이동  ·  공격은 자동  ·  SPACE 직업 스킬  ·  Q 아이템  ·  맵의 보물을 찾아라";
+    fitFont("600", 13, tip, W - 32);
+    ctx.fillText(tip, W / 2, H - 100);
     ctx.globalAlpha = 1;
+  }
+
+  if (touch.seen && !overlay) drawTouchControls();
+}
+
+/* 터치 조작을 눈에 보이게 그린다.
+   조이스틱은 여태 '보이지 않는' 물건이었다 — 어디를 눌러야 하는지, 지금 얼마나 기울었는지
+   알 방법이 없었다. 버튼은 아예 없었다. */
+function drawTouchControls() {
+  if (touch.pressT > 0) touch.pressT = Math.max(0, touch.pressT - 1 / 60);
+
+  // 조이스틱 — 누른 자리에 테와 손잡이
+  if (touch.active) {
+    const dx = touch.x - touch.ox, dy = touch.y - touch.oy;
+    const len = Math.hypot(dx, dy), R = 56;
+    const k = len > R ? R / len : 1;
+    ctx.globalAlpha = .5;
+    pxRing(touch.ox, touch.oy, R, PIX, pxPal("#e8e5da"));
+    ctx.globalAlpha = .8;
+    ctx.fillStyle = "#e8e5da"; ctx.beginPath();
+    pxEllipse(touch.ox + dx * k, touch.oy + dy * k, 15, 15); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // 스킬 · 아이템 버튼
+  const sk = curSkill();
+  for (const b of touchBtns()) {
+    const isSkill = b.key === "skill";
+    const ready = isSkill ? (sk && player.res >= sk.cost) : player.items.length > 0;
+    const col = isSkill ? (player.cls ? player.cls.color : "#ffd36e") : "#8fd0ff";
+    const hit = touch.press === b.key && touch.pressT > 0;
+
+    ctx.globalAlpha = ready ? .92 : .4;
+    ctx.fillStyle = "rgba(10,10,20,.72)";
+    ctx.beginPath(); pxEllipse(b.x, b.y, b.r, b.r); ctx.fill();
+    pxRing(b.x, b.y, b.r, hit ? PIX * 2 : PIX, pxPal(col));
+
+    // 자원이 차는 만큼 안쪽이 찬다 — 언제 쓸 수 있는지 버튼만 봐도 알아야 한다
+    if (isSkill && sk) {
+      const f = clamp(player.res / sk.cost, 0, 1);
+      if (f > 0) {
+        ctx.globalAlpha = ready ? .34 : .22;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        pxEllipse(b.x, b.y + b.r * (1 - f), b.r * .82, b.r * .82 * f); ctx.fill();
+      }
+    }
+    ctx.globalAlpha = 1;
+    drawMenuIcon(isSkill ? "skill" : "gem", b.x, b.y - 5, ready ? col : "#6b6480", 3);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "700 10px " + FONT;
+    ctx.fillStyle = ready ? "rgba(255,255,255,.85)" : "rgba(255,255,255,.4)";
+    ctx.fillText(isSkill ? b.label : (player.items.length || "") + " " + b.label, b.x, b.y + b.r - 12);
   }
 }
 
@@ -6709,8 +6843,8 @@ function drawIntro() {
   ctx.fill();
   ctx.restore();
 
-  // 제목
-  ctx.font = "800 66px " + FONT;
+  // 제목 — 좁은 화면에서는 글꼴을 줄여 잘리지 않게
+  fitFont("800", 66, "템플러 서바이버즈", W - 40);
   ctx.fillStyle = "#ffd36e";
   ctx.fillText("템플러 서바이버즈", cx, 262);
   ctx.font = "600 15px " + FONT;
@@ -6726,12 +6860,15 @@ function drawIntro() {
   ctx.fillText("최고 기록 " + fmtTime(Game.bestTime)
     + "   ·   모은 영혼 " + Meta.souls.toLocaleString("ko-KR"), cx, 358);
 
-  // 버튼 두 개
-  const bw = 260, bh = 58, gap = 18;
-  const bx = cx - bw - gap / 2, bx2 = cx + gap / 2;
-  const by = 396;
+  /* 버튼 두 개. 나란히 놓으면 538px 이 필요해 세로 화면(520)에서 잘린다 —
+     좁으면 위아래로 쌓는다. */
+  const two = W >= 580;
+  const bw = two ? 260 : Math.min(300, W - 56), bh = 58, gap = 18;
+  const bx = two ? cx - bw - gap / 2 : cx - bw / 2;
+  const bx2 = two ? cx + gap / 2 : bx;
+  const by = 396, by2 = two ? by : by + bh + 12;
   const hoverStart = inRect(mouse.x, mouse.y, bx, by, bw, bh);
-  const hoverAltar = inRect(mouse.x, mouse.y, bx2, by, bw, bh);
+  const hoverAltar = inRect(mouse.x, mouse.y, bx2, by2, bw, bh);
 
   const pulse = .55 + Math.sin(t * 3) * .2;
   panel(bx, by, bw, bh, 12,
@@ -6742,14 +6879,14 @@ function drawIntro() {
   ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
   ctx.fillText("스페이스 또는 클릭", bx + bw / 2, by + 43);
 
-  panel(bx2, by, bw, bh, 12,
+  panel(bx2, by2, bw, bh, 12,
     hoverAltar ? "rgba(201,163,255,.2)" : "rgba(20,16,32,.9)",
     hoverAltar ? "#c9a3ff" : "rgba(201,163,255,.34)");
   ctx.font = "800 20px " + FONT; ctx.fillStyle = "#c9a3ff";
-  ctx.fillText("영혼의 제단", bx2 + bw / 2 + 14, by + 24);
-  drawMenuIcon("orb", bx2 + bw / 2 - 62, by + 24, "#c9a3ff", 3);
+  ctx.fillText("영혼의 제단", bx2 + bw / 2 + 14, by2 + 24);
+  drawMenuIcon("orb", bx2 + bw / 2 - 62, by2 + 24, "#c9a3ff", 3);
   ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
-  ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by + 43);
+  ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by2 + 43);
 
   if (mouse.clicked) {
     Sfx.init(); Music.start("menu");
@@ -6764,15 +6901,19 @@ function drawIntro() {
     ["steps", "각성 4단계", "3:00 · 6:00 · 9:00 · 12:00 — 레벨과 징표를 함께 채워야 열린다"],
     ["skull", "보스는 미션을 낸다", "표식을 부수기 전에는 거의 다치지 않는다"],
   ];
-  let ry = 500;
+  /* cx-330 으로 고정돼 있었다 — 폭이 520 이면 화면 밖이다.
+     좁으면 설명을 제목 아래로 내려 두 줄로 쓴다. */
+  const wide = W >= 800;
+  const lx = Math.max(24, cx - (wide ? 330 : W / 2 - 24));
+  let ry = wide ? 500 : by2 + bh + 34;
   ctx.textAlign = "left";
   for (const [ic, head, body] of rows) {
-    drawRuleIcon(ic, cx - 330, ry);
+    drawRuleIcon(ic, lx + 6, ry);
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.88)";
-    ctx.fillText(head, cx - 300, ry);
+    ctx.fillText(head, lx + 36, ry);
     ctx.font = "500 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
-    ctx.fillText(body, cx - 300 + 140, ry);
-    ry += 26;
+    if (wide) { ctx.fillText(body, lx + 176, ry); ry += 26; }
+    else { ry += 17; ctx.fillText(body, lx + 36, ry); ry += 26; }
   }
   ctx.textAlign = "center";
 
@@ -6947,17 +7088,22 @@ function drawTitle() {
   menuScrim(.68);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
-  ctx.font = "800 62px " + FONT;
+  /* 넓으면 제목 · 부제 · 「직업 선택」 이 세 줄로 서고 제단 버튼이 오른쪽 위에 붙는다.
+     좁으면 그 자리가 없다 — 부제를 빼고 제단 버튼을 가운데 아래로 내린다. */
+  const big = W >= 800;
+  fitFont("800", big ? 62 : 38, "템플러 서바이버즈", W - (big ? 480 : 40));
   ctx.fillStyle = "#ffd36e";
-  ctx.fillText("템플러 서바이버즈", W / 2, 96);
-  ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText("중세 판타지 오토배틀 서바이벌 · 15분을 버텨라", W / 2, 134);
-
+  ctx.fillText("템플러 서바이버즈", W / 2, big ? 96 : 40);
+  if (big) {
+    ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
+    ctx.fillText("중세 판타지 오토배틀 서바이벌 · 15분을 버텨라", W / 2, 134);
+  }
   ctx.font = "700 18px " + FONT; ctx.fillStyle = "rgba(255,255,255,.9)";
-  ctx.fillText("직업 선택", W / 2, 166);
+  ctx.fillText("직업 선택", W / 2, big ? 166 : 114);
 
   // 제단 진입 버튼
-  const abx = W - 232, aby = 28, abw = 204, abh = 46;
+  const abw = big ? 204 : Math.min(250, W - 48), abh = 46;
+  const abx = big ? W - abw - 28 : (W - abw) / 2, aby = big ? 28 : 62;
   const aHover = inRect(mouse.x, mouse.y, abx, aby, abw, abh);
   panel(abx, aby, abw, abh, 12,
     aHover ? "rgba(38,28,58,.98)" : "rgba(16,14,28,.9)",
@@ -6971,31 +7117,46 @@ function drawTitle() {
   if (aHover && mouse.clicked) { Game.introFrom = "title"; Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
-  const cw = 268, ch = 406, gap = 18;
-  const total = CLASSES.length * cw + (CLASSES.length - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 182;
+  /* 네 장을 한 줄로 놓으면 1,126px 이 필요하다. 세로 화면(520)에서는 가운데 두 장만
+     보이고 양끝이 잘려 나갔다 — 고를 수 없는 화면이었다. 좁으면 2×2 로 접는다. */
+  const cols = W >= 1180 ? 4 : W >= 620 ? 2 : 2;
+  const gap = 16;
+  const cw = Math.min(268, Math.floor((W - (cols + 1) * gap) / cols));
+  const rows = Math.ceil(CLASSES.length / cols);
+  const tall = rows === 1;
+  const ch = tall ? 406 : 392;                 // 두 줄이면 카드를 조금 낮춰 화면에 담는다
+  const total = cols * cw + (cols - 1) * gap;
+  const x0 = (W - total) / 2, y0 = tall ? 182 : 134;
+  if (y0 + rows * ch + (rows - 1) * gap > H - 40) {   // 그래도 넘치면 그릴 수 없다
+    ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
+    ctx.fillText("화면이 너무 작습니다 — 기기를 돌려 주세요", W / 2, H / 2);
+    return;
+  }
   if (!classBars) computeClassBars();
 
   for (let i = 0; i < CLASSES.length; i++) {
-    const c = CLASSES[i], x = x0 + i * (cw + gap);
-    const hovered = inRect(mouse.x, mouse.y, x, y0, cw, ch);
+    const c = CLASSES[i];
+    const x = x0 + (i % cols) * (cw + gap);
+    const yRow = y0 + Math.floor(i / cols) * (ch + gap);
+    const hovered = inRect(mouse.x, mouse.y, x, yRow, cw, ch);
     if (hovered) selectedClass = i;
     const sel = selectedClass === i;
     const oy = sel ? -6 : 0;
-    panel(x, y0 + oy, cw, ch, 16,
+    panel(x, yRow + oy, cw, ch, 16,
       sel ? "rgba(30,26,48,.97)" : "rgba(14,14,24,.9)",
       sel ? c.color : "rgba(255,255,255,.12)");
 
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 23px " + FONT; ctx.fillStyle = c.color;
-    ctx.fillText(c.name, x + cw / 2, y0 + 26 + oy);
+    ctx.fillText(c.name, x + cw / 2, yRow + 26 + oy);
     ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText(c.tagline, x + cw / 2, y0 + 46 + oy);
+    ctx.fillText(c.tagline, x + cw / 2, yRow + 46 + oy);
 
     /* 무기 무대 — 초상화 대신 이걸 놓는다.
        주인공은 무대 안에서 실제로 싸우므로 따로 세워 둘 이유가 없다.
        카드마다 위상을 어긋나게 해 네 장이 한꺼번에 번쩍이지 않게 한다. */
-    drawWeaponStage(c, x + 16, y0 + 60 + oy, cw - 32, 104,
+    const stageH = tall ? 104 : 92;
+    drawWeaponStage(c, x + 14, yRow + 58 + oy, cw - 28, stageH,
       performance.now() / 1000 + i * .47);
 
     // 무대 아래 이름표 — 무엇을 들고 있었는지
@@ -7005,16 +7166,17 @@ function drawTitle() {
     ctx.font = "600 11px " + FONT;
     const ew = ctx.measureText(" · " + E.name).width;
     let tx = x + cw / 2 - (16 + nw + ew) / 2;
-    drawMenuIcon("element", tx + 6, y0 + 180 + oy, E.color, 2);
+    const capY = yRow + 62 + stageH + 16 + oy;
+    drawMenuIcon("element", tx + 6, capY, E.color, 2);
     tx += 16;
     ctx.textAlign = "left";
     ctx.font = "700 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.92)";
-    ctx.fillText(WP.name, tx, y0 + 180 + oy);
+    ctx.fillText(WP.name, tx, capY);
     ctx.font = "600 11px " + FONT; ctx.fillStyle = E.color;
-    ctx.fillText(" · " + E.name, tx + nw, y0 + 180 + oy);
+    ctx.fillText(" · " + E.name, tx + nw, capY);
 
     // 견줌 막대
-    let by = y0 + 202 + oy;
+    let by = capY + 22;
     for (const a of CLASS_AXES) {
       ctx.textAlign = "left"; ctx.font = "700 9.5px " + FONT;
       ctx.fillStyle = "rgba(255,255,255,.4)";
@@ -7052,11 +7214,20 @@ function drawTitle() {
     // 자세가 있는 직업만 — 없는 직업은 그 자리를 비워 둔다
     if (c.stance) {
       ctx.font = "600 10.5px " + FONT; ctx.fillStyle = c.color;
-      wrapText(c.stanceHint, x + cw / 2, by + 32, cw - 34, 14);
+      wrapText(c.stanceHint, x + cw / 2, by + 32, cw - 22, 14);
     }
 
-    ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-    ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 14 + oy);
+    /* 넓으면 번호가 카드 아래에 앉는다. 좁으면 그 자리를 자세 설명에 내주고
+       번호를 이름 옆으로 올린다 — 안 그러면 세 줄짜리 설명이 카드 밖으로 넘친다. */
+    if (tall) {
+      ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+      ctx.fillText("[" + (i + 1) + "]", x + cw / 2, yRow + ch - 14 + oy);
+    } else {
+      ctx.font = "800 23px " + FONT;
+      const nw2 = ctx.measureText(c.name).width;
+      ctx.font = "700 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+      ctx.fillText("[" + (i + 1) + "]", x + cw / 2 + nw2 / 2 + 13, yRow + 28 + oy);
+    }
 
     if (hovered && mouse.clicked) { selectedClass = i; Game.reset(); }
   }
@@ -7064,32 +7235,68 @@ function drawTitle() {
   // 막대는 절대값이 아니다 — 그렇게 읽으면 '마법사는 범위가 반쪽'이 된다
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-  ctx.fillText("막대는 네 직업끼리 견준 값이다", W / 2, y0 + ch + 14);
+  /* 가로로 든 폰은 높이가 652 다 — 카드 아래에 조합 칩까지 놓을 자리가 없어
+     안내 줄과 칩이 시작 문구 위에 겹쳐 찍혔다. 자리가 없으면 참고 정보를 접는다. */
+  const gridBottom = y0 + rows * ch + (rows - 1) * gap;
+  const chipRows = Math.ceil(COMBOS.length / Math.max(1, Math.min(COMBOS.length,
+    Math.floor((W - 24 + 8) / 126))));
+  const showCombo = H - gridBottom >= 58 + chipRows * 40 + 60;
+  if (!showCombo) { ctx.textAlign = "center"; return drawTitleFoot(); }
+
+  ctx.fillText("막대는 네 직업끼리 견준 값이다", W / 2, gridBottom + 14);
 
   // 속성 조합 레시피 — 공개해야 플레이어가 '설계'를 한다
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.42)";
+  ctx.fillStyle = "rgba(255,255,255,.42)";
+  fitFont("700", 12, "서로 다른 속성의 무기를 4레벨까지 올리면 조합이 열리고, 둘 다 8레벨이면 ★완성되어 효과가 1.7배가 된다", W - 32);
   ctx.fillText("서로 다른 속성의 무기를 " + COMBO_LEVEL + "레벨까지 올리면 조합이 열리고, "
-    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, 624);
+    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, gridBottom + 40);
 
-  const chipW = 176, chipGap = 8;
-  const cTotal = COMBOS.length * chipW + (COMBOS.length - 1) * chipGap;
-  let cx = (W - cTotal) / 2;
-  for (const cb of COMBOS) {
-    panel(cx, 642, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
+  /* 여섯 개를 한 줄로 놓으면 1,096px 이다. 좁으면 여러 줄로 접는다. */
+  const chipGap = 8;
+  const perRow = Math.max(1, Math.min(COMBOS.length,
+    Math.floor((W - 24 + chipGap) / (118 + chipGap))));
+  const chipW = Math.min(176, Math.floor((W - 24 - (perRow - 1) * chipGap) / perRow));
+  const chipY = gridBottom + 58;
+  for (let i = 0; i < COMBOS.length; i++) {
+    const cb = COMBOS[i], r = Math.floor(i / perRow);
+    const inRow = Math.min(perRow, COMBOS.length - r * perRow);
+    const rowW = inRow * chipW + (inRow - 1) * chipGap;
+    const cx = (W - rowW) / 2 + (i % perRow) * (chipW + chipGap);
+    const cy = chipY + r * 40;
+    panel(cx, cy, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    drawMenuIcon("element", cx + 18, 659, ea.color, 2);
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 29, 662);
-    drawMenuIcon("element", cx + 46, 659, eb.color, 2);
+    drawMenuIcon("element", cx + 16, cy + 17, ea.color, 2);
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 27, cy + 20);
+    drawMenuIcon("element", cx + 44, cy + 17, eb.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
-    ctx.fillText(cb.name, cx + 62, 659);
-    cx += chipW + chipGap;
+    ctx.fillText(cb.name, cx + 58, cy + 17);
   }
 
-  ctx.font = "700 17px " + FONT;
+  drawTitleFoot();
+}
+
+function drawTitleFoot() {
+  const hint = narrow() ? "탭 하면 시작  ·  M 음소거"
+    : "스페이스 또는 클릭으로 시작   ·   스페이스 직업 스킬   ·   M 음소거   ·   N 이름표";
+  fitFont("700", 17, hint, W - 40);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
-  ctx.fillText("스페이스 또는 클릭으로 시작   ·   스페이스 직업 스킬   ·   M 음소거   ·   N 이름표", W / 2, H - 30);
+  ctx.fillText(hint, W / 2, H - 26);
+}
+
+/* 글자가 칸을 넘으면 글꼴을 줄인다.
+   좁은 화면에서 제목이 화면 밖으로 잘려 나가는 것을 막는다 —
+   자리를 넓힐 수 없을 때 줄일 수 있는 건 글자뿐이다. */
+function fitFont(weight, size, text, maxW) {
+  let px = size;
+  for (let i = 0; i < 12; i++) {
+    ctx.font = weight + " " + px.toFixed(1) + "px " + FONT;
+    if (ctx.measureText(text).width <= maxW) break;
+    px *= .92;
+  }
+  return px;
 }
 
 function wrapText(text, cx, y, maxW, lh) {
@@ -7107,37 +7314,41 @@ function wrapText(text, cx, y, maxW, lh) {
    「영혼의 제단」이라면서 화면에 제단이 없었다. 강화 카드 여섯 장이 허공에 떠 있고
    그 아래는 빈 판이었다. 돌 받침 · 기둥 · 대접, 그 위에 뜬 영혼 구슬을 격자로 찍는다.
    모은 영혼도 숫자 줄이 아니라 이 구슬이 들고 있게 한다 — 그래야 장식이 아니라 물건이다. */
-function drawAltarStone(cx, floorY, lit, hoard) {
+/* k 는 배율. 세로 화면에서는 카드 여섯 장을 한 줄로 세우느라 제단에 줄 높이가 줄어든다 —
+   빼 버리는 대신 작게 세운다. */
+function drawAltarStone(cx, floorY, lit, hoard, k) {
+  k = k || 1;
   const t = Game.introT;
   /* 돌색은 pxPal 에 맡기지 않는다. 자주색 계열은 밝기 판정에 걸려 세 톤이 전부
      밝은 쪽으로 몰리고, 제단이 돌이 아니라 젖은 비누처럼 보였다. */
   const st = ["#7a7392", "#4a4460", "#2b2540"]; // [윗면, 앞면, 그늘]
   const bob = Math.round(Math.sin(t * 1.2) * 4 / PIX) * PIX;
-  const oy = floorY - 170 + bob;                // 구슬 중심 — 후광이 대접을 덮지 않는 높이
+  const oy = floorY - 170 * k + bob;                // 구슬 중심 — 후광이 대접을 덮지 않는 높이
 
   // 바닥 그림자
   ctx.fillStyle = "rgba(0,0,0,.5)";
-  ctx.beginPath(); pxEllipse(cx, floorY - 3, 92, 15); ctx.fill();
+  ctx.beginPath(); pxEllipse(cx, floorY - 3, 92 * k, 15 * k); ctx.fill();
 
   /* 돌은 세 겹으로 쌓는다 — 앞면 · 윗면 · 그늘.
      한 색으로 칠하면 계단이 아니라 사각형 더미가 된다. */
-  const slab = (w, top, h) => {
+  const slab = (w0, top, h0) => {
+    const w = w0 * k, h = Math.max(PIX * 2, h0 * k);
     ctx.fillStyle = st[1]; ctx.beginPath(); pxR(cx - w, top, w * 2, h); ctx.fill();
     ctx.fillStyle = st[0]; ctx.beginPath(); pxR(cx - w, top, w * 2, PIX); ctx.fill();
     ctx.fillStyle = st[2]; ctx.beginPath();
     pxR(cx - w, top + h - PIX, w * 2, PIX); pxR(cx + w - PIX, top, PIX, h); ctx.fill();
   };
-  slab(88, floorY - 18, 18);                    // 아래 계단
-  slab(70, floorY - 33, 15);
-  slab(54, floorY - 46, 13);
-  slab(26, floorY - 112, 66);                   // 기둥
+  slab(88, floorY - 18 * k, 18);                    // 아래 계단
+  slab(70, floorY - 33 * k, 15);
+  slab(54, floorY - 46 * k, 13);
+  slab(26, floorY - 112 * k, 66);                   // 기둥
   // 기둥에 세로 홈 — 밋밋한 기둥은 상자로 보인다
   ctx.fillStyle = st[2]; ctx.beginPath();
-  for (let i = -1; i <= 1; i++) pxR(cx + i * 15 - PIX / 2, floorY - 106, PIX, 54);
+  for (let i = -1; i <= 1; i++) pxR(cx + i * 15 * k - PIX / 2, floorY - 106 * k, PIX, 54 * k);
   ctx.fill();
-  slab(42, floorY - 126, 14);                   // 대접 받침
+  slab(42, floorY - 126 * k, 14);                   // 대접 받침
   // 대접 안쪽 — 파여 있어야 무언가를 담은 것으로 읽힌다
-  ctx.fillStyle = "#241f33"; ctx.beginPath(); pxR(cx - 30, floorY - 126, 60, PIX * 2); ctx.fill();
+  ctx.fillStyle = "#241f33"; ctx.beginPath(); pxR(cx - 30 * k, floorY - 126 * k, 60 * k, PIX * 2); ctx.fill();
 
   // 구슬 — 켜지면(구입 직후) 확 밝아진다
   const glow = .3 + Math.sin(t * 2.1) * .1 + lit * .7;
@@ -7146,21 +7357,21 @@ function drawAltarStone(cx, floorY, lit, hoard) {
   ctx.globalAlpha = Math.min(.85, glow);
   // 곳간이 찰수록 구슬이 자란다 — 숫자를 안 읽어도 얼마나 모았는지 보인다
   const h = hoard || 0;
-  pxRing(cx, oy, 30 + h * 16 + lit * 22, PIX * 2, pxPal("#c9a3ff"));
+  pxRing(cx, oy, (30 + h * 16 + lit * 22) * k, PIX * 2, pxPal("#c9a3ff"));
   ctx.globalAlpha = 1;
   ctx.restore();
-  drawMenuIcon("orb", cx, oy, "#c9a3ff", 4 + Math.round(h * 4));
+  drawMenuIcon("orb", cx, oy, "#c9a3ff", Math.max(3, Math.round((4 + h * 4) * k)));
 
   /* 영혼 부스러기가 기둥을 타고 올라 구슬로 빨려 든다.
      대접에서 구슬까지만 띄웠더니 거리가 24px 뿐이라 아무것도 안 보였다 — 기둥 전체를 쓴다. */
-  const rise = floorY - 40 - (oy + 14);
+  const rise = floorY - 40 * k - (oy + 14);
   for (let i = 0; i < 22; i++) {
     const a = (i * 61.7) % 1, ph = (t * (.32 + a * .3) + a) % 1;
-    const y = floorY - 40 - ph * rise;
+    const y = floorY - 40 * k - ph * rise;
     ctx.globalAlpha = (ph < .12 ? ph / .12 : 1) * (1 - ph * .8) * .95;
     ctx.fillStyle = "#d9c2ff";
     // 오를수록 가운데로 모인다 — 구슬이 빨아들이는 것으로 읽힌다
-    ctx.fillRect(Math.round(cx + Math.sin(a * 19 + ph * 2.4) * 44 * (1 - ph * .86)),
+    ctx.fillRect(Math.round(cx + Math.sin(a * 19 + ph * 2.4) * 44 * k * (1 - ph * .86)),
                  Math.round(y), PIX, PIX);
   }
   ctx.globalAlpha = 1;
@@ -7170,23 +7381,43 @@ function drawAltar() {
   menuScrim(.7);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
-  ctx.font = "800 42px " + FONT; ctx.fillStyle = "#c9a3ff";
-  ctx.fillText("영혼의 제단", W / 2, 52);
-  ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-  ctx.fillText("판이 끝나도 남는 강화. 다음 판의 시작 지점이 올라간다.", W / 2, 78);
+  fitFont("800", 42, "영혼의 제단", W - 40);
+  ctx.fillStyle = "#c9a3ff";
+  ctx.fillText("영혼의 제단", W / 2, narrow() ? 30 : 52);
+  if (!narrow()) {
+    ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillText("판이 끝나도 남는 강화. 다음 판의 시작 지점이 올라간다.", W / 2, 78);
+  }
 
-  const cw = 380, ch = 128, gap = 22, cols = 3;
+  /* 세 줄로 놓으면 1,184px 이 필요하다 — 세로 화면(520)에서는 가운데 한 줄만 보이고
+     양옆 네 장이 통째로 잘렸다. 좁으면 한 줄로 세우고 카드를 낮춘다. */
+  const cols = W >= 1180 ? 3 : W >= 800 ? 2 : 1;
+  const gap = cols === 1 ? 14 : 22;
+  const cw = Math.min(380, Math.floor((W - (cols + 1) * 24) / cols));
+  const ch = cols === 1 ? 112 : 128;
+  const rows = Math.ceil(ALTAR.length / cols);
   const total = cols * cw + (cols - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 104;
+  const x0 = (W - total) / 2, y0 = cols === 1 ? 84 : 104;
+
+  /* 제단(돌 + 영혼 수 + 안내)이 아래를 차지하고 남는 만큼이 격자 자리다.
+     820×1180 태블릿을 세로로 들면 논리 520×748 이라 여섯 장이 그대로는 안 들어간다 —
+     레벨업 화면과 같은 방식으로 통째로 줄인다. */
+  const stoneK = cols === 1 ? .62 : 1;
+  const footY = H - 26, soulY = footY - 30, stoneFloor = soulY - 34;
+  const gridTop = y0, gridNeed = rows * ch + (rows - 1) * gap;
+  const gk = Math.min(1, (stoneFloor - 200 * stoneK - 12 - gridTop) / gridNeed);
+  const amx = (mouse.x - W / 2) / gk + W / 2, amy = (mouse.y - gridTop) / gk + gridTop;
+  ctx.save();
+  if (gk < 1) { ctx.translate(W / 2, gridTop); ctx.scale(gk, gk); ctx.translate(-W / 2, -gridTop); }
 
   for (let i = 0; i < ALTAR.length; i++) {
     const u = ALTAR[i];
-    const col = i % cols, rowi = Math.floor(i / cols);
-    const x = x0 + col * (cw + gap), y = y0 + rowi * (ch + gap);
+    const x = x0 + (i % cols) * (cw + gap);
+    const y = y0 + Math.floor(i / cols) * (ch + gap);
     const lv = Meta.lv(u.key), maxed = lv >= u.max;
     const cost = Meta.costOf(u);
     const afford = !maxed && Meta.souls >= cost;
-    const hovered = inRect(mouse.x, mouse.y, x, y, cw, ch);
+    const hovered = inRect(amx, amy, x, y, cw, ch);
 
     panel(x, y, cw, ch, 14,
       hovered && afford ? "rgba(34,28,52,.98)" : "rgba(14,14,24,.92)",
@@ -7243,9 +7474,9 @@ function drawAltar() {
     } else {
       ctx.font = "700 16px " + FONT;
       ctx.fillStyle = afford ? "#ffd34d" : "rgba(255,255,255,.3)";
-      ctx.fillText(cost.toLocaleString("ko-KR"), x + cw - 22, y + 74);
+      ctx.fillText(cost.toLocaleString("ko-KR"), x + cw - 22, y + (ch < 120 ? 70 : 74));
       ctx.globalAlpha = afford ? 1 : .4;
-      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(cost.toLocaleString("ko-KR")).width - 9, y + 74, "#c9a3ff", 2);
+      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(cost.toLocaleString("ko-KR")).width - 9, y + (ch < 120 ? 70 : 74), "#c9a3ff", 2);
       ctx.globalAlpha = 1;
     }
 
@@ -7261,7 +7492,8 @@ function drawAltar() {
       ctx.beginPath(); pxR(bx, y + ch - 22, Math.max(PIX, bw * p), 6); ctx.fill();
       ctx.fillStyle = pal[1];
       ctx.beginPath(); pxR(bx, y + ch - 22, Math.max(PIX, bw * p), PIX); ctx.fill();
-      if (!afford) {
+      // 낮은 카드에서는 값과 겹친다 — 막대가 이미 같은 것을 보여주므로 글자는 생략한다
+      if (!afford && ch >= 120) {
         ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.34)";
         ctx.textAlign = "right";
         ctx.fillText((cost - Meta.souls).toLocaleString("ko-KR") + " 더", x + cw - 22, y + ch - 34);
@@ -7271,19 +7503,22 @@ function drawAltar() {
 
     if (hovered && mouse.clicked) Game.buyAltar(u.key);
   }
+  ctx.restore();
 
   // 제단 자체 — 구슬이 곧 곳간이라 모을수록 커진다
-  drawAltarStone(W / 2, 636, Game.altarFlash, Math.min(1, Meta.souls / 4000));
+  drawAltarStone(W / 2, stoneFloor, Game.altarFlash, Math.min(1, Meta.souls / 4000), stoneK);
 
   // 모은 영혼 — 제단이 들고 있다
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "800 24px " + FONT;
   ctx.fillStyle = Game.altarFlash > 0 ? "#fff" : "#ffd34d";
-  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼", W / 2, 668);
+  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼", W / 2, soulY);
 
-  ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
   const last = Game.lastEarned > 0 ? "지난 판 +" + Game.lastEarned.toLocaleString("ko-KR") + "   ·   " : "";
-  ctx.fillText(last + "TAB / ESC 로 돌아가기", W / 2, 698);
+  const foot = last + (narrow() ? "탭 하면 돌아가기" : "TAB / ESC 로 돌아가기");
+  fitFont("700", 12, foot, W - 32);
+  ctx.fillStyle = "rgba(255,255,255,.4)";
+  ctx.fillText(foot, W / 2, footY);
 }
 
 function drawAdvance() {
@@ -7291,25 +7526,37 @@ function drawAdvance() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   const tier = player.advance.length + 1;
-  ctx.font = "800 52px " + FONT;
+  const ttl = tier === 3 ? "★ 3차 각성 ★" : tier + "차 전직";
+  fitFont("800", 52, ttl, W - 40);
   ctx.fillStyle = tier === 3 ? "#ff8ad8" : "#ffd34d";
-  ctx.fillText(tier === 3 ? "★ 3차 각성 ★" : tier + "차 전직", W / 2, 78);
-  ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.62)";
-  ctx.fillText(tier === 3
+  ctx.fillText(ttl, W / 2, narrow() ? 60 : 78);
+  const sub = tier === 3
     ? advName() + " · 마지막 각성 — 규칙 자체가 바뀝니다"
-    : advName() + " · 앞으로 무엇이 될지 고르세요 — 스킬과 특성이 통째로 바뀝니다", W / 2, 112);
+    : advName() + " · 앞으로 무엇이 될지 고르세요 — 스킬과 특성이 통째로 바뀝니다";
+  fitFont("600", 15, sub, W - 32);
+  ctx.fillStyle = "rgba(255,255,255,.62)";
+  ctx.fillText(sub, W / 2, narrow() ? 92 : 112);
 
   const n = Game.choices.length;
   // 3차 각성 카드는 특성·지급무기가 없어 아래가 비므로 높이를 줄인다
   const hasExtra = Game.choices.some(a => (a.traits && a.traits.length) || a.grant);
-  const cw = 400, ch = hasExtra ? 470 : 372, gap = 30;
+  /* 레벨업 화면과 같은 문제 — 카드 셋이면 1,260px 이다. 좁으면 세로로 쌓고 한 번 줄인다. */
+  const stack = narrow();
+  const cw = 400, ch = hasExtra ? 470 : 372, gap = stack ? 14 : 30;
   const total = n * cw + (n - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 150;
+  const x0 = (W - total) / 2, yTop = stack ? 116 : 150;
+  const k = stack ? Math.min(1, (H - yTop - 46) / (n * ch + (n - 1) * gap)) : 1;
+  const mx = stack ? (mouse.x - W / 2) / k + cw / 2 : mouse.x;
+  const my = stack ? (mouse.y - yTop) / k : mouse.y;
+
+  ctx.save();
+  if (stack) { ctx.translate(W / 2, yTop); ctx.scale(k, k); ctx.translate(-cw / 2, 0); }
 
   for (let i = 0; i < n; i++) {
     const a = Game.choices[i]; if (!a) continue;
-    const x = x0 + i * (cw + gap);
-    const hovered = inRect(mouse.x, mouse.y, x, y0, cw, ch);
+    const x = stack ? 0 : x0 + i * (cw + gap);
+    const y0 = stack ? i * (ch + gap) : yTop;      // 카드 기준선
+    const hovered = inRect(mx, my, x, y0, cw, ch);
     const oy = hovered ? -10 : 0;
     panel(x, y0 + oy, cw, ch, 20,
       hovered ? "rgba(32,28,50,.99)" : "rgba(13,13,22,.96)",
@@ -7362,29 +7609,46 @@ function drawAdvance() {
 
     if (hovered && mouse.clicked) Game.applyChoice(a);
   }
+  ctx.restore();
 
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
-  ctx.fillText("한 번 고르면 이번 판에서는 되돌릴 수 없습니다", W / 2, y0 + ch + 30);
+  ctx.fillText("한 번 고르면 이번 판에서는 되돌릴 수 없습니다",
+    W / 2, Math.min(H - 18, stack ? H - 22 : yTop + ch + 30));
 }
 
 function drawLevelUp() {
   ctx.fillStyle = "rgba(6,6,14,.78)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const tp = Game.traitPick && player.cls;
-  ctx.font = "800 42px " + FONT;
+  const ttl = tp ? advName() + " 특성" : "레벨 업!";
+  fitFont("800", 42, ttl, W - 40);
   ctx.fillStyle = tp ? advColor() : "#ffd34d";
-  ctx.fillText(tp ? advName() + " 특성" : "레벨 업!", W / 2, 108);
-  ctx.font = "600 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText(tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
-                  : "레벨 " + player.level + " · 하나를 선택하세요", W / 2, 142);
+  ctx.fillText(ttl, W / 2, narrow() ? 92 : 108);
+  const sub = tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
+                 : "레벨 " + player.level + " · 하나를 선택하세요";
+  fitFont("600", 15, sub, W - 32);
+  ctx.fillStyle = "rgba(255,255,255,.6)";
+  ctx.fillText(sub, W / 2, narrow() ? 122 : 142);
 
-  const cw = 300, ch = 356, gap = 26;
-  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = 178;
+  /* 카드 석 장을 한 줄로 놓으면 952px 이 필요하다 — 세로 화면에서는 가운데 한 장만 보였다.
+     내용이 빽빽해서 다시 짜는 대신, 세로로 쌓고 화면에 맞게 한 번 줄인다.
+     좌표계를 통째로 옮기므로 마우스도 같은 계로 옮겨야 한다. */
+  const stack = narrow();
+  const cw = 300, ch = 356, gap = stack ? 14 : 26;
+  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = stack ? 148 : 178;
+  const k = stack ? Math.min(1, (H - y0 - 22) / (3 * ch + 2 * gap)) : 1;
+  const mx = stack ? (mouse.x - W / 2) / k + cw / 2 : mouse.x;
+  const my = stack ? (mouse.y - y0) / k : mouse.y;
+
+  ctx.save();
+  if (stack) { ctx.translate(W / 2, y0); ctx.scale(k, k); ctx.translate(-cw / 2, 0); }
 
   for (let i = 0; i < 3; i++) {
     const c = Game.choices[i]; if (!c) continue;
-    const x = x0 + i * (cw + gap);
-    const hovered = inRect(mouse.x, mouse.y, x, y0, cw, ch);
+    const x = stack ? 0 : x0 + i * (cw + gap);
+    const y0 = stack ? i * (ch + gap) : 178;      // 카드 기준선 — 쌓으면 행마다 내려간다
+    const hovered = inRect(mx, my, x, y0, cw, ch);
     const isW = c.type === "weapon", isT = c.type === "trait";
     const def = c.type === "heal" ? { name: "치유의 성물", icon: "🍖", desc: "체력을 40 회복한다." }
               : isW ? WEAPONS[c.key]
@@ -7516,6 +7780,7 @@ function drawLevelUp() {
 
     if (hovered && mouse.clicked) Game.applyChoice(c);
   }
+  ctx.restore();
 }
 
 function drawPaused() {

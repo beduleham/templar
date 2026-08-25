@@ -6738,6 +6738,168 @@ function drawIntro() {
   ctx.fillText("M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지", cx, H - 26);
 }
 
+/* ---------- 직업 카드의 무기 무대 ----------
+   카드는 원래 수치 표였다 — 자세 · 무기 · 속성 · 자원 · 스킬 · 전리품 여섯 줄.
+   고르는 사람이 알고 싶은 건 그 표가 아니라 「무엇을 들고 어떻게 싸우는가」다.
+   그래서 시작 무기가 실제로 도는 작은 무대를 놓았다.
+
+   바닥 타일도 적 스프라이트도 이펙트도 게임의 것을 그대로 쓴다.
+   여기서만 따로 그리면 고르고 난 뒤에 다른 게 나온다 — 그러면 미리보기가 아니라 거짓말이다. */
+const STAGE = {
+  // 성역은 결계라 적이 둘러싸야 한다. 나머지는 앞을 보고 싸운다.
+  aura:   { hx: .50, hy: .50, mobs: [["zombie", -46, -4, 15], ["slime", 40, -18, 13], ["bat", 28, 30, 12]] },
+  whip:   { hx: .28, hy: .55, mobs: [["zombie",  58, -16, 15], ["slime", 40, 20, 13], ["bat", 86,  4, 12]] },
+  dagger: { hx: .20, hy: .55, mobs: [["zombie",  92, -18, 15], ["slime", 66, 18, 13], ["bat", 118, 0, 12]] },
+  orb:    { hx: .20, hy: .55, mobs: [["zombie",  92, -18, 15], ["slime", 66, 18, 13], ["bat", 118, 0, 12]] },
+};
+const STAGE_CYCLE = 1.55;                      // 한 바퀴. 무기마다 실제 쿨다운은 다르지만 카드는 리듬만 보여준다
+
+function drawWeaponStage(c, x, y, w, h, t) {
+  const WP = WEAPONS[c.start], S = STAGE[c.start] || STAGE.dagger;
+  const cols = pxPal(ELEMENTS[WP.element].color);
+  const u = (t % STAGE_CYCLE) / STAGE_CYCLE;
+  const hx = Math.round(x + w * S.hx), hy = Math.round(y + h * S.hy);
+  const hitAt = [-9, -9, -9];                 // 적마다 '맞는 순간'(주기 안의 위치)
+
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.clip();
+
+  // 바닥 — 게임의 타일 그대로
+  let tiled = false;
+  for (let i = 0; i * FLOOR_T < w + FLOOR_T; i++)
+    for (let j = 0; j * FLOOR_T < h + FLOOR_T; j++)
+      tiled = Sprites.drawTile("floor", x + i * FLOOR_T, y + j * FLOOR_T, (i + j * 3) % 4, FLOOR_T) || tiled;
+  if (!tiled) { ctx.fillStyle = "#12121e"; ctx.fillRect(x, y, w, h); }
+  ctx.fillStyle = "rgba(6,6,14,.44)"; ctx.fillRect(x, y, w, h);   // 카드 안이라 한 겹 눌러 글자와 다투지 않게
+
+  // 그림자를 먼저 깐다 — 없으면 전부 공중에 뜬다
+  ctx.fillStyle = "rgba(0,0,0,.34)";
+  ctx.beginPath();
+  for (const m of S.mobs) pxEllipse(hx + m[1], hy + m[2] + m[3] * .85, m[3] * .95, m[3] * .4);
+  pxEllipse(hx, hy + 14, 13, 5);
+  ctx.fill();
+
+  for (let k = 0; k < S.mobs.length; k++) {
+    const m = S.mobs[k];
+    Sprites.draw(m[0], hx + m[1], hy + m[2] + Math.sin(t * 3 + k * 2.1) * 2,
+      m[3] / 14, t * .9 + k, m[1] < 0);
+  }
+
+  // 주인공 — 무기가 나가는 동안만 공격 자세. 한 바퀴에 정확히 한 번 돈다.
+  const swing = u < .4;
+  Sprites.draw("hero_" + c.key + "_" + (swing ? "attack" : "idle"), hx, hy, 2,
+    swing ? u / .4 * .48 : t, false);
+
+  // ── 무기. 게임이 쓰는 픽셀 함수를 그대로 부른다 ──
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  if (c.start === "aura") {
+    // 성역은 상시 결계다. 주기마다 밝아지고, 그때 안에 든 적이 탄다.
+    const R = 46, ph = (u * 3) % 1, pulse = Math.max(0, 1 - ph / .38);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = (.13 + .16 * pulse) * .55;
+    ctx.fillStyle = "#ffcd6e";
+    ctx.beginPath(); ctx.arc(hx, hy, R, 0, TAU); ctx.fill();
+    ctx.globalAlpha = Math.min(1, (.13 + .16 * pulse) * 3.4);
+    ctx.globalCompositeOperation = "lighter";
+    pxRing(hx, hy, R, pulse > 0 ? 7 : 4, pxPal("#ffcd6e"));
+    for (let k = 0; k < 3; k++)
+      if (Math.hypot(S.mobs[k][1], S.mobs[k][2]) < R + S.mobs[k][3])
+        hitAt[k] = Math.floor(u * 3) / 3;
+  } else if (c.start === "whip") {
+    // 부채꼴 참격 — 사거리 안이고 각도 안이면 맞는다(판정과 같은 규칙)
+    const len = 88, SW = .2;
+    if (u < SW) {
+      const tt = u / SW;
+      ctx.globalAlpha = (1 - tt) * .95;
+      pxArc(hx, hy, len * (.55 + tt * .5), -(.55 + tt * 1.5) / 2, (.55 + tt * 1.5) / 2,
+        (7 + len * .05) * (1 - tt * .55), cols);
+    }
+    for (let k = 0; k < 3; k++) {
+      const m = S.mobs[k], d = Math.hypot(m[1], m[2]);
+      if (Math.abs(Math.atan2(m[2], m[1])) > .62) continue;
+      const tt = ((d - m[3]) / len - .55) / .5;
+      if (tt >= 0 && tt <= 1) hitAt[k] = tt * SW;
+    }
+  } else if (c.start === "dagger") {
+    // 단검은 관통한다 — 첫 적을 지나 계속 난다
+    const m = S.mobs[1], ang = Math.atan2(m[2], m[1]), reach = Math.hypot(m[1], m[2]);
+    const fly = (u - .06) / .34;
+    if (fly >= 0 && fly <= 1.5) {
+      const d = reach * fly, px0 = hx + Math.cos(ang) * d, py0 = hy + Math.sin(ang) * d;
+      const r = 7, ca = Math.cos(ang), sa = Math.sin(ang);
+      const rot = (X, Y, o) => { pxOut[o] = px0 + X * ca - Y * sa; pxOut[o + 1] = py0 + X * sa + Y * ca; };
+      rot(r * 1.7, 0, 0); rot(-r * .5, -r * .45, 2); rot(-r * .5, r * .45, 4); rot(r * 1.7, 0, 6);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = PJ_STEEL[2];
+      ctx.beginPath(); ctx.moveTo(pxOut[0], pxOut[1]);
+      ctx.lineTo(pxOut[2], pxOut[3]); ctx.lineTo(pxOut[4], pxOut[5]);
+      ctx.closePath(); ctx.fill();
+      pxEdge(pxOut, 8); pxFlush(PJ_STEEL);
+      ctx.save(); ctx.translate(px0, py0); ctx.rotate(ang);
+      ctx.fillStyle = "#6d4c33"; ctx.fillRect(-r * 1.2, -r * .22, r * .8, r * .44);
+      ctx.restore();
+    }
+    hitAt[1] = .06 + .34;
+    hitAt[2] = .06 + .34 * (Math.hypot(S.mobs[2][1], S.mobs[2][2]) / reach);
+  } else {
+    // 마력탄은 쫓아간다 — 곧게 가면 유도라는 게 안 보인다
+    const m = S.mobs[0], fly = (u - .08) / .5;
+    if (fly >= 0 && fly <= 1) {
+      const ang = Math.atan2(m[2], m[1]), bend = Math.sin(fly * Math.PI) * 26;
+      pxDisc(hx + m[1] * fly - Math.sin(ang) * bend, hy + m[2] * fly + Math.cos(ang) * bend,
+        9, pxPal("#9be7ff"));
+    }
+    hitAt[0] = .58;
+  }
+  ctx.restore();
+
+  // 맞은 자리에 타격 이펙트 — 게임에서 쓰는 그 프레임이다
+  const key = fxKey("hit", WP.element);
+  for (let k = 0; k < 3; k++) {
+    const age = u - hitAt[k];
+    if (age < 0 || age > .18) continue;
+    const m = S.mobs[k];
+    Sprites.draw(key, hx + m[1], hy + m[2], .8, age / .18 * (3 / 22), false);
+  }
+  ctx.restore();
+
+  // 창틀 — 없으면 카드 바탕에 녹아 '무대'로 안 읽힌다
+  ctx.strokeStyle = "rgba(255,255,255,.11)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(x + .5, y + .5, w - 1, h - 1, 10); ctx.stroke();
+}
+
+/* 견줌 막대 — 직업 4종 안에서만 견준다.
+   0 부터 그리면 공격이 1.0~1.2 라 네 막대가 똑같아 보여 고르는 데 아무 도움이 안 된다.
+   그래서 최소~최대를 막대 폭에 펼친다. 절대값이 아니라 '누가 더 센가'를 읽는 그림이다. */
+const CLASS_AXES = [
+  { key: "surv", name: "생존", color: "#ff8a9c" },
+  { key: "atk",  name: "공격", color: "#ffd36e" },
+  { key: "move", name: "기동", color: "#8ef0b0" },
+  { key: "area", name: "범위", color: "#8fd0ff" },
+  { key: "loot", name: "전리품", color: "#c9a3ff" },
+];
+let classBars = null;
+function computeClassBars() {
+  const raw = CLASSES.map(c => {
+    const m = c.mods;
+    return {
+      surv: (100 + (m.maxHp || 0)) / (1 - (m.armor || 0)) * (1 + (m.regen || 0) * .25),
+      atk: (1 + (m.damage || 0)) / (1 + (m.cooldown || 0)) * (1 + (.10 + (m.crit || 0)) * 1.4),
+      move: 1 + (m.speed || 0),
+      area: 1 + (m.area || 0),
+      loot: c.gemChance,
+    };
+  });
+  classBars = CLASSES.map(() => ({}));
+  for (const a of CLASS_AXES) {
+    let lo = Infinity, hi = -Infinity;
+    for (const r of raw) { if (r[a.key] < lo) lo = r[a.key]; if (r[a.key] > hi) hi = r[a.key]; }
+    // 바닥을 .18 로 띄운다 — 가장 낮은 것이 빈 칸이면 '없다'로 읽힌다
+    raw.forEach((r, i) => classBars[i][a.key] = hi > lo ? .18 + (r[a.key] - lo) / (hi - lo) * .82 : .6);
+  }
+}
+
 function drawTitle() {
   menuScrim(.68);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -6749,7 +6911,7 @@ function drawTitle() {
   ctx.fillText("중세 판타지 오토배틀 서바이벌 · 15분을 버텨라", W / 2, 134);
 
   ctx.font = "700 18px " + FONT; ctx.fillStyle = "rgba(255,255,255,.9)";
-  ctx.fillText("직업 선택", W / 2, 186);
+  ctx.fillText("직업 선택", W / 2, 166);
 
   // 제단 진입 버튼
   const abx = W - 232, aby = 28, abw = 204, abh = 46;
@@ -6766,9 +6928,10 @@ function drawTitle() {
   if (aHover && mouse.clicked) { Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
-  const cw = 268, ch = 382, gap = 18;
+  const cw = 268, ch = 406, gap = 18;
   const total = CLASSES.length * cw + (CLASSES.length - 1) * gap;
-  const x0 = (W - total) / 2, y0 = 196;
+  const x0 = (W - total) / 2, y0 = 182;
+  if (!classBars) computeClassBars();
 
   for (let i = 0; i < CLASSES.length; i++) {
     const c = CLASSES[i], x = x0 + i * (cw + gap);
@@ -6781,83 +6944,103 @@ function drawTitle() {
       sel ? c.color : "rgba(255,255,255,.12)");
 
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    /* 직업 초상 — 고른 카드는 공격 동작을 돈다.
-       고르기 전에 무엇을 들고 어떻게 싸우는지 보여야 선택에 의미가 생긴다. */
-    if (!Sprites.draw("hero_" + c.key + "_" + (sel ? "attack" : "idle"),
-          x + cw / 2, y0 + 46 + oy, 2, performance.now() / 1000 + i * .27, false)) {
-      ctx.font = "40px " + FONT; ctx.fillStyle = "#fff";
-      ctx.fillText(c.icon, x + cw / 2, y0 + 46 + oy);
-    }
     ctx.font = "800 23px " + FONT; ctx.fillStyle = c.color;
-    ctx.fillText(c.name, x + cw / 2, y0 + 86 + oy);
+    ctx.fillText(c.name, x + cw / 2, y0 + 26 + oy);
     ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText(c.tagline, x + cw / 2, y0 + 107 + oy);
+    ctx.fillText(c.tagline, x + cw / 2, y0 + 46 + oy);
 
-    // 구분선
-    ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x + 22, y0 + 124 + oy); ctx.lineTo(x + cw - 22, y0 + 124 + oy); ctx.stroke();
+    /* 무기 무대 — 초상화 대신 이걸 놓는다.
+       주인공은 무대 안에서 실제로 싸우므로 따로 세워 둘 이유가 없다.
+       카드마다 위상을 어긋나게 해 네 장이 한꺼번에 번쩍이지 않게 한다. */
+    drawWeaponStage(c, x + 16, y0 + 60 + oy, cw - 32, 104,
+      performance.now() / 1000 + i * .47);
 
-    /* 값 앞에 붙는 그림은 이모지가 아니라 픽셀 글리프다.
-       오른쪽 정렬이라 글자 폭을 재서 그 왼쪽에 놓는다. */
-    const row = (label, value, vy, valColor, icon, iconColor) => {
-      ctx.textAlign = "left";
-      ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.38)";
-      ctx.fillText(label, x + 22, vy);
-      ctx.font = "600 12.5px " + FONT;
-      const tw = ctx.measureText(value).width;
-      if (icon) drawMenuIcon(icon, x + cw - 26 - tw - 8, vy, iconColor || valColor || "#ffffff", 2);
-      ctx.textAlign = "right";
-      ctx.fillStyle = valColor || "rgba(255,255,255,.92)";
-      ctx.fillText(value, x + cw - 22, vy);
-    };
-    const W_ = WEAPONS[c.start], E = ELEMENTS[W_.element];
-    let ry = y0 + 140 + oy;
-    if (c.stance) { row("자세", c.stanceName, ry, c.color, "stance"); ry += 20; }
-    row("무기", W_.name, ry, null, "weapon", "#d8d8e4"); ry += 20;
-    row("속성", E.name, ry, E.color, "element"); ry += 20;
-    row("자원", c.resource.name, ry, c.resource.color, "orb"); ry += 20;
-    row("스킬", c.skill.name, ry, null, "skill", c.color); ry += 20;
-    // 직업마다 '한 마리의 무게'가 다르다는 걸 고르기 전에 보여준다
-    row("전리품", Math.round(c.gemChance * 100) + "%", ry, "rgba(120,230,180,.9)", "gem", "#78e6b4"); ry += 26;
+    // 무대 아래 이름표 — 무엇을 들고 있었는지
+    const WP = WEAPONS[c.start], E = ELEMENTS[WP.element];
+    ctx.font = "700 12.5px " + FONT;
+    const nw = ctx.measureText(WP.name).width;
+    ctx.font = "600 11px " + FONT;
+    const ew = ctx.measureText(" · " + E.name).width;
+    let tx = x + cw / 2 - (16 + nw + ew) / 2;
+    drawMenuIcon("element", tx + 6, y0 + 180 + oy, E.color, 2);
+    tx += 16;
+    ctx.textAlign = "left";
+    ctx.font = "700 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.92)";
+    ctx.fillText(WP.name, tx, y0 + 180 + oy);
+    ctx.font = "600 11px " + FONT; ctx.fillStyle = E.color;
+    ctx.fillText(" · " + E.name, tx + nw, y0 + 180 + oy);
 
-    // 자세와 자원이 차는 방식 — 직업의 성격이 여기서 갈린다
-    ctx.textAlign = "center";
-    if (c.stance) {
-      ctx.font = "600 11px " + FONT; ctx.fillStyle = c.color;
-      wrapText(c.stanceHint, x + cw / 2, ry, cw - 36, 15);
-      ry += 30;
+    // 견줌 막대
+    let by = y0 + 202 + oy;
+    for (const a of CLASS_AXES) {
+      ctx.textAlign = "left"; ctx.font = "700 9.5px " + FONT;
+      ctx.fillStyle = "rgba(255,255,255,.4)";
+      ctx.fillText(a.name, x + 22, by);
+      const bx = x + 68, bw = cw - 92, pal = pxPal(a.color);
+      ctx.fillStyle = "rgba(255,255,255,.07)";
+      ctx.beginPath(); pxR(bx, by - 4, bw, 8); ctx.fill();
+      ctx.fillStyle = pal[2];
+      ctx.beginPath(); pxR(bx, by - 4, bw * classBars[i][a.key], 8); ctx.fill();
+      ctx.fillStyle = pal[1];                       // 윗면 — 위에서 빛이 온다
+      ctx.beginPath(); pxR(bx, by - 4, bw * classBars[i][a.key], 3); ctx.fill();
+      by += 14;
     }
-    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-    wrapText(c.resource.hint, x + cw / 2, ry, cw - 40, 15);
-    ry += c.stance ? 26 : 32;
 
-    ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
-    wrapText(c.desc, x + cw / 2, ry, cw - 36, 15);
+    // 스킬과 자원 — 이 직업의 리듬
+    by += 14;
+    ctx.textAlign = "left";
+    drawMenuIcon("skill", x + 27, by, c.color, 2);
+    ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.fillText(c.skill.name, x + 42, by);
+    ctx.textAlign = "right";
+    ctx.font = "700 9.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.fillText("SPACE", x + cw - 22, by);
+    by += 21;
+
+    ctx.textAlign = "left";
+    drawMenuIcon("orb", x + 27, by, c.resource.color, 2);
+    ctx.font = "700 12px " + FONT; ctx.fillStyle = c.resource.color;
+    ctx.fillText(c.resource.name, x + 42, by);
+    by += 18;
+    ctx.textAlign = "center";
+    ctx.font = "500 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
+    wrapText(c.resource.hint, x + cw / 2, by, cw - 44, 14);
+
+    // 자세가 있는 직업만 — 없는 직업은 그 자리를 비워 둔다
+    if (c.stance) {
+      ctx.font = "600 10.5px " + FONT; ctx.fillStyle = c.color;
+      wrapText(c.stanceHint, x + cw / 2, by + 32, cw - 34, 14);
+    }
 
     ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-    ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 16 + oy);
+    ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 14 + oy);
 
     if (hovered && mouse.clicked) { selectedClass = i; Game.reset(); }
   }
+
+  // 막대는 절대값이 아니다 — 그렇게 읽으면 '마법사는 범위가 반쪽'이 된다
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+  ctx.fillText("막대는 네 직업끼리 견준 값이다", W / 2, y0 + ch + 14);
 
   // 속성 조합 레시피 — 공개해야 플레이어가 '설계'를 한다
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.42)";
   ctx.fillText("서로 다른 속성의 무기를 " + COMBO_LEVEL + "레벨까지 올리면 조합이 열리고, "
-    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, 598);
+    + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, 624);
 
   const chipW = 176, chipGap = 8;
   const cTotal = COMBOS.length * chipW + (COMBOS.length - 1) * chipGap;
   let cx = (W - cTotal) / 2;
   for (const cb of COMBOS) {
-    panel(cx, 616, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
+    panel(cx, 642, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    drawMenuIcon("element", cx + 18, 633, ea.color, 2);
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 29, 636);
-    drawMenuIcon("element", cx + 46, 633, eb.color, 2);
+    drawMenuIcon("element", cx + 18, 659, ea.color, 2);
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 29, 662);
+    drawMenuIcon("element", cx + 46, 659, eb.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
-    ctx.fillText(cb.name, cx + 62, 633);
+    ctx.fillText(cb.name, cx + 62, 659);
     cx += chipW + chipGap;
   }
 

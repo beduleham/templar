@@ -130,13 +130,52 @@ function hash2(x, y) {
   return (h >>> 0) / 4294967296;
 }
 
+/* ---------- 설정 ----------
+   여태 설정이라고는 M(소리 전체 끄기) 하나였다. 음악만 끄고 효과음은 듣는다든가,
+   화면 흔들림이 불편하다든가, 숫자가 어지럽다든가 — 어느 것도 손댈 수가 없었다.
+   값은 단계로만 둔다. 슬라이더는 터치에서 잡기 어렵고, 이 정도 항목에 과하다. */
+const Opt = {
+  sfx: 4, music: 4, shake: 2, names: 1, numbers: 1,
+  load() {
+    try {
+      const o = JSON.parse(localStorage.getItem("ts_opt") || "{}");
+      for (const k of ["sfx", "music", "shake", "names", "numbers"])
+        if (typeof o[k] === "number") this[k] = o[k];
+    } catch (e) { /* 못 읽어도 기본값으로 돈다 */ }
+  },
+  save() {
+    try {
+      localStorage.setItem("ts_opt", JSON.stringify({
+        sfx: this.sfx, music: this.music, shake: this.shake,
+        names: this.names, numbers: this.numbers }));
+    } catch (e) { /* 저장 불가여도 게임은 돈다 */ }
+  },
+  sfxVol() { return this.sfx / 4 * .25; },
+  musicMul() { return this.music / 4; },
+  shakeMul() { return this.shake / 2; },
+  // 값이 바뀌면 소리에 바로 반영한다 — 다음 판까지 기다리게 하면 조절이 안 된다
+  apply() {
+    if (Sfx.master) Sfx.master.gain.value = this.sfxVol();
+    Music.fade(Music.vol());
+    this.save();
+  },
+};
+const OPT_ROWS = [
+  { key: "sfx",     name: "효과음",       max: 4 },
+  { key: "music",   name: "음악",         max: 4 },
+  { key: "shake",   name: "화면 흔들림",  max: 2, labels: ["끔", "절반", "기본"] },
+  { key: "names",   name: "몬스터 이름표", max: 1, labels: ["끔", "켬"] },
+  { key: "numbers", name: "피해 숫자",     max: 1, labels: ["끔", "켬"] },
+];
+Opt.load();
+
 /* ---------- 사운드 (에셋 없이 합성) ---------- */
 const Sfx = {
   ctx: null, on: true, last: {},
   init() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = .25; this.master.connect(this.ctx.destination); }
+    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = Opt.sfxVol(); this.master.connect(this.ctx.destination); }
   },
   // 어트랙트 데모의 전투음이 메뉴에서 울리면 안 된다.
   // setTimeout 으로 미룬 소리는 시뮬레이션이 끝난 뒤에 울리므로,
@@ -222,7 +261,7 @@ const Music = {
     this.gain.gain.linearRampToValueAtTime(Sfx.on ? v : 0, t + .5);
   },
   setMode(m) { if (this.mode !== m) { this.mode = m; this.fade(this.vol()); } },
-  vol() { return this.mode === "boss" ? .19 : this.mode === "play" ? .16 : .12; },
+  vol() { return (this.mode === "boss" ? .19 : this.mode === "play" ? .16 : .12) * Opt.musicMul(); },
 
   // 오디오 클럭보다 조금 앞서서 예약해 둔다
   schedule() {
@@ -334,6 +373,8 @@ const touchBtns = () => {
   return [
     { key: "skill", x: W - m, y: H - m - r * 2 - 14, r, label: "스킬" },
     { key: "item",  x: W - m - r * 2 - 14, y: H - m, r, label: "아이템" },
+    // 폰에는 ESC 가 없다 — 멈출 방법이 없으면 설정에도 못 간다
+    { key: "pause", x: 16 + r * .62, y: H - m - r * 2 - 14, r: r * .62, label: "" },
   ];
 };
 let joyId = null;                         // 조이스틱을 잡고 있는 손가락
@@ -352,7 +393,9 @@ canvas.addEventListener("touchstart", e => {
     if (Game.state === "playing") {
       const b = touchAt(p);
       if (b) {
-        if (b.key === "skill") useSkill(); else useItem();
+        if (b.key === "skill") useSkill();
+        else if (b.key === "item") useItem();
+        else Game.state = "paused";
         touch.press = b.key; touch.pressT = .12;
         continue;                         // 버튼을 누른 손가락은 조이스틱이 아니다
       }
@@ -2108,7 +2151,7 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   }
 
   const col = crit ? "#ffd34d" : (ELEMENTS[elem] ? ELEMENTS[elem].color : "#ffffff");
-  spawnNumber(e.x, e.y - e.r, Math.round(final), col, crit ? 19 : 14);
+  if (Opt.numbers) spawnNumber(e.x, e.y - e.r, Math.round(final), col, crit ? 19 : 14);
   if (knock) {
     const a = Math.atan2(e.y - fromY, e.x - fromX);
     e.kx += Math.cos(a) * knock; e.ky += Math.sin(a) * knock;
@@ -2673,8 +2716,8 @@ const Game = {
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
-  usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
-  showNames: true,
+  usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0,
+  optFrom: "intro", optRow: 0, wipeArm: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
   lmFlash: 0, lmFlashText: "", advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
@@ -2771,8 +2814,9 @@ const Game = {
   onKey(k) {
     // 브라우저는 사용자 입력 전에는 소리를 못 내게 막는다 — 첫 키에서 깨운다
     Sfx.init(); Music.start(this.state === "playing" ? "play" : "menu");
-    if (k === "m") { Sfx.on = !Sfx.on; Music.fade(Sfx.on ? Music.vol() : 0); return; }
-    if (k === "n") { this.showNames = !this.showNames; return; }   // 몬스터 이름표
+    if (k === "m") { Sfx.on = !Sfx.on; Music.fade(Sfx.on ? Music.vol() : 0); return; }   // 빠른 전체 음소거
+    if (k === "n") { Opt.names = Opt.names ? 0 : 1; Opt.save(); return; }   // 몬스터 이름표
+    if (k === "o" && this.state !== "options") { this.optFrom = this.state; this.state = "options"; return; }
     if (this.state === "intro") {
       if (k === "tab") { this.introFrom = "intro"; this.state = "altar"; return; }
       if (k === " " || k === "enter") { this.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
@@ -2784,6 +2828,19 @@ const Game = {
       const i = "1234".indexOf(k);
       if (i >= 0 && CLASSES[i]) { selectedClass = i; return this.reset(); }
       if (k === " " || k === "enter") return this.reset();
+      return;
+    }
+    if (this.state === "options") {
+      if (k === "escape" || k === "tab" || k === "o") { this.state = this.optFrom || "intro"; return; }
+      if (k === "arrowup" || k === "w") { this.optRow = (this.optRow + OPT_ROWS.length) % (OPT_ROWS.length + 1); this.optRow = (this.optRow - 1 + OPT_ROWS.length + 1) % (OPT_ROWS.length + 1); return; }
+      if (k === "arrowdown" || k === "s") { this.optRow = (this.optRow + 1) % (OPT_ROWS.length + 1); return; }
+      const R = OPT_ROWS[this.optRow];
+      if (!R) {                                  // 마지막 줄 — 기록 지우기
+        if (k === "arrowleft" || k === "arrowright" || k === "enter" || k === " ") this.wipeAsk();
+        return;
+      }
+      if (k === "arrowleft" || k === "a") { Opt[R.key] = Math.max(0, Opt[R.key] - 1); Opt.apply(); Sfx.play(420, .04, "square", .3); return; }
+      if (k === "arrowright" || k === "d") { Opt[R.key] = Math.min(R.max, Opt[R.key] + 1); Opt.apply(); Sfx.play(560, .04, "square", .3); return; }
       return;
     }
     if (this.state === "altar") {
@@ -2812,6 +2869,20 @@ const Game = {
       const i = "123".indexOf(k);
       if (i >= 0 && this.choices[i]) this.applyChoice(this.choices[i]);
     }
+  },
+
+  /* 기록 지우기는 되돌릴 수 없다 — 한 번에 지우면 안 된다.
+     일시정지의 포기와 같은 방식으로 두 번 받는다. */
+  wipeAsk() {
+    if (this.wipeArm > 0) {
+      this.wipeArm = 0;
+      try { localStorage.removeItem("ts_souls"); localStorage.removeItem("ts_altar"); localStorage.removeItem("ts_best"); } catch (e) { /* 못 지워도 아래는 맞춘다 */ }
+      Meta.souls = 0; Meta.levels = {}; this.bestTime = 0; this.lastEarned = 0;
+      Sfx.play(180, .3, "sawtooth", .7, -60);
+      return;
+    }
+    this.wipeArm = 3;
+    Sfx.play(300, .08, "square", .4, -60);
   },
 
   // 제단 구입 — 키와 클릭이 같은 길을 타야 연출이 어긋나지 않는다
@@ -3931,7 +4002,7 @@ function drawEnemy(e) {
    N 키로 끌 수 있다. */
 const NAME_LIMIT = 26;
 function drawEnemyNames() {
-  if (!Game.showNames) return;
+  if (!Opt.names) return;
   const pick = [];
   for (const e of enemies) {
     if (!e.active) continue;
@@ -6450,18 +6521,21 @@ function drawHUD() {
   if (Mission.on && !overlay) {
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const big = Mission.flash > 0;
+    /* 좁은 화면에서는 왼쪽 위의 조합 줄이 세로로 길게 서서 이 배너와 겹친다 —
+       가운데 정렬이라 그 위를 그대로 지나간다. 좁으면 그 아래로 내린다. */
+    const my = big ? 150 : narrow() ? 152 : 82;
     ctx.globalAlpha = big ? 1 : .9;
-    ctx.font = (big ? "800 26px " : "800 17px ") + FONT;
+    fitFont("800", big ? 26 : 17, Mission.text, W - 60);
     ctx.fillStyle = "#ff9a5c";
-    iconText("alert", Mission.text, W / 2, big ? 150 : 82, "#ff5b6b", big ? 3 : 2);
+    iconText("alert", Mission.text, W / 2, my, "#ff5b6b", big ? 3 : 2);
     if (Mission.sub) {
-      ctx.font = (big ? "600 14px " : "600 11.5px ") + FONT;
+      fitFont("600", big ? 14 : 11.5, Mission.sub, W - 40);
       ctx.fillStyle = "rgba(255,255,255,.75)";
-      ctx.fillText(Mission.sub, W / 2, (big ? 150 : 82) + (big ? 26 : 17));
+      ctx.fillText(Mission.sub, W / 2, my + (big ? 26 : 17));
     }
     // 남은 표식 개수
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "#ffd34d";
-    ctx.fillText("남은 " + Mission.marks.length + "개", W / 2, (big ? 150 : 82) + (big ? 50 : 33));
+    ctx.fillText("남은 " + Mission.marks.length + "개", W / 2, my + (big ? 50 : 33));
     ctx.globalAlpha = 1;
   }
 
@@ -6599,9 +6673,19 @@ function drawTouchControls() {
     ctx.globalAlpha = 1;
   }
 
-  // 스킬 · 아이템 버튼
+  // 스킬 · 아이템 · 일시정지 버튼
   const sk = curSkill();
   for (const b of touchBtns()) {
+    if (b.key === "pause") {              // 두 줄 — 흔한 일시정지 표시
+      ctx.globalAlpha = .8;
+      ctx.fillStyle = "rgba(10,10,20,.72)";
+      ctx.beginPath(); pxEllipse(b.x, b.y, b.r, b.r); ctx.fill();
+      pxRing(b.x, b.y, b.r, PIX, pxPal("#e8e5da"));
+      ctx.fillStyle = "#e8e5da"; ctx.beginPath();
+      pxR(b.x - 7, b.y - 9, 5, 18); pxR(b.x + 3, b.y - 9, 5, 18); ctx.fill();
+      ctx.globalAlpha = 1;
+      continue;
+    }
     const isSkill = b.key === "skill";
     const ready = isSkill ? (sk && player.res >= sk.cost) : player.items.length > 0;
     const col = isSkill ? (player.cls ? player.cls.color : "#ffd36e") : "#8fd0ff";
@@ -7054,10 +7138,20 @@ function drawIntro() {
   ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
   ctx.fillText("탭 · 판이 끝나도 남는 강화", bx2 + bw / 2, by2 + 43);
 
+  /* 설정으로 가는 길이 O 키뿐이었다 — 폰에는 키보드가 없다. 눌 수 있는 자리를 둔다. */
+  const sw = 130, sh = 30, sx = cx - sw / 2, sy = by2 + bh + 10;
+  const hoverOpt = inRect(mouse.x, mouse.y, sx, sy, sw, sh);
+  panel(sx, sy, sw, sh, 8,
+    hoverOpt ? "rgba(30,40,58,.95)" : "rgba(14,16,26,.8)",
+    hoverOpt ? "#8fd0ff" : "rgba(143,208,255,.28)");
+  ctx.font = "700 12px " + FONT; ctx.fillStyle = hoverOpt ? "#8fd0ff" : "rgba(255,255,255,.6)";
+  ctx.fillText("설정", cx, sy + sh / 2);
+
   if (mouse.clicked) {
     Sfx.init(); Music.start("menu");
     if (hoverStart) { Game.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
     if (hoverAltar) { Game.introFrom = "intro"; Game.state = "altar"; return; }
+    if (hoverOpt) { Game.optFrom = "intro"; Game.state = "options"; return; }
   }
 
   // 조작 · 규칙 한 줄씩
@@ -7071,7 +7165,7 @@ function drawIntro() {
      좁으면 설명을 제목 아래로 내려 두 줄로 쓴다. */
   const wide = W >= 800;
   const lx = Math.max(24, cx - (wide ? 330 : W / 2 - 24));
-  let ry = wide ? 500 : by2 + bh + 34;
+  let ry = wide ? 500 : sy + sh + 26;
   ctx.textAlign = "left";
   for (const [ic, head, body] of rows) {
     drawRuleIcon(ic, lx + 6, ry);
@@ -7085,7 +7179,9 @@ function drawIntro() {
 
   ctx.font = "600 11px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.3)";
-  ctx.fillText("M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지", cx, H - 26);
+  const foot = narrow() ? "O  설정" : "O 설정   ·   M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지";
+  fitFont("600", 11, foot, W - 32);
+  ctx.fillText(foot, cx, H - 26);
 }
 
 /* ---------- 직업 카드의 무기 무대 ----------
@@ -7963,21 +8059,122 @@ function drawLevelUp() {
   ctx.restore();
 }
 
+/* ---------- 설정 ----------
+   값은 칸으로 보여준다. 슬라이더는 터치에서 잡기 어렵고 이 정도 항목에는 과하다.
+   칸을 직접 눌러도 되고 방향키로 옮겨도 된다 — 마우스·터치·키보드가 같은 것을 본다. */
+function drawOptions() {
+  const back = Game.optFrom === "paused";
+  menuScrim(back ? .82 : .7);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  fitFont("800", 42, "설정", W - 40);
+  ctx.fillStyle = "#8fd0ff";
+  ctx.fillText("설정", W / 2, narrow() ? 44 : 76);
+
+  const n = OPT_ROWS.length + 1;                 // 마지막은 기록 지우기
+  const cw = Math.min(560, W - 48), ch = 56, gap = 10;
+  const x0 = (W - cw) / 2;
+  const top = narrow() ? 92 : 140;
+  const y0 = Math.max(top, (H - (n * ch + (n - 1) * gap)) / 2);
+
+  for (let i = 0; i < n; i++) {
+    const R = OPT_ROWS[i], y = y0 + i * (ch + gap);
+    const hovered = inRect(mouse.x, mouse.y, x0, y, cw, ch);
+    if (hovered) Game.optRow = i;
+    const sel = Game.optRow === i;
+
+    panel(x0, y, cw, ch, 12,
+      sel ? "rgba(28,26,48,.97)" : "rgba(14,14,24,.9)",
+      sel ? "#8fd0ff" : "rgba(255,255,255,.12)");
+
+    if (!R) {                                    // 기록 지우기
+      ctx.textAlign = "left";
+      ctx.font = "700 15px " + FONT;
+      ctx.fillStyle = Game.wipeArm > 0 ? "#ff9a5c" : "rgba(255,255,255,.75)";
+      ctx.fillText("기록 지우기", x0 + 22, y + ch / 2);
+      ctx.textAlign = "right";
+      ctx.font = "700 13px " + FONT;
+      ctx.fillStyle = Game.wipeArm > 0 ? "#ff9a5c" : "rgba(255,255,255,.35)";
+      ctx.fillText(Game.wipeArm > 0 ? "한 번 더 — 영혼·강화·최고 기록이 사라진다"
+                                    : "영혼 · 제단 강화 · 최고 기록", x0 + cw - 22, y + ch / 2);
+      if (hovered && mouse.clicked) Game.wipeAsk();
+      continue;
+    }
+
+    ctx.textAlign = "left";
+    ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.8)";
+    ctx.fillText(R.name, x0 + 22, y + ch / 2);
+
+    /* 음량은 막대(찬 만큼 켜진다), 나머지는 라디오(고른 것 하나만 켜진다).
+       둘을 같은 규칙으로 그렸더니 음량 50% 인데 다섯 칸 중 셋이 켜져 60% 로 보였다 —
+       0 도 하나의 칸을 차지하고 있었기 때문이다. 음량은 0 을 칸에서 뺀다. */
+    const bar = R.max >= 3;
+    const segs = bar ? R.max : R.max + 1;
+    const segW = Math.min(46, (cw - 250) / segs), sgap = 5;
+    const bw = segs * segW + (segs - 1) * sgap;
+    const bx = x0 + cw - 22 - bw - 74;
+    for (let k = 0; k < segs; k++) {
+      const sx = bx + k * (segW + sgap);
+      const on = bar ? k < Opt[R.key] : k === Opt[R.key];
+      ctx.fillStyle = on ? "#8fd0ff" : "rgba(255,255,255,.1)";
+      ctx.beginPath(); pxR(sx, y + ch / 2 - 9, segW, 18); ctx.fill();
+      if (on) {
+        ctx.fillStyle = "#d6ecff";
+        ctx.beginPath(); pxR(sx, y + ch / 2 - 9, segW, PIX); ctx.fill();
+      }
+      if (inRect(mouse.x, mouse.y, sx - 2, y + 8, segW + 4, ch - 16) && mouse.clicked) {
+        // 막대에서 이미 켜진 마지막 칸을 다시 누르면 끈다 — 그래야 0 에 닿는다
+        const v = bar ? (Opt[R.key] === k + 1 ? k : k + 1) : k;
+        Opt[R.key] = v; Opt.apply(); Sfx.play(520, .04, "square", .3);
+      }
+    }
+
+    ctx.textAlign = "right";
+    ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.55)";
+    ctx.fillText(R.labels ? R.labels[Opt[R.key]]
+      : Opt[R.key] === 0 ? "끔" : Math.round(Opt[R.key] / R.max * 100) + "%",
+      x0 + cw - 22, y + ch / 2);
+  }
+
+  ctx.textAlign = "center";
+  ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
+  const foot = narrow() ? "칸을 눌러 바꾼다  ·  ESC 로 돌아가기"
+    : "방향키 또는 클릭으로 바꾼다   ·   ESC / O 로 돌아가기   ·   M 빠른 음소거";
+  fitFont("600", 12, foot, W - 32);
+  ctx.fillText(foot, W / 2, Math.min(H - 20, y0 + n * (ch + gap) + 22));
+}
+
 function drawPaused() {
   ctx.fillStyle = "rgba(6,6,14,.75)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "800 46px " + FONT; ctx.fillStyle = "#fff";
-  ctx.fillText("일시정지", W / 2, H / 2 - 34);
-  ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText("ESC 로 계속", W / 2, H / 2 + 10);
-  // 한 번에 판이 날아가면 안 된다 — 두 번째 R 을 받을 때만 버린다
-  if (Game.quitArm > 0) {
-    ctx.font = "700 15px " + FONT; ctx.fillStyle = "#ff9a5c";
-    ctx.fillText("한 번 더 R — 이 판을 버리고 처음부터", W / 2, H / 2 + 44);
-  } else {
-    ctx.font = "600 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
-    ctx.fillText("R  포기하고 다시 시작", W / 2, H / 2 + 44);
+  fitFont("800", 46, "일시정지", W - 40);
+  ctx.fillStyle = "#fff";
+  ctx.fillText("일시정지", W / 2, H / 2 - 96);
+
+  /* 줄을 눌러서도 쓸 수 있어야 한다 — 폰에는 ESC 도 R 도 O 도 없다. */
+  const bw = Math.min(300, W - 56), bh = 44, bx = W / 2 - bw / 2;
+  const rows = [
+    ["계속", "ESC", () => { Game.state = "playing"; Game.quitArm = 0; }],
+    ["설정", "O", () => { Game.optFrom = "paused"; Game.state = "options"; }],
+    [Game.quitArm > 0 ? "한 번 더 — 이 판을 버린다" : "포기하고 다시 시작", "R",
+      () => { if (Game.quitArm > 0) { Game.quitArm = 0; Game.reset(); } else { Game.quitArm = 2.5; Sfx.play(300, .08, "square", .4, -60); } }],
+  ];
+  for (let i = 0; i < rows.length; i++) {
+    const [label, key, act] = rows[i], y = H / 2 - 34 + i * (bh + 10);
+    const hov = inRect(mouse.x, mouse.y, bx, y, bw, bh);
+    const warn = i === 2 && Game.quitArm > 0;
+    panel(bx, y, bw, bh, 10,
+      hov ? "rgba(30,28,46,.98)" : "rgba(14,14,24,.9)",
+      warn ? "#ff9a5c" : hov ? "#ffd36e" : "rgba(255,255,255,.14)");
+    ctx.textAlign = "left"; ctx.font = "700 15px " + FONT;
+    ctx.fillStyle = warn ? "#ff9a5c" : "rgba(255,255,255,.85)";
+    ctx.fillText(label, bx + 20, y + bh / 2);
+    ctx.textAlign = "right"; ctx.font = "700 12px " + FONT;
+    ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.fillText(key, bx + bw - 20, y + bh / 2);
+    if (hov && mouse.clicked) { act(); return; }
   }
+  ctx.textAlign = "center";
 }
 
 function drawEnd(win) {
@@ -8045,6 +8242,7 @@ function frame(now) {
   if (Game.lmFlash > 0) Game.lmFlash = Math.max(0, Game.lmFlash - dt);
   if (Game.altarFlash > 0) Game.altarFlash = Math.max(0, Game.altarFlash - dt * 1.8);
   if (Game.quitArm > 0) Game.quitArm = Math.max(0, Game.quitArm - dt);
+  if (Game.wipeArm > 0) Game.wipeArm = Math.max(0, Game.wipeArm - dt);
 
   // 전직 순간의 슬로모션 — 연출 타이머는 실시간, 시뮬레이션만 늦춘다
   let simDt = dt;
@@ -8055,7 +8253,8 @@ function frame(now) {
   if (Game.whiteFlash > 0) Game.whiteFlash = Math.max(0, Game.whiteFlash - dt * 1.6);
 
   // 메뉴에서는 어트랙트 데모가, 판 중에는 진짜가 같은 고정 타임스텝으로 돈다
-  const inMenu = Game.state === "intro" || Game.state === "title" || Game.state === "altar";
+  const inMenu = Game.state === "intro" || Game.state === "title" || Game.state === "altar"
+    || (Game.state === "options" && Game.optFrom !== "paused");
   if (inMenu) { if (!Attract.on) Attract.start(); }
   else if (Attract.on) Attract.stop();
 
@@ -8067,8 +8266,10 @@ function frame(now) {
   }
 
   // 렌더
-  const shx = cam.shake ? rnd(-cam.shake, cam.shake) : 0;
-  const shy = cam.shake ? rnd(-cam.shake, cam.shake) : 0;
+  // 흔들림을 넣는 곳은 스물일곱 군데다 — 배수는 '읽는 한 곳'에서 곱한다
+  const sk = cam.shake * Opt.shakeMul();
+  const shx = sk ? rnd(-sk, sk) : 0;
+  const shy = sk ? rnd(-sk, sk) : 0;
   ctx.save();
   ctx.translate(shx, shy);
   drawBackground();
@@ -8102,6 +8303,7 @@ function frame(now) {
   if (Game.state === "intro") drawIntro();
   else if (Game.state === "title") drawTitle();
   else if (Game.state === "altar") drawAltar();
+  else if (Game.state === "options") drawOptions();
   else if (Game.state === "advance") drawAdvance();
   else if (Game.state === "levelup") drawLevelUp();
   else if (Game.state === "paused") drawPaused();

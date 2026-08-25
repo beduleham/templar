@@ -1,3 +1,13 @@
+import {
+  chunkText,
+  estimateTokens,
+  hasEmbeddings,
+  searchChunks,
+  validateUpload,
+  type RagChunk,
+  type RagDocument,
+  type RagSearchHit,
+} from "@/lib/domain/rag";
 import { generateSpecFromAnswers, type GeneratedSpec } from "@/lib/domain/spec-engine";
 import {
   AS_TIER_PLANS,
@@ -21,7 +31,8 @@ import {
 } from "@/lib/domain/types";
 import type { UserRole } from "@/lib/navigation";
 
-const STORAGE_KEY = "archon.domain.v1";
+// 지식 베이스 추가로 상태 모양이 바뀌어 버전을 올린다
+const STORAGE_KEY = "archon.domain.v2";
 
 export interface ActorInfo {
   id: string;
@@ -272,7 +283,46 @@ function buildSeed(): DomainState {
     },
   ];
 
-  return { projects: [p1, p2], auditLogs };
+
+  // 지식 베이스 시드 — 임베딩이 없어 키워드 검색으로 동작하는 상태
+  const KNOWLEDGE_TEXT = [
+    "예약 신청은 돌봄사 선택과 일정 지정을 거쳐 결제로 이어진다. 보호자는 반려동물 정보를 미리 등록해두고 재예약 시 그대로 불러올 수 있다.",
+    "결제는 카드 결제와 부분 취소를 지원한다. 환불 정책은 돌봄 시작 24시간 전까지 전액, 이후에는 50%를 반환하는 것을 원칙으로 한다.",
+    "돌봄사는 돌봄 일지를 작성해 사진과 함께 보호자에게 전달한다. 일지는 예약 단위로 보관되며 보호자만 열람할 수 있다.",
+    "관리자는 예약 현황 대시보드에서 일별 예약 건수와 취소율, 정산 대기 금액을 확인한다.",
+  ].join("\n\n");
+
+  const knowledgeDoc: RagDocument = {
+    id: "ragdoc-pet-1",
+    projectId: p1.id,
+    title: "펫케어 요구사항 정의서.md",
+    sourceType: "md",
+    byteSize: new TextEncoder().encode(KNOWLEDGE_TEXT).length,
+    chunkCount: 0,
+    status: "processing",
+    errorMessage: null,
+    uploadedBy: "mock-user-1",
+    uploaderName: "김아칸",
+    createdAt: "2026-08-01T04:00:00.000Z",
+  };
+  const knowledgeChunks: RagChunk[] = chunkText(KNOWLEDGE_TEXT).map(
+    (content, index) => ({
+      id: `ragchunk-pet-${String(index)}`,
+      documentId: knowledgeDoc.id,
+      chunkIndex: index,
+      content,
+      tokenCount: estimateTokens(content),
+      embedding: null,
+    })
+  );
+  knowledgeDoc.chunkCount = knowledgeChunks.length;
+
+  return {
+    projects: [p1, p2],
+    auditLogs,
+    ragDocuments: [knowledgeDoc],
+    ragChunks: knowledgeChunks,
+  };
 }
 
 const SEED: DomainState = buildSeed();
@@ -285,7 +335,14 @@ function loadPersisted(): DomainState | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw === null) return null;
-    return JSON.parse(raw) as DomainState;
+    const parsed = JSON.parse(raw) as Partial<DomainState>;
+    // 이전 버전 상태가 남아 있어도 화면이 깨지지 않게 배열을 보정한다
+    return {
+      projects: parsed.projects ?? [],
+      auditLogs: parsed.auditLogs ?? [],
+      ragDocuments: parsed.ragDocuments ?? [],
+      ragChunks: parsed.ragChunks ?? [],
+    };
   } catch {
     return null;
   }
@@ -1091,4 +1148,167 @@ export function calcMatchScore(
   const base = (overlap / project.techTags.length) * 70;
   const experience = Math.min(partner.completedProjects, 20) * 1.5;
   return Math.min(99, Math.round(base + experience));
+}
+
+/* ------------------------------------------------------------------ */
+/* RAG 지식 베이스                                                      */
+/* ------------------------------------------------------------------ */
+
+/** 문서를 열람할 수 있는가 — 상세 스펙과 같은 NDA 게이트 */
+export function canViewKnowledge(actor: ActorInfo, project: Project): boolean {
+  return canViewSpecDetail(actor, project);
+}
+
+/** 문서를 올리거나 지울 수 있는가 — 의뢰자와 운영사만 */
+export function canManageKnowledge(
+  actor: ActorInfo,
+  project: Project
+): boolean {
+  if (actor.role === "admin") return true;
+  return actor.role === "client" && project.clientId === actor.id;
+}
+
+export interface KnowledgeUpload {
+  name: string;
+  size: number;
+  text: string;
+}
+
+/**
+ * 문서 업로드 → 청킹까지. 임베딩은 아직 생성하지 않으므로 상태는
+ * processing("청킹 완료 · 임베딩 대기")에 머문다. DB도 같은 규칙이라,
+ * 임베딩이 비어 있는 문서는 indexed 로 전이되지 않는다.
+ */
+export function uploadKnowledgeDocument(
+  actor: ActorInfo,
+  projectId: string,
+  file: KnowledgeUpload
+): RagDocument {
+  const current = domainStore.getSnapshot();
+  const project = findProject(current, projectId);
+
+  if (!canManageKnowledge(actor, project)) {
+    throw new DomainError("이 프로젝트에 문서를 올릴 권한이 없어요.");
+  }
+
+  const validation = validateUpload({ name: file.name, size: file.size });
+  if (!validation.ok) {
+    throw new DomainError(validation.reason);
+  }
+
+  const duplicated = current.ragDocuments.some(
+    (doc) => doc.projectId === projectId && doc.title === file.name
+  );
+  if (duplicated) {
+    throw new DomainError("같은 이름의 문서가 이미 있어요.");
+  }
+
+  const contents = chunkText(file.text);
+  if (contents.length === 0) {
+    throw new DomainError("문서에서 읽어낼 내용이 없어요.");
+  }
+
+  const documentId = newId("ragdoc");
+  const chunks: RagChunk[] = contents.map((content, index) => ({
+    id: newId("ragchunk"),
+    documentId,
+    chunkIndex: index,
+    content,
+    tokenCount: estimateTokens(content),
+    // 임베딩 API 연결 전까지 비워 둔다
+    embedding: null,
+  }));
+
+  const document: RagDocument = {
+    id: documentId,
+    projectId,
+    title: file.name,
+    sourceType: validation.sourceType,
+    byteSize: file.size,
+    chunkCount: chunks.length,
+    status: "processing",
+    errorMessage: null,
+    uploadedBy: actor.id,
+    uploaderName: actor.name,
+    createdAt: nowIso(),
+  };
+
+  let next: DomainState = {
+    ...current,
+    ragDocuments: [document, ...current.ragDocuments],
+    ragChunks: [...current.ragChunks, ...chunks],
+  };
+  next = appendAudit(next, actor, projectId, "RAG_DOCUMENT_UPLOADED", null, {
+    title: document.title,
+    source_type: document.sourceType,
+    byte_size: document.byteSize,
+  });
+  next = appendAudit(next, actor, projectId, "RAG_DOCUMENT_CHUNKED", null, {
+    title: document.title,
+    chunk_count: chunks.length,
+    embedded_count: 0,
+  });
+  setState(next);
+
+  return document;
+}
+
+export function deleteKnowledgeDocument(actor: ActorInfo, documentId: string) {
+  const current = domainStore.getSnapshot();
+  const document = current.ragDocuments.find((doc) => doc.id === documentId);
+  if (document === undefined) {
+    throw new DomainError("문서를 찾을 수 없어요.");
+  }
+
+  const project = findProject(current, document.projectId);
+  if (!canManageKnowledge(actor, project)) {
+    throw new DomainError("이 문서를 지울 권한이 없어요.");
+  }
+
+  let next: DomainState = {
+    ...current,
+    ragDocuments: current.ragDocuments.filter((doc) => doc.id !== documentId),
+    ragChunks: current.ragChunks.filter((c) => c.documentId !== documentId),
+  };
+  next = appendAudit(
+    next,
+    actor,
+    document.projectId,
+    "RAG_DOCUMENT_DELETED",
+    { title: document.title, chunk_count: document.chunkCount },
+    null
+  );
+  setState(next);
+}
+
+export type KnowledgeSearchMode = "keyword" | "semantic";
+
+export interface KnowledgeSearchResult {
+  mode: KnowledgeSearchMode;
+  hits: RagSearchHit[];
+}
+
+/**
+ * 프로젝트 범위 검색.
+ * 임베딩이 채워지면 mode 가 semantic 으로 바뀌고 화면은 그대로 쓰인다
+ * (DB의 rag_search_keyword → rag_search_semantic 전환과 같은 구조).
+ */
+export function searchKnowledge(
+  state: DomainState,
+  projectId: string,
+  query: string,
+  limit = 5
+): KnowledgeSearchResult {
+  const chunks = state.ragChunks.filter((chunk) =>
+    state.ragDocuments.some(
+      (doc) => doc.id === chunk.documentId && doc.projectId === projectId
+    )
+  );
+  const titleOf = (documentId: string): string =>
+    state.ragDocuments.find((doc) => doc.id === documentId)?.title ?? "알 수 없는 문서";
+
+  return {
+    mode: hasEmbeddings(chunks) ? "semantic" : "keyword",
+    hits: searchChunks(chunks, titleOf, query, limit),
+  };
 }

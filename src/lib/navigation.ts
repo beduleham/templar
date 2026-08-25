@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import {
+  BookOpen,
   Gavel,
   KanbanSquare,
   LayoutDashboard,
@@ -49,6 +50,13 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
     href: "/projects",
     icon: KanbanSquare,
     tone: "coral",
+    roles: ["client", "partner", "admin"],
+  },
+  {
+    title: "지식 베이스",
+    href: "/knowledge",
+    icon: BookOpen,
+    tone: "purple",
     roles: ["client", "partner", "admin"],
   },
   {

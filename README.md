@@ -23,7 +23,7 @@ npm run dev     # 개발 서버
 npm run build   # 타입 체크 + 프로덕션 빌드
 npm run lint    # ESLint
 npm test        # Vitest 단위 테스트
-npm run db:test # DB 스키마·비즈니스 규칙·RLS 검증 (로컬 PostgreSQL 14+ 필요)
+npm run db:test # DB 스키마·비즈니스 규칙·RLS·RAG 검증 (로컬 PostgreSQL 14+ · pgvector 필요)
 ```
 
 ## 라우팅 구조
@@ -36,6 +36,7 @@ npm run db:test # DB 스키마·비즈니스 규칙·RLS 검증 (로컬 PostgreS
 | `/spec-generator` | AI 스펙 생성기 (client, admin 전용) | `(app)` |
 | `/bids` | 입찰 및 계약 허브 | `(app)` |
 | `/projects` | 아키텍처 연동 공정판 | `(app)` |
+| `/knowledge` | 지식 베이스 — 문서 업로드·청킹·검색 (임베딩 미연결) | `(app)` |
 | `/subscriptions` | AS 및 구독 관리 | `(app)` |
 
 앱 셸은 데스크톱(≥1024px)에서 좌측 고정 사이드바, 모바일에서 햄버거 → 드로워

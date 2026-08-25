@@ -37,6 +37,7 @@ echo "▶ 검증 실행"
 OUTPUT="$(
   run "${ROOT}/supabase/tests/01_rules_test.sql"
   run "${ROOT}/supabase/tests/02_rls_test.sql"
+  run "${ROOT}/supabase/tests/03_rag_test.sql"
 )"
 
 echo "${OUTPUT}" | grep -E 'PASS|FAIL' | sed 's/^psql:[^ ]* //; s/^NOTICE:  //'

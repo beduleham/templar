@@ -4,7 +4,7 @@
 계정 없이 로컬 PostgreSQL 14+ 만으로도 전부 검증할 수 있다.
 
 ```bash
-./scripts/db-test.sh     # 스키마 적용 → 규칙 19건 + RLS 19건 검증 → 시드 확인
+./scripts/db-test.sh     # 스키마 적용 → 56건 검증(규칙 19 · RLS 19 · RAG 18) → 시드 확인
 ```
 
 ## 구성
@@ -14,10 +14,12 @@
 | `supabase/migrations/…_init_schema.sql` | 13개 테이블, 9개 열거형, 인덱스, CHECK 제약 |
 | `supabase/migrations/…_business_rules.sql` | 규칙을 강제하는 함수·트리거 |
 | `supabase/migrations/…_rls_policies.sql` | Row Level Security 정책과 판정 함수 |
+| `supabase/migrations/…_rag_documents.sql` | RAG 지식 베이스 — pgvector, 청크, 검색 함수 |
 | `supabase/seed.sql` | 데모 데이터(진행 중 1건 + 입찰 중 1건) |
 | `supabase/tests/00_local_shim.sql` | 로컬 검증용 `auth` 스키마 셰임 (배포 대상 아님) |
 | `supabase/tests/01_rules_test.sql` | 비즈니스 규칙 19건 |
 | `supabase/tests/02_rls_test.sql` | 역할별 RLS 19건 |
+| `supabase/tests/03_rag_test.sql` | RAG 스키마·검색·접근 통제 18건 |
 
 ## 스키마
 
@@ -36,6 +38,8 @@ erDiagram
   projects ||--|| as_subscriptions : "AS 구독"
   as_subscriptions ||--o{ as_payment_logs : "결제 이력"
   projects ||--o{ system_audit_logs : "감사 기록"
+  projects ||--o{ rag_documents : "지식 문서"
+  rag_documents ||--o{ rag_chunks : "청킹"
 ```
 
 금액은 원 단위 정수(`bigint`), 공수는 `numeric(6,2)`를 쓴다. 견적 항목 금액
@@ -63,6 +67,38 @@ erDiagram
 | 14 | 선정 시 나머지 입찰 자동 탈락 | `archon_on_bid_accepted` |
 | 15 | 카드번호로 보이는 값은 빌링키에 저장 불가 | CHECK 제약 |
 
+## RAG 지식 베이스
+
+프로젝트 문서를 올려 청킹해 두고 질문으로 해당 대목을 찾는다. 스키마·인덱스·
+검색 함수·접근 통제는 완성돼 있고, **임베딩 생성만 아직 연결되지 않았다.**
+
+| 구성 | 상태 |
+| --- | --- |
+| `rag_documents` / `rag_chunks` 스키마 | ✅ |
+| `vector(1536)` 컬럼 + HNSW 코사인 인덱스 | ✅ (비어 있음) |
+| `rag_search_semantic()` — 의미 검색 | ✅ 동작하나 임베딩이 없어 0건 |
+| `rag_search_keyword()` — 트라이그램 폴백 | ✅ 현재 검색은 이 경로 |
+| 화면 (`/knowledge`) 업로드·청킹·검색 | ✅ |
+| 임베딩 생성 | ⏳ 모델·API 키 확정 후 |
+
+두 검색 함수는 **반환 형태가 같다.** 임베딩이 채워지면 호출 대상만 바꾸면 되고
+화면은 그대로다. 앱 쪽도 같은 구조라 `searchKnowledge()` 가 `mode` 로
+`keyword`/`semantic` 을 돌려주고, 화면은 배지만 바뀐다.
+
+핵심 불변식 하나를 DB가 강제한다 — **임베딩이 비어 있는 문서는 `indexed` 로
+표시할 수 없다.** 검색에서 조용히 빠지는 문서가 "검색 가능"으로 보이는 상황을
+막기 위해서다. 그래서 임베딩을 붙이기 전까지 문서는 `processing`
+("청킹 완료 · 임베딩 대기")에 머문다.
+
+### 임베딩 연결 시 할 일
+
+1. 모델을 정하고 차원이 1536이 아니면 `rag_chunks.embedding` 과
+   `rag_search_semantic()` 의 `vector(1536)` 을 함께 바꾼다
+2. 인덱싱 워커(service_role)가 청크를 읽어 임베딩을 채운다 —
+   `rag_chunks` 에는 authenticated 쓰기 정책이 없다(워커 전용)
+3. 문서를 `indexed` 로 전이시킨다 (모든 청크가 차 있어야 통과)
+4. 앱의 `searchKnowledge()` 가 `rag_search_semantic()` 을 호출하도록 바꾼다
+
 ### 입찰의 draft → submitted
 
 클라이언트가 REST로 붙는 구조라 입찰 행과 견적 항목이 서로 다른 트랜잭션으로
@@ -79,7 +115,7 @@ erDiagram
 | --- | --- |
 | 비로그인(anon) | 없음 — 테이블 접근 자체가 거부됨 |
 | 제3자 | 입찰 중인 프로젝트의 제목·요약까지. 상세 스펙은 차단 |
-| NDA 서명 파트너 | 상세 스펙 전체, **자기 입찰만** (경쟁사 견적 차단) |
+| NDA 서명 파트너 | 상세 스펙 전체와 지식 문서, **자기 입찰만** (경쟁사 견적 차단) |
 | 계약 수행사 | 위 + 칸반 상태 변경, 검수 요청 |
 | 의뢰자 | 자기 프로젝트 전체, 모든 입찰 비교, 예치·검수 승인/반려 |
 | 운영 관리자 | 전체 조회 + 강제 정산·환불 |

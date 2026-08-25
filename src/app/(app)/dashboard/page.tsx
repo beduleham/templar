@@ -37,6 +37,9 @@ const ACTIVITY_TYPE_MAP: Record<AuditActionType, ActivityType> = {
   SUBSCRIPTION_STARTED: "payment_deposited",
   SUBSCRIPTION_PAYMENT: "payment_deposited",
   SUBSCRIPTION_CANCEL_SCHEDULED: "milestone_review_requested",
+  RAG_DOCUMENT_UPLOADED: "spec_generated",
+  RAG_DOCUMENT_CHUNKED: "spec_generated",
+  RAG_DOCUMENT_DELETED: "spec_generated",
 };
 
 const AUDIT_MESSAGES: Record<AuditActionType, string> = {
@@ -56,6 +59,9 @@ const AUDIT_MESSAGES: Record<AuditActionType, string> = {
   SUBSCRIPTION_STARTED: "AS 구독이 시작됐어요",
   SUBSCRIPTION_PAYMENT: "AS 구독료가 결제됐어요",
   SUBSCRIPTION_CANCEL_SCHEDULED: "AS 구독 해지가 예약됐어요",
+  RAG_DOCUMENT_UPLOADED: "지식 문서가 업로드됐어요",
+  RAG_DOCUMENT_CHUNKED: "지식 문서 청킹이 끝났어요",
+  RAG_DOCUMENT_DELETED: "지식 문서가 삭제됐어요",
 };
 
 function toSummary(project: Project): ProjectSummary {

@@ -5,6 +5,8 @@
  * Supabase 연동 시 자동 생성 타입과 1:1로 교체된다.
  */
 
+import type { RagChunk, RagDocument } from "./rag";
+
 export type MilestonePhase = 1 | 2 | 3;
 
 export type SpecTaskStatus = "todo" | "in_progress" | "done";
@@ -117,7 +119,10 @@ export type AuditActionType =
   | "ADMIN_OVERRIDE_REFUND"
   | "SUBSCRIPTION_STARTED"
   | "SUBSCRIPTION_PAYMENT"
-  | "SUBSCRIPTION_CANCEL_SCHEDULED";
+  | "SUBSCRIPTION_CANCEL_SCHEDULED"
+  | "RAG_DOCUMENT_UPLOADED"
+  | "RAG_DOCUMENT_CHUNKED"
+  | "RAG_DOCUMENT_DELETED";
 
 /** INSERT 전용 감사 로그 — 스토어는 append 외의 변경 API를 제공하지 않는다 */
 export interface AuditLog {
@@ -262,6 +267,9 @@ export interface Project {
 export interface DomainState {
   projects: Project[];
   auditLogs: AuditLog[];
+  /** RAG 지식 베이스 — rag_documents / rag_chunks 와 동형 */
+  ragDocuments: RagDocument[];
+  ragChunks: RagChunk[];
 }
 
 export const MILESTONE_RATIOS: Record<MilestonePhase, number> = {
@@ -311,6 +319,9 @@ export const AUDIT_ACTION_LABELS: Record<AuditActionType, string> = {
   SUBSCRIPTION_STARTED: "AS 구독 시작",
   SUBSCRIPTION_PAYMENT: "AS 구독 결제",
   SUBSCRIPTION_CANCEL_SCHEDULED: "AS 구독 해지 예약",
+  RAG_DOCUMENT_UPLOADED: "지식 문서 업로드",
+  RAG_DOCUMENT_CHUNKED: "지식 문서 청킹",
+  RAG_DOCUMENT_DELETED: "지식 문서 삭제",
 };
 
 /** 프로젝트의 모든 최하위 태스크를 평탄화 */

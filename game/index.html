@@ -2602,17 +2602,31 @@ const Game = {
   time: 0, kills: 0, dmgDealt: 0,
   spawnAcc: 0, bossIdx: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
-  usedRebirth: false, soulsEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
+  usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
   showNames: true,
   lmFlash: 0, lmFlashText: "", advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
-  // 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다)
+  /* 판이 끝나면 영혼을 정산한다 (다음 판의 시작 지점이 올라간다).
+
+     처치 수를 그대로 나누면 안 된다. 이 게임의 처치 수는 시간에 대해 폭발한다 —
+     봇으로 재 보니 7분에 75,098마리였고, 옛 식(처치÷8)으로는 한 판에 9,429영혼이
+     들어왔다. 제단 전체가 6,240이었으니 한 판만 잘 굴리면 전부 사 버린다.
+
+     그래서 처치는 제곱근으로 눌러 담는다. 1,000마리 60 · 10,000마리 190 ·
+     75,000마리 520 — 잘한 판이 더 주긴 하되 배수로 벌어지지는 않는다.
+     대신 '얼마나 버텼는가'를 주 수입으로 삼는다. 15분은 상한이 있어 폭발하지 않는다. */
   endRun() {
     if (Attract.sim) return;            // 어트랙트 데모는 기록·영혼을 남기지 않는다
     saveBest();
-    this.soulsEarned = Math.floor(this.kills / 8) + Math.floor(this.time / 10) + (this.state === "won" ? 150 : 0);
+    const st = Math.floor(this.time / 6);                       // 15분 완주 = 150
+    const sk = Math.floor(60 * Math.sqrt(this.kills / 1000));
+    const sw = this.state === "won" ? 200 : 0;
+    this.soulParts = { time: st, kills: sk, win: sw };
+    this.soulsEarned = st + sk + sw;
+    // reset 이 지우지 않는 자리에도 남긴다 — 제단에 들어서면 어트랙트 데모가 reset 을 부른다
+    this.lastEarned = this.soulsEarned;
     Meta.souls += this.soulsEarned;
     Meta.save();
   },
@@ -2674,7 +2688,7 @@ const Game = {
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
-    this.comboFlash = 0; resetCombos(); this.slowmo = 0; this.whiteFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.houndWarn = 0;
+    this.comboFlash = 0; resetCombos(); this.slowmo = 0; this.whiteFlash = 0; this.usedRebirth = false; this.soulsEarned = 0; this.soulParts = null; this.houndWarn = 0;
     player.cls = CLASSES[clsIdx != null ? clsIdx : selectedClass];
     recomputeStats();
     player.hp = player.stats.maxHp;
@@ -4930,13 +4944,24 @@ function skBlink(name, icon, cost, desc, o) {
 /* ---------- 메타 진행 : 제단 ----------
    판이 끝나도 남는 것이 있어야 다시 시작하게 된다.
    영혼을 모아 영구 강화를 사고, 그 강화가 다음 판의 시작 지점을 올린다. */
+/* 값은 '한 판에 다 사지 못하게' 잡는다. 봇 계측으로 살아남은 판이 180~660영혼이니
+   전부(11,570) 채우려면 서른다섯 판 안팎이 든다. 첫 칸(90)은 첫 판이나 두 번째 판에 닿는다.
+   옛 값(전부 6,240)은 7분짜리 한 판(9,429)으로 통째로 사고도 남았다. */
 const ALTAR = [
-  { key: "vigor",   name: "강건함", icon: "🫀", desc: "최대 체력 +8%",       max: 5, cost: l => 60 + l * 70 },
-  { key: "edge",    name: "예리함", icon: "🔪", desc: "모든 피해 +5%",       max: 5, cost: l => 80 + l * 95 },
-  { key: "swift",   name: "민첩",   icon: "🪶", desc: "이동 속도 +4%",       max: 5, cost: l => 60 + l * 70 },
-  { key: "avarice", name: "탐욕",   icon: "💰", desc: "경험치 획득 +6%",     max: 5, cost: l => 70 + l * 80 },
-  { key: "zeal",    name: "신념",   icon: "🔔", desc: "직업 자원을 25 채운 채 시작", max: 3, cost: l => 130 + l * 150 },
-  { key: "rebirth", name: "부활",   icon: "🕊️", desc: "쓰러질 때 한 번 되살아난다", max: 1, cost: () => 900 },
+  /* per · step · unit 이 있으면 「최대 체력 +16% → +24%」를 만들어 쓴다.
+     desc 에 같은 숫자를 또 적어 두면 한쪽만 고칠 때 어긋난다 — 수치가 없는 칸만 desc 를 쓴다. */
+  { key: "vigor",   name: "강건함", per: "최대 체력",   unit: "%", step: 8,  max: 5,
+    cost: l => [90, 180, 340, 560, 850][l] },
+  { key: "edge",    name: "예리함", per: "모든 피해",   unit: "%", step: 5,  max: 5,
+    cost: l => [120, 240, 450, 750, 1150][l] },
+  { key: "swift",   name: "민첩",   per: "이동 속도",   unit: "%", step: 4,  max: 5,
+    cost: l => [90, 180, 340, 560, 850][l] },
+  { key: "avarice", name: "탐욕",   per: "경험치 획득", unit: "%", step: 6,  max: 5,
+    cost: l => [100, 200, 380, 620, 950][l] },
+  { key: "zeal",    name: "신념",   per: "시작 자원",   unit: "", step: 25, max: 3,
+    cost: l => [160, 360, 650][l] },
+  { key: "rebirth", name: "부활",   step: 0, desc: "쓰러질 때 한 번 되살아난다", max: 1,
+    cost: () => 1400 },
 ];
 
 const Meta = {
@@ -7082,7 +7107,7 @@ function wrapText(text, cx, y, maxW, lh) {
    「영혼의 제단」이라면서 화면에 제단이 없었다. 강화 카드 여섯 장이 허공에 떠 있고
    그 아래는 빈 판이었다. 돌 받침 · 기둥 · 대접, 그 위에 뜬 영혼 구슬을 격자로 찍는다.
    모은 영혼도 숫자 줄이 아니라 이 구슬이 들고 있게 한다 — 그래야 장식이 아니라 물건이다. */
-function drawAltarStone(cx, floorY, lit) {
+function drawAltarStone(cx, floorY, lit, hoard) {
   const t = Game.introT;
   /* 돌색은 pxPal 에 맡기지 않는다. 자주색 계열은 밝기 판정에 걸려 세 톤이 전부
      밝은 쪽으로 몰리고, 제단이 돌이 아니라 젖은 비누처럼 보였다. */
@@ -7119,10 +7144,12 @@ function drawAltarStone(cx, floorY, lit) {
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.globalAlpha = Math.min(.85, glow);
-  pxRing(cx, oy, 40 + lit * 22, PIX * 2, pxPal("#c9a3ff"));
+  // 곳간이 찰수록 구슬이 자란다 — 숫자를 안 읽어도 얼마나 모았는지 보인다
+  const h = hoard || 0;
+  pxRing(cx, oy, 30 + h * 16 + lit * 22, PIX * 2, pxPal("#c9a3ff"));
   ctx.globalAlpha = 1;
   ctx.restore();
-  drawMenuIcon("orb", cx, oy, "#c9a3ff", 7);
+  drawMenuIcon("orb", cx, oy, "#c9a3ff", 4 + Math.round(h * 4));
 
   /* 영혼 부스러기가 기둥을 타고 올라 구슬로 빨려 든다.
      대접에서 구슬까지만 띄웠더니 거리가 24px 뿐이라 아무것도 안 보였다 — 기둥 전체를 쓴다. */
@@ -7166,45 +7193,87 @@ function drawAltar() {
       maxed ? "rgba(255,211,77,.5)" : afford ? (hovered ? "#c9a3ff" : "rgba(201,163,255,.35)") : "rgba(255,255,255,.1)");
 
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    ctx.globalAlpha = maxed || afford ? 1 : .45;
+    /* 못 사는 칸도 '지금 몇 %인지 · 얼마나 더 모아야 하는지'는 읽혀야 한다.
+       예전처럼 .45 로 눌러 버리면 모으는 동안 정작 볼 것이 안 보인다. */
+    ctx.globalAlpha = maxed || afford ? 1 : .72;
     drawMenuIcon(u.key, x + 40, y + 42, maxed ? "#ffd34d" : "#c9a3ff", 4);
 
     ctx.font = "800 19px " + FONT; ctx.fillStyle = maxed ? "#ffd34d" : "#fff";
-    ctx.fillText(u.name, x + 68, y + 34);
-    ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-    ctx.fillText(u.desc, x + 68, y + 56);
+    ctx.fillText(u.name, x + 68, y + 30);
+    const nameW = ctx.measureText(u.name).width;          // 이름 폭을 이름 글꼴로 재야 한다
+    ctx.font = "700 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.26)";
+    ctx.fillText("[" + (i + 1) + "]", x + 76 + nameW, y + 31);
+
+    /* 「최대 체력 +8%」만 적어 두면 지금 내가 몇 %인지, 하나 더 사면 몇 %가 되는지
+       머리로 곱해야 한다. 지금 값과 다음 값을 나란히 보여준다. */
+    ctx.font = "600 13px " + FONT;
+    if (!u.step) {                                  // 부활처럼 수치가 없는 것
+      ctx.fillStyle = lv ? "#ffd34d" : "rgba(255,255,255,.55)";
+      ctx.fillText(lv ? u.desc + " — 준비됨" : u.desc, x + 68, y + 52);
+    } else {
+      const cur = "+" + (u.step * lv) + u.unit;
+      ctx.fillStyle = "rgba(255,255,255,.4)";
+      ctx.fillText(u.per, x + 68, y + 52);
+      let tx = x + 68 + ctx.measureText(u.per).width + 8;
+      ctx.font = "800 14px " + FONT;
+      ctx.fillStyle = lv ? "#c9a3ff" : "rgba(255,255,255,.3)";
+      ctx.fillText(cur, tx, y + 52);
+      if (!maxed) {
+        tx += ctx.measureText(cur).width + 6;
+        ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+        ctx.fillText("→", tx, y + 52);
+        ctx.font = "800 14px " + FONT; ctx.fillStyle = afford ? "#ffd34d" : "rgba(255,255,255,.42)";
+        ctx.fillText("+" + (u.step * (lv + 1)) + u.unit, tx + 18, y + 52);
+      }
+    }
     ctx.globalAlpha = 1;
 
     // 레벨 눈금 — 여기만 둥근 모서리를 쓰면 나머지 픽셀과 재질이 어긋난다
     for (let k = 0; k < u.max; k++) {
       const px = x + 68 + k * 20;
       ctx.fillStyle = k < lv ? "#c9a3ff" : "rgba(255,255,255,.13)";
-      ctx.beginPath(); pxR(px, y + 76, 15, 9); ctx.fill();
-      if (k < lv) { ctx.fillStyle = "#efe4ff"; ctx.beginPath(); pxR(px, y + 76, 15, PIX); ctx.fill(); }
+      ctx.beginPath(); pxR(px, y + 70, 15, 9); ctx.fill();
+      if (k < lv) { ctx.fillStyle = "#efe4ff"; ctx.beginPath(); pxR(px, y + 70, 15, PIX); ctx.fill(); }
     }
 
     ctx.textAlign = "right";
     if (maxed) {
       ctx.font = "800 15px " + FONT; ctx.fillStyle = "#ffd34d";
-      ctx.fillText("최대", x + cw - 22, y + 80);
+      ctx.fillText("최대", x + cw - 22, y + 74);
     } else {
       ctx.font = "700 16px " + FONT;
       ctx.fillStyle = afford ? "#ffd34d" : "rgba(255,255,255,.3)";
-      ctx.fillText(String(cost), x + cw - 22, y + 80);
+      ctx.fillText(cost.toLocaleString("ko-KR"), x + cw - 22, y + 74);
       ctx.globalAlpha = afford ? 1 : .4;
-      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(String(cost)).width - 9, y + 80, "#c9a3ff", 2);
+      drawMenuIcon("orb", x + cw - 30 - ctx.measureText(cost.toLocaleString("ko-KR")).width - 9, y + 74, "#c9a3ff", 2);
       ctx.globalAlpha = 1;
     }
 
+    /* 모으는 중이라는 걸 보여주는 막대. '얼마나 더 모아야 하나'가 숫자 뺄셈이 아니라
+       눈에 보여야 제단에 다시 올 이유가 생긴다. */
     ctx.textAlign = "left";
-    ctx.font = "700 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.28)";
-    ctx.fillText("[" + (i + 1) + "]", x + 22, y + ch - 16);
+    if (!maxed) {
+      const bx = x + 22, bw = cw - 44, p = Math.min(1, Meta.souls / cost);
+      ctx.fillStyle = "rgba(255,255,255,.07)";
+      ctx.beginPath(); pxR(bx, y + ch - 22, bw, 6); ctx.fill();
+      const pal = pxPal(afford ? "#ffd34d" : "#c9a3ff");
+      ctx.fillStyle = pal[2];
+      ctx.beginPath(); pxR(bx, y + ch - 22, Math.max(PIX, bw * p), 6); ctx.fill();
+      ctx.fillStyle = pal[1];
+      ctx.beginPath(); pxR(bx, y + ch - 22, Math.max(PIX, bw * p), PIX); ctx.fill();
+      if (!afford) {
+        ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.34)";
+        ctx.textAlign = "right";
+        ctx.fillText((cost - Meta.souls).toLocaleString("ko-KR") + " 더", x + cw - 22, y + ch - 34);
+        ctx.textAlign = "left";
+      }
+    }
 
     if (hovered && mouse.clicked) Game.buyAltar(u.key);
   }
 
-  // 제단 자체
-  drawAltarStone(W / 2, 636, Game.altarFlash);
+  // 제단 자체 — 구슬이 곧 곳간이라 모을수록 커진다
+  drawAltarStone(W / 2, 636, Game.altarFlash, Math.min(1, Meta.souls / 4000));
 
   // 모은 영혼 — 제단이 들고 있다
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -7212,8 +7281,9 @@ function drawAltar() {
   ctx.fillStyle = Game.altarFlash > 0 ? "#fff" : "#ffd34d";
   ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼", W / 2, 668);
 
-  ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-  ctx.fillText("TAB / ESC 로 돌아가기", W / 2, 700);
+  ctx.font = "700 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
+  const last = Game.lastEarned > 0 ? "지난 판 +" + Game.lastEarned.toLocaleString("ko-KR") + "   ·   " : "";
+  ctx.fillText(last + "TAB / ESC 로 돌아가기", W / 2, 698);
 }
 
 function drawAdvance() {
@@ -7491,9 +7561,22 @@ function drawEnd(win) {
   });
 
   ctx.textAlign = "center";
+
+  /* 영혼이 어디서 왔는지 보여준다. 합계만 던지면 다음 판에 무엇을 더 해야
+     많이 버는지 알 수가 없다 — 버틴 시간이 주 수입이라는 게 여기서 읽혀야 한다. */
+  const sp = Game.soulParts;
+  if (sp) {
+    const parts = ["버팀 " + fmtTime(Game.time) + " → +" + sp.time,
+                   "처치 " + Game.kills.toLocaleString("ko-KR") + " → +" + sp.kills];
+    if (sp.win) parts.push("클리어 → +" + sp.win);
+    ctx.font = "600 12.5px " + FONT;
+    ctx.fillStyle = "rgba(255,255,255,.42)";
+    ctx.fillText(parts.join("   ·   "), W / 2, H / 2 + 116);
+  }
+
   ctx.font = "700 17px " + FONT;
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
-  ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 146);
+  ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 148);
   ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
   ctx.fillText("ESC  직업 다시 고르기   ·   TAB  영혼의 제단", W / 2, H / 2 + 176);
   ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";

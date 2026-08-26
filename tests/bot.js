@@ -43,9 +43,38 @@ function botInstall() {
 function botRestore() {
   if (__botRealInput) { inputVector = __botRealInput; __botRealInput = null; }
 }
-function botTick(dt) {
+/* 자세를 쓰는 봇.
+
+   성기사와 마법사는 '멈춰야' 힘이 나온다. 늘 움직이는 봇으로 재면 그 직업의 설계를
+   통째로 빼놓고 재는 셈이다 — 마법사는 3단계 영창(피해 ×1.78 · 쿨다운 ×0.7 ·
+   흡인 ×4.8 · 서리막)을 한 번도 못 얻는다. 그걸 두고 '약하다'고 하면 안 된다.
+
+   그래서 안전할 때는 선다. 무엇이 안전인지는 직업마다 다르다 —
+   마법사는 '가까이 아무도 없을 때', 성기사는 반대로 '둘러싸였을 때'다. */
+function botHold() {
+  if (!player.cls) return false;
+  const near = hash.query(player.x, player.y, 260, scratch3);
+  let close = 0, nearest = 1e9;
+  for (let i = 0; i < near.length; i++) {
+    const e = near[i];
+    if (!e.active) continue;
+    const d = Math.hypot(e.x - player.x, e.y - player.y);
+    if (d < nearest) nearest = d;
+    if (d < 190) close++;
+  }
+  /* 마법사는 '적이 없을 때 멈춘다'로 두면 영영 못 멈춘다 — 계측해 보니 1분이 지나면
+     반경 210 안이 비는 시간이 0% 다. 설계가 말하는 리듬은 그게 아니라
+     '버틸 수 있는 동안 자리를 지키고, 위험하면 물러선다' 다. 그렇게 몬다. */
+  if (player.cls.key === "mage")
+    return player.hp > player.stats.maxHp * .6 && close < 6 && nearest > 90;
+  if (player.cls.key === "paladin") return close >= 3 && player.hp > player.stats.maxHp * .45;
+  return false;                                             // 전사·추적자는 계속 움직인다
+}
+
+function botTick(dt, useStance) {
   __botT -= dt; __botSkillT -= dt;
   if (__botT <= 0) { __botT = .25 + Math.random() * .35; botSteer(); }
+  if (useStance && botHold()) { __botX = 0; __botY = 0; }
   if (__botSkillT <= 0 && player.cls && player.res >= curSkill().cost) {
     __botSkillT = .5; useSkill();
   }

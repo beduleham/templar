@@ -5310,7 +5310,7 @@ const CLASSES = [
     mods: { maxHp: -8, damage: .2, area: .1, xpGain: .2, speed: -.15 },
     // ── 영창: 멈춰야 주문이 완성된다. 거리를 벌리고 정지해야 하는 직업.
     stanceName: "영창",
-    stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·흡인이 오르고 주변이 얼어붙는다",
+    stanceHint: "멈추면 단계가 오른다 — 피해·쿨다운·방어·흡인이 오르고 주변이 얼어붙는다",
     stance: {
       update(p, dt, moving) {
         const maxStage = 3 + traitLv("deepMana") + advVal("maxStageBonus", 0);
@@ -5319,16 +5319,36 @@ const CLASSES = [
           p.channel = maxStage;                      // 각성 — 멈출 필요가 없다
         } else if (moving) {
           const floor = Math.max(traitLv("residue") > 0 ? 1 : 0, advVal("moveKeep", 0));
-          p.channel = Math.max(floor, p.channel - dt * 3.4);
+          /* 감쇠가 3.4 였다. 3단계를 쌓는 데 2.4초가 드는데 0.88초만 움직이면 통째로 날아간다 —
+             적을 피해 한 발 물러서는 것만으로 전부 잃는다는 뜻이다.
+             자세를 쓰는 봇으로 재 보니 '거리를 벌리고 멈추는' 플레이를 해도
+             평균 단계가 0.93 이었다. 설계상 ×1.78 인 배수가 실제로는 ×1.1 근처였다.
+             1.15 로 낮춘다 — 1초 물러서면 한 단계를 잃는다. 잃되, 다 잃지는 않는다. */
+          p.channel = Math.max(floor, p.channel - dt * 1.15);
         } else {
           p.channel = Math.min(maxStage, p.channel + dt * rate);
         }
         const st = Math.floor(p.channel);
-        const effSt = Math.min(st, 3) + Math.max(0, st - 3) * .45;   // 4단계부터 체감 감소
+        /* 문턱 효과(서리막·관통·폭주)는 단계가 '넘었는지'로 갈리지만,
+           피해와 쿨다운까지 floor 로 끊으면 0.99 단계가 0 과 똑같아진다.
+           쌓는 동안 아무 보상이 없으면 멈춰 있을 이유가 매 순간 사라진다 — 여기만 연속으로 준다. */
+        const cont = Math.min(maxStage, p.channel);
+        const effSt = Math.min(cont, 3) + Math.max(0, cont - 3) * .45;   // 4단계부터 체감 감소
         p.dynDmg *= 1 + .26 * effSt + .18 * traitLv("overchannel") * (st >= maxStage ? 1 : 0);
         if (advVal("channelHeal", 0) && st > 0)
           p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * advVal("channelHeal", 0) * st * dt);
         p.dynCd *= Math.max(.52, 1 - .1 * effSt);   // 피해와 연사를 동시에 몰아주면 곱셈이 폭주한다
+
+        /* 영창은 여태 공격만 줬다. 성기사의 「진영」은 방어 ×0.48 에 회복까지 주는데,
+           정작 몸이 제일 약한 직업의 자세가 순수한 위험이었다.
+
+           계측: 1분이 지나면 반경 210 안에 적이 없는 시간이 0% 다 — 판이 끝날 때까지.
+           '거리를 벌리고 멈춘다'가 성립하지 않는다는 뜻이다. 그러면 멈추는 값은
+           적 한가운데서 치러야 하고, 92 체력으로 1.6초를 서 있는 건 죽는 방법이다.
+
+           그래서 영창이 스스로를 지키게 한다. 단계당 -9%, 3단계에서 -27% —
+           성기사(-52%)의 절반 남짓이다. 버티라는 게 아니라 '설 수는 있게' 하는 값이다. */
+        p.dynArmor *= 1 - .09 * Math.min(3, cont);
         // 멈춰 있으면 보석을 주우러 갈 수 없다. 영창이 대신 끌어당긴다 —
         // 이게 없으면 '멈춰라'가 곧 '경험치를 포기해라'가 되어 직업이 성립하지 않는다.
         // 흡인은 초반 굶주림만 막고 후반에는 더 쌓이지 않게 한다.

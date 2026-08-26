@@ -221,40 +221,129 @@ const N = 4;                                   // 애니메이션 4프레임
          64px 네 변종. 애니메이션이 아니라 '어느 칸에 무엇을 깔지'의 선택지다.
          이어 붙였을 때 이음매가 보이면 안 되므로 가장자리는 손대지 않고
          안쪽에만 무늬를 넣는다. 값은 좌표 해시라 매번 같은 타일이 나온다. */
+      /* 바닥 — 판석을 깐다.
+
+         예전에는 옅은 잡음 위에 십자로 금 하나를 그은 게 전부였다. 화면의 대부분이
+         바닥인데 거기가 잡음뿐이면 아무리 캐릭터를 올려도 판이 비어 보인다.
+
+         배치는 벽돌쌓기(running bond)다. 줄마다 절반씩 어긋나게 놓으면
+         격자무늬가 눈에 덜 띈다. 128 칸에서 줄 높이 32 · 판석 폭 64 · 홀수 줄은 32 밀기 —
+         가로세로 모두 128 에서 되풀이되므로 타일로 이어 붙어도 이음매가 안 생긴다.
+
+         변종 넷은 배치를 공유하고 톤과 흠집만 다르다. 배치까지 다르면 옆 타일과
+         판석이 어긋나 붙는다. */
       floor(f, S) {
         const g = mk(S);
-        const H = (a, b) => {              // 결정적 잡음
+        const H = (a, b) => {
           let x = Math.imul(a * 374761393 + b * 668265263 + f * 2246822519, 1274126177);
           x = (x ^ (x >>> 15)) >>> 0;
           return x / 4294967296;
         };
-        // 알갱이는 아주 옅게. 대비를 세우면 바닥이 TV 노이즈가 되어
-        // 그 위의 몬스터·이펙트와 싸운다(처음 만든 것이 실제로 그랬다).
-        for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-          const n = H(x, y);
-          g[y][x] = n > .965 ? 'B' : 'D';
+        const wrap = v => ((v % S) + S) % S;
+        const px = (x, y, ch) => { g[wrap(y)][wrap(x)] = ch; };
+
+        const RH = S / 4;                 // 줄 높이 (128 → 32)
+        const J = Math.max(1, S / 64);    // 줄눈 두께
+
+        /* 줄마다 판석을 둘 또는 셋으로 나누고, 줄마다 시작 위치를 어긋낸다.
+
+           처음엔 모든 줄이 x = 0 에서 시작하게 했다. 타일이 이어 붙는 건 확실했지만
+           x = 0 만 네 줄을 관통하는 줄눈이 되어 넓게 깔면 64px 격자가 눈에 그대로 들어왔다.
+           바닥은 배경이지 격자무늬가 아니다.
+
+           px 가 좌표를 감싸므로 판석이 타일 경계를 넘어가도 반대쪽으로 이어진다 —
+           위상을 어긋내도 이음매는 그대로 맞는다. */
+        const rowCuts = ry => {
+          const n = H(ry * 17 + 5, 23) > .45 ? 3 : 2;
+          if (n === 2) {
+            const a2 = Math.round(S * (.36 + H(ry, 29) * .28));
+            return [a2, S - a2];
+          }
+          const a2 = Math.round(S * (.24 + H(ry, 31) * .16));
+          const b2 = Math.round(S * (.28 + H(ry, 37) * .16));
+          return [a2, b2, S - a2 - b2];
+        };
+        const yPh = Math.round(H(f * 5 + 3, 19) * RH);
+
+        // 1. 판석마다 제 톤으로 채운다 — 폭을 좁게. 대비를 세우면 바닥이 몬스터와 싸운다.
+        const stones = [];
+        for (let ry = 0; ry < 4; ry++) {
+          const ws = rowCuts(ry);
+          let x = Math.round(H(ry * 3 + 7, 41) * S);       // 줄마다 다른 시작점
+          const y0 = yPh + ry * RH;
+          for (let si = 0; si < ws.length; si++) {
+            const n = H(ry * 7 + 1, si * 13 + 3);
+            const tone = n > .78 ? '4' : n > .34 ? '3' : '2';
+            stones.push({ x, y: y0, w: ws[si], tone });
+            for (let dy = 0; dy < RH; dy++) for (let dx = 0; dx < ws[si]; dx++) {
+              const wx = wrap(x + dx), wy = wrap(y0 + dy);
+              // 알갱이는 아주 옅게, 아주 드물게. 예전에 이걸 세웠다가 TV 노이즈가 됐다.
+              const q = H(wx * 3 + 11, wy * 5 + 7);
+              px(wx, wy, q > .982 ? '4' : q < .018 ? '2' : tone);
+            }
+            x += ws[si];
+          }
         }
-        // 판석 이음매 — 변종마다 나누는 자리가 달라야 넓게 깔았을 때 격자가 안 보인다
-        const cut = [[32, 32], [24, 40], [40, 24], [32, 20]][f];
-        for (let i = 0; i < S; i++) { g[cut[1]][i] = 'O'; g[i][cut[0]] = 'O'; }
-        for (let i = 0; i < S; i++) {                      // 이음매 아래쪽 하이라이트
-          if (cut[1] + 1 < S) g[cut[1] + 1][i] = 'D';
-          if (cut[0] + 1 < S) g[i][cut[0] + 1] = 'D';
+
+        // 2. 줄눈 — 파인 선 하나에 아래쪽 빛받는 모서리 하나. 두 줄이 깊이를 만든다.
+        const seam = (x0, y0, dx, dy, len) => {
+          for (let i = 0; i < len; i++) {
+            for (let t = 0; t < J; t++) px(x0 + dx * i + dy * t, y0 + dy * i + dx * t, '1');
+            px(x0 + dx * i + dy * J, y0 + dy * i + dx * J, '5');
+          }
+        };
+        for (let ry = 0; ry < 4; ry++) seam(0, yPh + ry * RH, 1, 0, S);
+        for (const st of stones) seam(st.x, st.y, 0, 1, RH);
+
+        // 3. 갈라진 틈 — 판석 하나에만. 다 갈라지면 폐허가 아니라 지저분한 무늬가 된다.
+        if (H(41, 17) > .35) {
+          const st = stones[Math.floor(H(5, 9) * stones.length)];
+          let cx = st.x + 6 + H(3, 3) * Math.max(2, st.w - 14);
+          let cy = st.y + 5;
+          for (let i = 0; i < RH - 8; i++) {
+            px(cx, cy, 'k');
+            if (H(i, 21) > .55) px(cx + 1, cy, '2');
+            cx += H(i, 2) > .72 ? 1 : (H(i, 4) > .82 ? -1 : 0);
+            cy += 1;
+          }
         }
-        // 판석마다 살짝 다른 밝기 — 완전히 균일하면 바닥이 아니라 벽지가 된다
-        for (const [x0, y0, x1, y1, ch] of [
-          [0, 0, cut[0] - 1, cut[1] - 1, H(1, 1) > .5 ? 'B' : null],
-          [cut[0] + 2, cut[1] + 2, S - 1, S - 1, H(2, 2) > .5 ? 'B' : null],
-        ]) {
-          if (!ch) continue;
-          for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++)
-            if (g[y][x] === 'D' && H(x * 2, y * 2) > .93) g[y][x] = ch;
+
+        // 4. 이끼 — 줄눈에만 낀다. 물이 고이는 자리라 그렇고, 그래야 판석이 도드라진다.
+        for (let i = 0; i < 5; i++) {
+          if (H(i * 3 + 61, 7) < .45) continue;
+          const ry = Math.floor(H(i, 31) * 4);
+          const mx = Math.floor(H(i, 37) * S), my = yPh + ry * RH;
+          for (let k2 = 0; k2 < 7; k2++) {
+            const ox = Math.round(H(i * 9 + k2, 43) * 7) - 3;
+            const oy = Math.round(H(i * 9 + k2, 47) * 4) - 1;
+            px(mx + ox, my + oy, H(k2, 51) > .6 ? 'V' : 'v');
+          }
+        }
+
+        // 5. 잔돌 — 아주 드물게. 바닥이 완전히 평평하면 죽은 판이 된다.
+        for (let i = 0; i < 3; i++) {
+          if (H(i + 71, 13) < .62) continue;
+          const cx = Math.floor(H(i, 67) * S), cy = Math.floor(H(i, 73) * S);
+          px(cx, cy, 'R'); px(cx + 1, cy, 'r'); px(cx, cy + 1, 'r');
         }
         return g;
       },
 
-      /* 바닥 장식 — 투명 배경에 드문드문 얹는다.
-         금·자갈·풀·뼈. 타일을 네 종류 더 만드는 것보다 이쪽이 변화가 크다. */
+      /* 바닥 장식 — 투명 배경에 드문드문 얹는다(타일의 14% 정도).
+         타일을 네 종류 더 만드는 것보다 이쪽이 변화가 크다.
+
+         판을 128 로 올리면서 다시 그렸다. 예전 넷 중 '갈라진 금'은 뺐다 —
+         이제 판석 자체에 금이 가 있어서 겹친다.
+         대신 풀 · 꽃 · 자갈 무더기 · 뼈. 살아 있는 것과 부서진 것을 반씩 둔다. */
+      /* 바닥 장식. 판석 위에 드문드문(14%) 얹는다.
+
+         세 번 다시 그렸다. 매번 같은 실수를 했다 — 장식 하나를 '한 덩어리'로 그린 것이다.
+         화면에서 이 타일은 64px 이고 장식은 그 안에서 20px 남짓이다.
+         그 크기에서 덩어리는 형체를 못 갖는다. 이끼는 초록 손바닥이 됐고,
+         풀은 빗이 됐고, 뼈는 만화에 나오는 개 뼈다귀가 됐다.
+
+         그래서 규칙을 바꿨다 — 덩어리 하나 대신 작은 것 여럿을 흩는다.
+         멀리서는 '자국'으로 뭉쳐 보이고, 가까이서는 낱개가 보인다. 둘 다 맞다. */
       floordeco(f, S) {
         const g = mk(S);
         const H = (a, b) => {
@@ -262,38 +351,123 @@ const N = 4;                                   // 애니메이션 4프레임
           x = (x ^ (x >>> 13)) >>> 0;
           return x / 4294967296;
         };
-        if (f === 0) {                        // 갈라진 금
-          let x = 8, y = 10;
-          for (let i = 0; i < 46; i++) {
-            put(g, x, y, 'O'); put(g, x, y + 1, 'B');
-            x += H(i, 1) > .35 ? 1 : 0;
-            y += H(i, 2) > .6 ? 1 : (H(i, 3) > .82 ? -1 : 0);
-            if (x >= S - 2 || y >= S - 2 || y < 1) break;
+        const K = S / 64;                 // 예전 좌표계(64) 기준 배율
+        const T = Math.max(1, Math.round(K));
+
+        /* 잎 하나. 곧게 세우면 안 된다 — 곧은 선 여럿은 풀이 아니라 빗이다.
+           휘어야 풀이다. 그래서 각도를 주고 끝으로 갈수록 더 눕힌다. */
+        const blade = (cx, cy, ang, len, hi) => {
+          const N2 = 5;
+          let px1 = cx, py1 = cy;
+          for (let i = 1; i <= N2; i++) {
+            const t = i / N2;
+            const a2 = ang * (t * t * .6 + .4);          // 끝이 조금 더 눕는다
+            const x2 = cx + Math.sin(a2) * len * t, y2 = cy - Math.cos(a2) * len * t * .92;
+            line(g, px1, py1, x2, y2, hi && t > .5 ? 'V' : 'v', t > .6 ? 1 : T);
+            px1 = x2; py1 = y2;
           }
-        } else if (f === 1) {                 // 자갈
-          for (let i = 0; i < 9; i++) {
-            const cx = 6 + H(i, 5) * (S - 14), cy = 6 + H(i, 9) * (S - 14);
-            const r = 1.5 + H(i, 3) * 2;
-            ell(g, cx, cy, r, r * .8, 'D');
-            put(g, cx, cy - r, 'B');
-            for (let k = -r; k <= r; k++) put(g, cx + k, cy + r * .8 + 1, 'O');
+          return { x: px1, y: py1 };
+        };
+        /* 한 포기 = 한 점에서 부챗살로 퍼지는 잎 몇. 뿌리를 모아야 포기가 된다. */
+        const tuft = (cx, cy, n, sd, hi, sc = 1) => {
+          /* 부채를 넓게 펴면 야자수나 문어가 된다 — 실제로 두 번 다 그렇게 나왔다.
+             풀은 거의 곧게 서 있고 끝만 살짝 눕는다. ±30° 안쪽이 그 경계였다. */
+          const fan = .32 + H(sd, 41) * .22;
+          const ends = [];
+          for (let k = 0; k < n; k++) {
+            const t = n === 1 ? 0 : k / (n - 1) - .5;
+            const ang = t * 2 * fan + (H(sd * 7 + k, 3) - .5) * .22;
+            const len = (7 + (1 - Math.abs(t)) * 3 + H(sd * 7 + k, 5) * 3) * K * sc;
+            ends.push(blade(cx + t * 2 * K, cy, ang, len, hi));
           }
-        } else if (f === 2) {                 // 풀포기
-          for (let i = 0; i < 5; i++) {
-            const cx = 10 + H(i, 7) * (S - 20), cy = 16 + H(i, 11) * (S - 26);
-            for (let k = -2; k <= 2; k++) {
-              const hgt = 5 + H(i * 5 + k, 2) * 7;
-              line(g, cx + k * 2, cy, cx + k * 2 + (k > 0 ? 2 : -2), cy - hgt, k === 0 ? 'B' : 'D', 1);
+          return ends;
+        };
+        /* 얼룩 — 낱알을 흩는다. 타원 하나로 칠하면 물감 자국이 된다.
+           극좌표(각도+반지름)로 흩었더니 낱알이 초승달 모양으로 줄을 섰다 —
+           이 해시는 k 를 일정하게 올리면 각도도 같이 흐른다. 그래서 정사각형 안에
+           x·y 를 따로 뽑고 원 밖이면 버린다. 축마다 씨앗을 달리 줘야 상관이 안 생긴다. */
+        const speck = (cx, cy, rx, ry, n, ch, sd) => {
+          for (let k = 0, put = 0; k < n * 4 && put < n; k++) {
+            const u = H(sd * 131 + k * 7, 29) * 2 - 1, w2 = H(sd * 197 + k * 13, 71) * 2 - 1;
+            if (u * u + w2 * w2 > 1) continue;
+            put++;
+            const x2 = cx + u * rx, y2 = cy + w2 * ry;
+            rect(g, x2, y2, x2 + (H(sd * 53 + k, 11) > .6 ? T : 0), y2, ch);
+          }
+        };
+
+        /* 자리 잡기. 무작위 좌표로 두면 세 개가 겹쳐 한 덩어리가 된다 —
+           이끼는 초록 반달이 됐고 뼈 셋은 겹쳐서 화살촉이 됐다.
+           그래서 사분면을 하나씩 나눠 주고 그 안에서만 흔든다. */
+        const QUAD = [[.27, .27], [.73, .29], [.29, .73], [.71, .71]];
+        const spot = (i, sd) => {
+          const q = QUAD[(i + Math.floor(H(sd, 61) * 4)) % 4];
+          return [(q[0] + (H(i, 43) - .5) * .16) * S, (q[1] + (H(i, 47) - .5) * .16) * S];
+        };
+
+        if (f === 0) {                    // 이끼 — 실루엣이 아예 없어야 한다. 자국뿐.
+          for (let i = 0; i < 3; i++) {
+            const [cx, cy] = spot(i, 1);
+            /* 낱알을 촘촘히 두면 결국 색칠한 타원이 되고, 너무 흩으면 아예 안 보인다.
+               한 번씩 다 겪었다. 지금은 '얼룩이 주인공, 싹은 곁들이'로 잡았다 —
+               그래야 1번(풀 포기)과 구별된다. 둘 다 잎이 주인공이면 같은 그림이다. */
+            speck(cx, cy, 15 * K, 5 * K, 34, 'v', i);
+            speck(cx, cy - 1.5 * K, 9 * K, 3 * K, 14, 'V', i + 3);
+            tuft(cx + (H(i, 19) - .5) * 9 * K, cy + 1 * K, 2, i, true, .5);   // 아주 짧은 싹
+          }
+        } else if (f === 1) {             // 풀 포기 몇 + 바랜 꽃
+          for (let i = 0; i < 3; i++) {
+            const [cx, cy] = spot(i, 2);
+            const big = i === 0;
+            speck(cx, cy, 5 * K, 2 * K, 6, 'v', i + 7);
+            const ends = tuft(cx, cy, big ? 5 : 3, i + 2, true);
+            if (big) for (let k = 0; k < 2; k++) {      // 꽃은 잎 끝에 앉힌다
+              const e = ends[Math.floor(H(k, 29) * ends.length)];
+              rect(g, e.x - T + 1, e.y - T + 1, e.x, e.y, H(k, 23) > .45 ? 'p' : 'P');
             }
           }
-        } else {                              // 흩어진 뼈
-          for (let i = 0; i < 3; i++) {
-            const cx = 12 + H(i, 4) * (S - 24), cy = 12 + H(i, 8) * (S - 24);
-            const a = H(i, 6) * Math.PI;
-            const dx = Math.cos(a) * 7, dy = Math.sin(a) * 7;
-            line(g, cx - dx, cy - dy, cx + dx, cy + dy, 'B', 2);
-            ell(g, cx - dx, cy - dy, 2, 2, 'B');
-            ell(g, cx + dx, cy + dy, 2, 2, 'B');
+        } else if (f === 2) {             // 돌부스러기 — 판석이 깨져 흩어진 것
+          /* 여기서 두 번 틀렸다. 각도를 균등하게 나눴더니 고리가 보였고,
+             칸을 나눠 한 칸에 하나씩 두었더니 이번엔 벽돌을 줄 맞춰 쌓은 것이 됐다.
+             조각은 한 무더기만, 줄을 어긋내고 크기를 제각각으로 둔다. */
+          const [gx, gy] = spot(0, 4);
+          for (let k = 0; k < 7; k++) {
+            if (H(k, 53) < .15) continue;
+            const row = k % 3;
+            const cx = gx + ((k / 3 | 0) - 1) * 9 * K + (H(k, 3) - .5) * 8 * K + row * 3 * K;
+            const cy = gy + (row - 1) * 7 * K + (H(k, 7) - .5) * 6 * K;
+            const w2 = (1 + H(k, 13) * 1.5) * K, h2 = (.6 + H(k, 17) * 1.1) * K;
+            rect(g, cx - w2, cy + h2, cx + w2, cy + h2 + T - 1, 'k');   // 바닥에 닿은 자리
+            rect(g, cx - w2, cy - h2, cx + w2, cy + h2, 'r');
+            rect(g, cx - w2, cy - h2, cx + w2 - T, cy - h2 + T - 1, 'R');
+          }
+          speck(gx, gy, 17 * K, 12 * K, 16, 'r', 11);   // 잔모래
+        } else {                          // 뼈 — 가늘게 흩어진 것. 두개골은 작게 하나.
+          /* 뼈와 두개골이 붙으면 열쇠가 된다(그렇게 나왔다). 사분면을 나눠 두면
+             그런 일이 없다 — 두개골이 0번, 뼈가 1·2·3번을 쓴다. */
+          const skull = H(9, 9) > .45;
+          for (let i = 1; i <= 3; i++) {
+            const [cx, cy] = spot(i, 0);
+            const a2 = H(i, 6) * Math.PI;
+            const L = (3.6 + H(i, 12) * 2.8) * K;
+            const dx = Math.cos(a2) * L, dy = Math.sin(a2) * L;
+            const nx = -Math.sin(a2), ny = Math.cos(a2);
+            /* 그림자를 뼈보다 굵게 그으면 뼈가 아니라 망치 자루가 된다 — 그렇게 나왔었다. */
+            line(g, cx - dx, cy - dy + T, cx + dx, cy + dy + T, 'k', 1);       // 그림자
+            line(g, cx - dx, cy - dy, cx + dx, cy + dy, 'n', T);
+            line(g, cx - dx - nx * .7 * K, cy - dy - ny * .7 * K,
+                    cx + dx - nx * .7 * K, cy + dy - ny * .7 * K, 'N', 1);     // 윗면 광
+            for (const sg of [-1, 1])     // 마디 한 알 — 두 알을 달면 개 뼈다귀가 된다
+              ell(g, cx + dx * sg, cy + dy * sg, 1.2 * K, 1.2 * K, 'n');
+          }
+          if (skull) {
+            const [cx, cy] = spot(0, 0);
+            ell(g, cx, cy + T, 3.4 * K, 2.6 * K, 'k');
+            ell(g, cx, cy, 3.4 * K, 3 * K, 'n');
+            ell(g, cx - .8 * K, cy - 1 * K, 1.2 * K, .8 * K, 'N');
+            rect(g, cx - 2 * K, cy - .2 * K, cx - 1 * K, cy + .7 * K, 'O');
+            rect(g, cx + 1 * K, cy - .2 * K, cx + 2 * K, cy + .7 * K, 'O');
+            rect(g, cx - 1.2 * K, cy + 2.2 * K, cx + 1.2 * K, cy + 2.9 * K, 'n');
           }
         }
         return g;
@@ -631,6 +805,24 @@ const N = 4;                                   // 애니메이션 4프레임
         M: '#d9dee9', m: '#8d94a8',                 // 강철 · 강철 그늘
         L: '#6d4c33', l: '#452e1f',                 // 가죽 · 가죽 그늘
         W: '#ffffff',
+        /* 바닥용 밝기 단계. 판석마다 톤이 조금씩 달라야 '바닥'이지,
+           한 톤이면 벽지가 된다. 폭은 좁게 잡는다 —
+           대비를 세우면 바닥이 TV 노이즈가 되어 그 위의 몬스터와 싸운다(예전에 실제로 그랬다). */
+        k: toHex(mix(base, [0, 0, 0], .45)),        // 갈라진 틈 — 가장 깊다
+        1: toHex(mix(base, [0, 0, 0], .30)),        // 줄눈
+        2: toHex(mix(base, [0, 0, 0], .10)),
+        3: def.color,
+        4: toHex(mix(base, [255, 255, 255], .055)),
+        5: toHex(mix(base, [255, 255, 255], .13)),  // 줄눈 아래 빛받는 모서리
+        /* 바닥 장식용. 여기서 한 번 크게 틀렸다 — 풀을 '풀색'(#4a6b3a)으로,
+           꽃을 흰색으로 칠했더니 어두운 남색 바닥 위에서 형광 얼룩이 됐다.
+           바닥 밝기가 28 언저리인데 풀 끝이 95 였다. 3배가 넘으면 장식이 아니라 표적이다.
+           그래서 전부 바닥 밝기의 2배 안으로 눌렀다. 채도도 같이 내렸다 —
+           이 게임에서 채도가 높은 것은 몬스터와 이펙트뿐이어야 한다. */
+        v: '#313f24', V: '#46592a',                 // 이끼 뿌리 · 잎 끝
+        r: '#353341', R: '#494551',                 // 돌부스러기 (바닥과 같은 계열)
+        n: '#4d4a41', N: '#5f5b4e',                 // 뼈 · 뼈 마디
+        p: '#7a6a48', P: '#5f4d63',                 // 꽃 — 바랜 금빛 · 바랜 자주
       };
       for (let f = 0; f < N; f++) {
         CURK = raw ? 1 : SCALE;

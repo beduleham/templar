@@ -4304,12 +4304,18 @@ function drawWorld() {
     /* 지형은 전부 격자 렌더다. arc / stroke / 다각형 fill 을 쓰면
        그 지형만 가장자리가 부드러워져 주변의 픽셀과 어긋난다.
        색은 세 겹으로 쓴다 — 겉(어두움) · 몸통 · 윗면(밝음). 위에서 빛이 온다. */
-    const C = pxPal(o.K.color);
+    /* 톤은 다섯 단계다. 예전엔 세 단계(겉·몸통·윗면)뿐이라 지형이 전부 평면이었다 —
+       스프라이트를 64·128칸으로 올리고 나니 그 차이가 눈에 띄게 벌어졌다.
+       빛은 스프라이트와 같은 방향(왼쪽 위)에서 온다. 어긋나면 빛이 두 개로 보인다. */
+    const deep = mixHex(o.K.color, "#0d0d16", .74);
     const dark = mixHex(o.K.color, "#0d0d16", .5);
+    const mid  = mixHex(o.K.color, "#0d0d16", .22);
     const lit  = mixHex(o.K.color, "#ffffff", .28);
-    const blob = (n, jitter, squash, col) => {
+    const hot  = mixHex(o.K.color, "#ffffff", .55);
+    const BONE = "#ded2b4", BONE_D = "#9d8c6f";       // 중립색 — 한 지형에 한 군데만
+    const blob = (n, jitter, squash, col, ox, oy, rr) => {
       ctx.fillStyle = col; ctx.beginPath();
-      pxBlob(sx, sy, o.r, n, jitter, squash, Math.floor(o.x));
+      pxBlob(sx + (ox || 0), sy + (oy || 0), rr || o.r, n, jitter, squash, Math.floor(o.x));
       ctx.fill();
     };
     const rects = (col, list) => {
@@ -4317,124 +4323,261 @@ function drawWorld() {
       for (const [x, y, w, h] of list) pxR(sx + x, sy + y, w, h);
       ctx.fill();
     };
+    const lines = (col, list) => {
+      ctx.fillStyle = col; ctx.beginPath();
+      for (const [x0, y0, x1, y1, t] of list) pxLineQ(sx + x0, sy + y0, sx + x1, sy + y1, t);
+      ctx.fill();
+    };
+    const rnd = k => hash2(Math.floor(o.x) + k * 37, Math.floor(o.y) + k * 91);
 
     if (o.kind === "pillar") {
-      // 신전 기둥 — 세로로 길고, 발사체를 막는다
-      const h = o.r * 2.6;
-      rects(o.K.color, [[-o.r * .52, -h, o.r * 1.04, h]]);
-      rects(lit, [[-o.r * .72, -h - 9, o.r * 1.44, 11], [-o.r * .72, -7, o.r * 1.44, 10]]);
-      rects(dark, [[-o.r * .3, -h + 5, PIX, h - 14], [o.r * .22, -h + 5, PIX, h - 14]]);
-    } else if (o.kind === "ruin") {
-      // 폐허 — 덩어리로 그렸더니 웅덩이로 보였다. 무너진 '벽'이라야 폐허다.
-      blob(9, .22, .34, dark);                                  // 잔해가 깔린 바닥
-      const wall = [], top = [];
-      for (let i = 0; i < 5; i++) {
-        const w = o.r * .34, x = -o.r * .82 + i * o.r * .41;
-        const h = o.r * (.55 + hash2(i * 7 + 1, Math.floor(o.x)) * 1.15);   // 높이가 들쭉날쭉
-        wall.push([x, -h, w, h + o.r * .18]);
-        top.push([x, -h, w, PIX * 2]);                          // 부러진 윗면
+      /* 신전 기둥 — 세로로 길고, 발사체를 막는다.
+         원통은 '왼쪽 밝음 → 오른쪽 어두움' 한 줄만 넣어도 둥글게 선다. */
+      const h = o.r * 2.6, w = o.r * .52;
+      rects(mid, [[-w, -h, w * 2, h]]);
+      rects(lit, [[-w, -h, w * .7, h]]);                         // 빛 받는 면
+      rects(dark, [[w * .42, -h, w * .58, h]]);                  // 그늘 면
+      rects(deep, [[w * .86, -h, w * .14, h]]);
+      for (let i = -2; i <= 2; i++)                              // 홈
+        rects(i < 0 ? mid : deep, [[i * w * .34, -h + o.r * .2, PIX, h - o.r * .4]]);
+      for (const [yy, hh] of [[-h - o.r * .3, o.r * .34], [-o.r * .28, o.r * .34]]) {
+        rects(mid, [[-w * 1.4, yy, w * 2.8, hh]]);               // 주두·주초
+        rects(hot, [[-w * 1.4, yy, w * 2.8, PIX]]);
+        rects(deep, [[-w * 1.4, yy + hh - PIX, w * 2.8, PIX]]);
       }
-      rects(o.K.color, wall);
-      rects(lit, top);
-      rects(dark, [[-o.r * .2, -o.r * .8, o.r * .4, o.r * .8]]);  // 무너진 입구
+      if (rnd(3) > .6) rects(deep, [[-w * .2, -h * .7, PIX, h * .3]]);   // 금
+    } else if (o.kind === "ruin") {
+      /* 폐허 — 두 번 틀렸다. 덩어리로 그렸더니 웅덩이가 됐고,
+         높이가 다른 기둥 다섯을 세웠더니 도시 스카이라인이 됐다.
+         폐허는 '무너진 벽'이다 — 낮은 바닥벽 + 아치 문 + 부서진 윗단. */
+      blob(9, .22, .34, deep, 0, o.r * .1, o.r * 1.02);           // 잔해가 깔린 바닥
+      const W2 = o.r * .92, H2 = o.r * 1.15;
+      rects(mid, [[-W2, -H2, W2 * 2, H2 + o.r * .12]]);           // 벽 몸통
+      rects(lit, [[-W2, -H2, W2 * .5, H2 + o.r * .12]]);
+      rects(dark, [[W2 * .35, -H2, W2 * .65, H2 + o.r * .12]]);
+      const rows = Math.max(3, Math.round(o.r / 14));             // 돌 켜
+      for (let i = 1; i < rows; i++) {
+        const y = -H2 + i * (H2 + o.r * .12) / rows;
+        rects(deep, [[-W2, y, W2 * 2, PIX]]);
+        for (let k = -2; k <= 2; k++)
+          rects(deep, [[k * W2 * .5 + (i % 2) * W2 * .25, y, PIX, (H2 + o.r * .12) / rows]]);
+      }
+      // 아치 문 — 이것 하나로 '건물이었던 것'이 된다
+      const aw = W2 * .34, ah = H2 * .72;
+      ctx.fillStyle = "#0b0b12"; ctx.beginPath();
+      pxR(sx - aw, sy - ah + aw, aw * 2, ah - aw + o.r * .12);
+      pxEllipse(sx, sy - ah + aw, aw, aw);
+      ctx.fill();
+      // 부서진 윗단 — 이가 빠진 것처럼
+      for (let i = -3; i <= 3; i++) {
+        const d = (rnd(i + 9) * .5 + .15) * o.r;
+        rects(mid, [[i * W2 * .29 - W2 * .13, -H2 - d, W2 * .26, d]]);
+        rects(hot, [[i * W2 * .29 - W2 * .13, -H2 - d, W2 * .26, PIX]]);
+      }
+      for (let i = 0; i < 4; i++)                                 // 발치의 돌덩이
+        blob(6, .3, .8, dark, (rnd(i) - .5) * o.r * 2.1, o.r * (.05 + rnd(i + 4) * .12),
+             o.r * (.09 + rnd(i + 7) * .07));
     } else if (o.kind === "crystal") {
-      // 수정 기둥 — 마법을 튕겨낸다. 빛나게 그려서 다르다는 걸 알린다
+      /* 수정 기둥 — 마법을 튕겨낸다. 물방울 하나로 두면 물방울로 보인다.
+         면을 갈라야 수정이다 — 왼쪽 면은 밝고 오른쪽 면은 어둡다. */
       const f = clamp(o.st.hp / o.st.max, 0, 1);
       const pulse = .5 + Math.sin(Game.time * 2.6 + o.seed * 9) * .25;
-      ctx.globalAlpha = .22 * pulse;
+      ctx.globalAlpha = .2 * pulse;
       ctx.fillStyle = o.K.color; ctx.beginPath();
-      pxEllipse(sx, sy - o.r * .5, o.r * 1.6, o.r * 1.6); ctx.fill();
+      pxEllipse(sx, sy - o.r * .5, o.r * 1.7, o.r * 1.7); ctx.fill();
       ctx.globalAlpha = 1;
-      // 마름모 기둥을 가로줄로 쌓는다
-      ctx.fillStyle = f > .5 ? o.K.color : mixHex(o.K.color, "#0d0d16", .28);
-      ctx.beginPath();
-      const top = -o.r * 2.1, bot = o.r * .3;
-      for (let y = top; y <= bot; y += PIX) {
-        const u = (y - top) / (bot - top);
-        const w = o.r * (u < .72 ? .06 + u * .78 : .62 - (u - .72) * 1.1);
-        pxR(sx - w, sy + y, w * 2, PIX);
-      }
-      ctx.fill();
-      rects(mixHex(o.K.color, "#ffffff", .55), [[-o.r * .18, -o.r * 1.6, PIX, o.r * 1.5]]);
+      const body = f > .5 ? mid : dark, face = f > .5 ? hot : lit;
+      const shard = (ox, hh, ww, tilt) => {
+        const top = -hh, bot = o.r * .28;
+        ctx.fillStyle = body; ctx.beginPath();
+        for (let y = top; y <= bot; y += PIX) {
+          const u = (y - top) / (bot - top);
+          const w = ww * (u < .74 ? .1 + u * 1.2 : .99 - (u - .74) * 1.4);
+          pxR(sx + ox + tilt * (1 - u) - w, sy + y, w * 2, PIX);
+        }
+        ctx.fill();
+        ctx.fillStyle = face; ctx.beginPath();                    // 왼쪽 면
+        for (let y = top; y <= bot; y += PIX) {
+          const u = (y - top) / (bot - top);
+          const w = ww * (u < .74 ? .1 + u * 1.2 : .99 - (u - .74) * 1.4);
+          pxR(sx + ox + tilt * (1 - u) - w, sy + y, w * .8, PIX);
+        }
+        ctx.fill();
+        ctx.fillStyle = deep; ctx.beginPath();                    // 오른쪽 그늘 면
+        for (let y = top + hh * .1; y <= bot; y += PIX) {
+          const u = (y - top) / (bot - top);
+          const w = ww * (u < .74 ? .1 + u * 1.2 : .99 - (u - .74) * 1.4);
+          pxR(sx + ox + tilt * (1 - u) + w * .5, sy + y, w * .5, PIX);
+        }
+        ctx.fill();
+      };
+      shard(-o.r * .52, o.r * 1.35, o.r * .3, -o.r * .18);        // 곁가지 둘
+      shard(o.r * .5, o.r * 1.05, o.r * .26, o.r * .16);
+      shard(0, o.r * 2.15, o.r * .44, 0);                          // 중심
+      rects(hot, [[-o.r * .1, -o.r * 1.9, PIX, o.r * 1.4]]);       // 심지
+      ctx.globalAlpha = .8 * pulse;
+      rects("#ffffff", [[-o.r * .1, -o.r * 1.86, PIX, o.r * .5]]);
+      ctx.globalAlpha = 1;
     } else if (o.kind === "thorn") {
-      // 가시덤불 — 막지 않으므로 낮고 성기게 그린다
+      /* 가시덤불 — 막지 않으므로 낮게. 다만 '가시'가 보여야 아프게 생겼다.
+         예전엔 초록 매트에 잔가지를 얹은 것이라 이끼로 보였다. */
       const f = clamp(o.st.hp / o.st.max, 0, 1);
-      blob(9, .5, .5, f > .5 ? o.K.color : "#54502c");
-      const sp = [];
-      for (let i = 0; i < 11; i++) {
-        const a = i / 11 * TAU + o.seed * 4;
-        sp.push([Math.cos(a) * o.r * .3, Math.sin(a) * o.r * .18,
-                 Math.cos(a) * o.r * .95, Math.sin(a) * o.r * .5]);
-      }
-      ctx.fillStyle = lit; ctx.beginPath();
-      for (const [x0, y0, x1, y1] of sp) pxLineQ(sx + x0, sy + y0, sx + x1, sy + y1, PIX);
-      ctx.fill();
-    } else if (o.kind === "tree") {
-      // 고목 — 세로로 크고 가지가 벌어진다
-      const f = clamp(o.st.hp / o.st.max, 0, 1);
-      const h = o.r * 2.2;
-      ctx.fillStyle = f > .4 ? o.K.color : lit;
-      ctx.beginPath();
-      pxR(sx - o.r * .21, sy - h, o.r * .42, h);
-      for (let i = 0; i < 5; i++) {
-        const a = -Math.PI / 2 + (i - 2) * .5 + o.seed;
-        pxLineQ(sx, sy - h * .62, sx + Math.cos(a) * o.r * 1.25, sy - h * .62 + Math.sin(a) * o.r * 1.25, o.r * .2);
-      }
-      ctx.fill();
-      rects(dark, [[-o.r * .21, -h, PIX, h]]);      // 결
-    } else if (o.kind === "statue") {
-      // 석상 — 받침 위의 인영
-      rects(dark, [[-o.r * .9, -o.r * .28, o.r * 1.8, o.r * .5]]);          // 받침
-      rects(lit, [[-o.r * .9, -o.r * .28, o.r * 1.8, PIX * 2]]);
-      rects(o.K.color, [
-        [-o.r * .38, -o.r * 1.75, o.r * .76, o.r * 1.5],                     // 몸통
-        [-o.r * .82, -o.r * 1.5, o.r * .3, o.r * .16],                       // 벌린 팔
-        [o.r * .52, -o.r * 1.5, o.r * .3, o.r * .16],
-        [-o.r * .2, -o.r * 2.05, o.r * .4, o.r * .34],                       // 목·머리
-      ]);
-      rects(lit, [[-o.r * .38, -o.r * 1.75, o.r * .76, PIX * 2]]);
-      rects(dark, [[-o.r * .06, -o.r * 1.6, o.r * .12, o.r * 1.2]]);         // 옷 주름
-    } else if (o.kind === "bones") {
-      // 거대 유해 — 갈비뼈. 발사체는 사이로 지나간다
-      ctx.fillStyle = o.K.color; ctx.beginPath();
-      pxLineQ(sx - o.r * .9, sy + o.r * .3, sx + o.r * .9, sy - o.r * .1, Math.max(PIX, o.r * .13));
-      for (let i = 0; i < 6; i++) {
-        const px2 = sx - o.r * .8 + i * o.r * .32, py2 = sy + o.r * .28 - i * o.r * .07;
-        // 갈비 — 점을 띄엄띄엄 찍으니 뼈가 아니라 부스러기로 보였다. 촘촘히 잇는다.
-        const steps = Math.max(10, Math.ceil(o.r * .52 * 2.2 / PIX));
-        for (let k = 0; k <= steps; k++) {
-          const a = Math.PI * (.15 + .7 * k / steps);
-          pxR(px2 + Math.cos(a) * o.r * .52 - PIX, py2 - o.r * .5 + Math.sin(a) * o.r * .52 - PIX,
-              PIX * 2, PIX * 2);
+      const base = f > .5 ? mid : "#4a4626";
+      blob(9, .5, .5, deep, 0, o.r * .06, o.r * 1.02);
+      blob(9, .5, .5, base);
+      const br = [], tip = [];
+      for (let i = 0; i < 9; i++) {                                // 얽힌 줄기
+        const a = i / 9 * TAU + o.seed * 4;
+        const a2 = a + .5 + rnd(i) * .6;
+        const x0 = Math.cos(a) * o.r * .22, y0 = Math.sin(a) * o.r * .13;
+        const x1 = Math.cos(a2) * o.r * .8, y1 = Math.sin(a2) * o.r * .44;
+        br.push([x0, y0, x1, y1, PIX]);
+        for (let k = 0; k < 3; k++) {                              // 줄기에 돋은 가시
+          const t = .35 + k * .25;
+          const px2 = x0 + (x1 - x0) * t, py2 = y0 + (y1 - y0) * t;
+          const s2 = k % 2 ? 1 : -1;
+          tip.push([px2, py2, px2 - (y1 - y0) * .22 * s2, py2 + (x1 - x0) * .22 * s2, PIX]);
         }
       }
-      pxEllipse(sx + o.r, sy - o.r * .16, o.r * .34, o.r * .34);
+      lines(deep, br);
+      lines(f > .5 ? lit : mid, tip);
+      for (let i = 0; i < 4; i++)                                  // 열매 몇 — 붉은 점
+        rects("#8a2a3a", [[Math.cos(i * 1.9 + o.seed * 5) * o.r * .5 - PIX,
+                           Math.sin(i * 1.9 + o.seed * 5) * o.r * .28 - PIX, PIX * 2, PIX * 2]]);
+    } else if (o.kind === "tree") {
+      /* 고목 — 가지가 한쪽으로만 뻗어 '갈퀴'로 보였다. 양쪽으로 벌리고
+         뿌리와 옹이를 넣는다. 죽은 나무라 잎은 없다. */
+      const f = clamp(o.st.hp / o.st.max, 0, 1);
+      const h = o.r * 2.3, tw = o.r * .24;
+      const body = f > .4 ? mid : dark;
+      for (let i = 0; i < 5; i++) {                                // 뿌리
+        const a = Math.PI * (.12 + i * .19);
+        lines(dark, [[0, -o.r * .1, Math.cos(a) * o.r * .95, o.r * .28, o.r * .1]]);
+      }
+      const bb = [];
+      for (let i = 0; i < 6; i++) {                                // 가지 — 양쪽으로
+        const s2 = i % 2 ? 1 : -1;
+        const yy = -h * (.5 + i * .085);
+        const a = -Math.PI / 2 + s2 * (.85 + rnd(i) * .5);
+        const L = o.r * (.8 + rnd(i + 3) * .55);
+        const ex = Math.cos(a) * L, ey = yy + Math.sin(a) * L * .6;
+        bb.push([s2 * tw * .5, yy, ex, ey, Math.max(PIX, o.r * .1)]);
+        bb.push([ex, ey, ex + Math.cos(a - s2 * .7) * L * .4,
+                 ey + Math.sin(a - s2 * .7) * L * .3, PIX]);       // 잔가지
+      }
+      lines(body, bb);
+      rects(body, [[-tw, -h, tw * 2, h + o.r * .2]]);              // 줄기
+      rects(f > .4 ? lit : mid, [[-tw, -h, tw * .8, h + o.r * .2]]);
+      rects(deep, [[tw * .3, -h, tw * .7, h + o.r * .2]]);
+      for (let i = 0; i < 3; i++)                                  // 옹이
+        rects(deep, [[-tw * .4, -h * (.25 + i * .26), tw * .8, PIX * 2]]);
+      ctx.fillStyle = "#0b0b12"; ctx.beginPath();                  // 구멍
+      pxEllipse(sx - tw * .1, sy - h * .38, tw * .5, tw * .8); ctx.fill();
+      if (rnd(5) > .55) {                                          // 가끔 걸려 있는 뼈
+        rects(BONE_D, [[tw * 1.1, -h * .52, o.r * .28, PIX]]);
+        rects(BONE, [[tw * 1.1, -h * .52 - PIX, o.r * .28, PIX]]);
+      }
+    } else if (o.kind === "statue") {
+      /* 석상 — 받침 위의 인영. 예전엔 네모 셋이라 소화전으로 보였다.
+         두건과 모아 쥔 손을 넣으면 사람으로 읽힌다. */
+      const R = o.r;
+      rects(deep, [[-R * .95, -R * .3, R * 1.9, R * .56]]);        // 받침
+      rects(mid, [[-R * .88, -R * .3, R * 1.76, R * .46]]);
+      rects(hot, [[-R * .88, -R * .3, R * 1.76, PIX]]);
+      rects(deep, [[-R * .88, -R * .3 + R * .46 - PIX, R * 1.76, PIX]]);
+      for (let y = -R * 1.72; y <= -R * .3; y += PIX) {            // 아래로 퍼지는 옷
+        const u = (y + R * 1.72) / (R * 1.42);
+        const w = R * (.42 + u * u * .3);                          // 가늘면 받침에 꽂힌 칼로 보인다
+        rects(mid, [[-w, y, w * 2, PIX]]);
+        rects(lit, [[-w, y, w * .55, PIX]]);
+        rects(deep, [[w * .55, y, w * .45, PIX]]);
+      }
+      for (const t of [-.4, .25])                                  // 옷 주름
+        rects(deep, [[R * .45 * t, -R * 1.5, PIX, R * 1.15]]);
+      rects(deep, [[-R * .62, -R * 1.52, R * .3, R * .54]]);       // 모아 쥔 팔
+      rects(mid, [[-R * .6, -R * 1.5, R * .26, R * .5]]);
+      rects(lit, [[-R * .6, -R * 1.5, R * .1, R * .5]]);
+      rects(deep, [[R * .32, -R * 1.52, R * .3, R * .54]]);
+      rects(mid, [[R * .34, -R * 1.5, R * .26, R * .5]]);
+      rects(deep, [[-R * .34, -R * 2.06, R * .68, R * .5]]);       // 두건 쓴 머리
+      rects(mid, [[-R * .31, -R * 2.02, R * .62, R * .44]]);
+      rects(lit, [[-R * .31, -R * 2.02, R * .2, R * .44]]);
+      rects("#0b0b12", [[-R * .2, -R * 1.88, R * .4, R * .18]]);   // 두건 안 — 얼굴이 없다
+      rects(hot, [[-R * .34, -R * 2.06, R * .68, PIX]]);
+      if (rnd(2) > .5) {                                           // 깨진 모서리
+        rects("#0b0b12", [[R * .1, -R * 2.02, R * .16, R * .2]]);
+        rects("#3a4a2c", [[-R * .5, -R * .5, R * .3, PIX * 2]]);   // 이끼
+      }
+    } else if (o.kind === "bones") {
+      /* 거대 유해 — 갈비뼈. 발사체는 사이로 지나간다.
+         유일한 중립색 지형이라 뼈 톤을 직접 쓴다. */
+      const R = o.r;
+      ctx.fillStyle = BONE_D; ctx.beginPath();                     // 척추 — 그늘 먼저
+      pxLineQ(sx - R * .9, sy + R * .34, sx + R * .9, sy - R * .06, Math.max(PIX, R * .14));
       ctx.fill();
+      ctx.fillStyle = BONE; ctx.beginPath();
+      pxLineQ(sx - R * .9, sy + R * .3, sx + R * .9, sy - R * .1, Math.max(PIX, R * .1));
+      ctx.fill();
+      for (let i = 0; i < 6; i++) {
+        const px2 = -R * .8 + i * R * .32, py2 = R * .28 - i * R * .07;
+        const steps = Math.max(10, Math.ceil(R * .52 * 2.2 / PIX));
+        for (const [col, dy] of [[BONE_D, PIX], [BONE, 0]]) {
+          ctx.fillStyle = col; ctx.beginPath();
+          for (let k = 0; k <= steps; k++) {
+            const a = Math.PI * (.15 + .7 * k / steps);
+            pxR(sx + px2 + Math.cos(a) * R * .52 - PIX,
+                sy + py2 - R * .5 + Math.sin(a) * R * .52 - PIX + dy, PIX * 2, PIX * 2);
+          }
+          ctx.fill();
+        }
+      }
+      ctx.fillStyle = BONE_D; ctx.beginPath();                     // 두개골
+      pxEllipse(sx + R, sy - R * .12, R * .36, R * .36); ctx.fill();
+      ctx.fillStyle = BONE; ctx.beginPath();
+      pxEllipse(sx + R * .98, sy - R * .18, R * .32, R * .3); ctx.fill();
+      rects("#0b0b12", [[R * .86, -R * .2, R * .1, R * .12], [R * 1.06, -R * .2, R * .1, R * .12]]);
+      rects(BONE, [[R * .88, -R * .02, R * .26, PIX]]);            // 이빨줄
     } else if (o.kind === "obelisk") {
-      // 첨탑 — 가장 높다. 멀리서도 위치를 잡는 이정표
+      /* 첨탑 — 가장 높다. 멀리서도 위치를 잡는 이정표.
+         네모 기둥이라 '왼쪽 면 · 오른쪽 면'을 나눠야 서 있는 것으로 보인다. */
       const h = o.r * 4.2;
-      ctx.fillStyle = o.K.color; ctx.beginPath();
       for (let y = -h; y <= 0; y += PIX) {
         const u = (y + h) / h;
         const w = o.r * (.26 + u * .24);
-        pxR(sx - w, sy + y, w * 2, PIX);
+        rects(mid, [[-w, y, w * 2, PIX]]);
+        rects(lit, [[-w, y, w * .62, PIX]]);
+        rects(deep, [[w * .38, y, w * .62, PIX]]);
       }
-      ctx.fill();
-      rects(dark, [[-o.r * .26, -h, PIX, h]]);
+      const tw = o.r * .26;                                         // 뾰족한 꼭대기
+      for (let i = 0; i < 8; i++) {
+        const w = tw * (1 - i / 8);
+        rects(mid, [[-w, -h - o.r * .5 + i * o.r * .0625, w * 2, PIX]]);
+        rects(lit, [[-w, -h - o.r * .5 + i * o.r * .0625, w * .6, PIX]]);
+      }
+      rects(deep, [[-o.r * .5, -o.r * .1, o.r, o.r * .18]]);        // 받침
+      rects(mid, [[-o.r * .46, -o.r * .12, o.r * .92, o.r * .16]]);
       ctx.globalAlpha = .5 + Math.sin(Game.time * 1.8 + o.seed * 7) * .3;
-      const gl = [];
-      for (let i = 1; i <= 3; i++) gl.push([-o.r * .16, -h * (i / 4), o.r * .32, PIX]);
+      const gl = [];                                                // 새겨진 룬
+      for (let i = 1; i <= 4; i++) {
+        gl.push([-o.r * .12, -h * (i / 5), o.r * .24, PIX]);
+        gl.push([-o.r * .05, -h * (i / 5) + PIX, o.r * .1, PIX]);
+      }
       rects("#c9a3ff", gl);
       ctx.globalAlpha = 1;
     } else if (o.kind === "brazier") {
       // 화톳불 — 적을 태운다. 불꽃이 살아 움직여야 '켜져 있다'가 읽힌다
-      ctx.fillStyle = "#4a4450"; ctx.beginPath();
       for (let y = -o.r * .15; y <= o.r * .35; y += PIX) {
         const u = (y + o.r * .15) / (o.r * .5);
         const w = o.r * (.45 + u * .25);
-        pxR(sx - w, sy + y, w * 2, PIX);
+        rects("#4a4450", [[-w, y, w * 2, PIX]]);
+        rects("#6a6478", [[-w, y, w * .4, PIX]]);
+        rects("#2c2a34", [[w * .55, y, w * .45, PIX]]);
       }
-      ctx.fill();
+      rects("#7a7488", [[-o.r * .72, -o.r * .18, o.r * 1.44, PIX]]);   // 테두리
+      rects("#2c2a34", [[-o.r * .5, -o.r * .12, o.r, PIX * 2]]);        // 숯
+      rects("#ff5a2a", [[-o.r * .34, -o.r * .1, o.r * .68, PIX]]);
+      for (const [dx, dy] of [[-.55, .3], [.5, .34], [0, .42]])         // 다리
+        rects("#3a3844", [[o.r * dx - PIX, o.r * dy, PIX * 2, o.r * .18]]);
       for (let i = 0; i < 3; i++) {
         const ph = Game.time * 6 + i * 2.1 + o.seed * 9;
         const fh = o.r * (1.0 + Math.sin(ph) * .3);
@@ -4442,7 +4585,7 @@ function drawWorld() {
         ctx.fillStyle = i === 0 ? "#ffd36e" : "#ff8a3c";
         ctx.beginPath();
         const bx = sx - o.r * .3 + i * o.r * .3;
-        for (let y = 0; y <= fh; y += PIX) {          // 위로 갈수록 좁아지는 불꽃
+        for (let y = 0; y <= fh; y += PIX) {
           const u = y / fh, w = o.r * .16 * (1 - u * u);
           if (w < PIX * .4) break;
           pxR(bx - w, sy - o.r * .15 - y, w * 2, PIX);
@@ -4451,41 +4594,73 @@ function drawWorld() {
       }
       ctx.globalAlpha = .12;
       ctx.fillStyle = "#ff8a3c"; ctx.beginPath();
-      pxEllipse(sx, sy, o.r * 1.5, o.r * 1.5); ctx.fill();
+      pxEllipse(sx, sy, o.r * 1.6, o.r * 1.6); ctx.fill();
       ctx.globalAlpha = 1;
     } else if (o.kind === "bog") {
       // 늪 — 바닥에 깔린다. 지나갈 수 있지만 모두 느려진다
-      ctx.globalAlpha = .6;
+      ctx.globalAlpha = .62;
+      blob(11, .22, .5, deep, 0, 0, o.r * 1.04);
       blob(11, .22, .5, o.K.color);
-      ctx.globalAlpha = .3;
-      ctx.fillStyle = "#6fa090"; ctx.beginPath();
-      for (let i = 0; i < 4; i++) {                    // 떠 있는 거품
+      ctx.globalAlpha = .34;
+      blob(11, .22, .5, lit, -o.r * .06, -o.r * .04, o.r * .82);
+      ctx.globalAlpha = .34;
+      ctx.fillStyle = "#8fc0a8"; ctx.beginPath();
+      for (let i = 0; i < 5; i++) {                                  // 떠 있는 거품
         const a = o.seed * 13 + i * 1.7 + Math.sin(Game.time * .6 + i) * .3;
         const d = o.r * (.25 + (i % 3) * .22);
         pxEllipse(sx + Math.cos(a) * d, sy + Math.sin(a) * d * .5, o.r * .1, o.r * .06);
       }
       ctx.fill();
+      ctx.globalAlpha = .8;
+      for (let i = 0; i < 4; i++) {                                  // 갈대 — 늪이라는 신호
+        const a = o.seed * 7 + i * 1.6;
+        const bx = Math.cos(a) * o.r * .78, by = Math.sin(a) * o.r * .42;
+        lines("#5a6a48", [[bx, by, bx + (rnd(i) - .5) * o.r * .12, by - o.r * .3, PIX]]);
+      }
       ctx.globalAlpha = 1;
     } else if (o.kind === "wall") {
-      // 석벽 — 덩어리로 그리면 공이 된다. 벽은 네모나야 벽이다.
-      const h = o.r * 1.35, w = o.r * .95;
-      rects(o.K.color, [[-w, -h, w * 2, h + o.r * .25]]);
-      rects(lit, [[-w, -h, w * 2, PIX * 2]]);                   // 윗면
-      const brick = [];
+      /* 석벽 — 덩어리로 그리면 공이 된다. 벽은 네모나야 벽이다.
+         돌마다 톤을 흔들어야 '쌓은 것'으로 읽힌다 — 한 톤이면 상자다. */
+      const h = o.r * 1.35, w = o.r * .95, bot = o.r * .25;
+      rects(mid, [[-w, -h, w * 2, h + bot]]);
       const rows = Math.max(2, Math.floor(h / Math.max(PIX * 3, o.r * .3)));
-      for (let i = 1; i < rows; i++) {
-        const y = -h + i * (h + o.r * .25) / rows;
-        brick.push([-w, y, w * 2, PIX]);                        // 가로 줄눈
-        const off = (i % 2) * w;                                // 세로 줄눈 — 엇갈리게
-        for (let k = -1; k <= 1; k++) brick.push([off + k * w - PIX / 2, y, PIX, (h + o.r * .25) / rows]);
+      const rh = (h + bot) / rows;
+      for (let i = 0; i < rows; i++) {
+        const y = -h + i * rh, off = (i % 2) * w * .5;
+        for (let k = -2; k <= 2; k++) {
+          const x = off + k * w * .5;
+          if (x >= w || x + w * .5 <= -w) continue;
+          const x0 = Math.max(-w, x), x1 = Math.min(w, x + w * .5);
+          const t = rnd(i * 5 + k + 20);
+          rects(t > .72 ? lit : t > .38 ? mid : dark, [[x0, y, x1 - x0, rh]]);
+          rects(t > .72 ? hot : lit, [[x0, y, x1 - x0 - PIX, PIX]]);   // 돌 윗면
+          rects(deep, [[x0, y + rh - PIX, x1 - x0, PIX]]);             // 줄눈
+          rects(deep, [[x1 - PIX, y, PIX, rh]]);
+        }
       }
-      rects(dark, brick);
+      rects(hot, [[-w, -h, w * 2, PIX]]);                             // 벽 윗면
+      rects(deep, [[-w, -h, PIX, h + bot]]);
+      rects(deep, [[w - PIX, -h, PIX, h + bot]]);
     } else {
-      // 바위 — 가장 흔하다. 윗면을 밝게 해서 덩어리로 보이게 한다
-      blob(7, .34, .86, o.K.color);
-      ctx.fillStyle = lit; ctx.beginPath();
-      pxBlob(sx, sy - o.r * .26, o.r * .62, 7, .34, .8, Math.floor(o.x));
+      /* 바위 — 가장 흔하다(전체의 6할). 여기가 제일 오래 보인다.
+         면을 갈라야 돌이다 — 윗면 · 왼쪽 면 · 오른쪽 그늘 · 밑동. */
+      blob(7, .34, .86, deep, 0, o.r * .06, o.r * 1.02);
+      blob(7, .34, .86, mid);
+      ctx.fillStyle = lit; ctx.beginPath();                           // 윗면
+      pxBlob(sx - o.r * .12, sy - o.r * .3, o.r * .6, 7, .34, .8, Math.floor(o.x));
       ctx.fill();
+      ctx.fillStyle = hot; ctx.beginPath();                           // 정수리 광
+      pxBlob(sx - o.r * .24, sy - o.r * .42, o.r * .26, 6, .3, .8, Math.floor(o.x) + 3);
+      ctx.fill();
+      ctx.fillStyle = dark; ctx.beginPath();                          // 오른쪽 그늘 면
+      pxBlob(sx + o.r * .34, sy + o.r * .1, o.r * .42, 6, .3, .9, Math.floor(o.x) + 7);
+      ctx.fill();
+      const a0 = o.seed * 5;                                          // 금 하나
+      lines(deep, [[Math.cos(a0) * o.r * .5, Math.sin(a0) * o.r * .3,
+                    Math.cos(a0 + 2.2) * o.r * .55, Math.sin(a0 + 2.2) * o.r * .34, PIX]]);
+      for (let i = 0; i < 3; i++)                                     // 발치의 부스러기
+        blob(5, .3, .8, dark, (rnd(i) - .5) * o.r * 1.9, o.r * (.34 + rnd(i + 3) * .12),
+             o.r * (.07 + rnd(i + 6) * .05));
     }
     ctx.restore();
   }

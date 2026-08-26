@@ -599,37 +599,174 @@ const N = 4;                                   // 애니메이션 4프레임
          몬스터·주인공과 달리 검은 윤곽을 두르지 않는다. 빛이기 때문이다.
          B = 속성색 · G = 밝은 속성색 · W = 흰 심지. 이 세 겹이 타격감을 만든다. */
 
-      // 피격 — 사방으로 뻗는 가시. 고리로 그렸더니 삼각형이 되고 프레임을 넘었다.
-      hit(f, S) {
+      /* 예전에는 속성 여섯이 전부 같은 별표였고 색만 달랐다. 화면에서 가장 자주,
+         가장 많이 보이는 것이 이건데 형태가 하나뿐이면 '무엇에 맞았는지'가 안 읽힌다.
+
+         지금은 속성마다 형태가 다르다 —
+           물리는 베인 자국 · 화염은 혀 · 냉기는 결정 · 폭풍은 갈래 번개 ·
+           신성은 빛기둥 십자 · 흡혈은 튄 자국.
+         색만으로 구별하면 색맹인 사람에게는 구별이 없다. 형태가 먼저다. */
+
+      // 피격 — 속성마다 형태가 다르다
+      hit(f, S, def) {
         const g = mk(S), c = (S - 1) / 2;
-        const L = [6, 12, 14, 10][f], th = [3, 3, 2, 1][f];
-        const n = f === 0 ? 4 : 8;
-        for (let i = 0; i < n; i++) {
-          const a = i / n * Math.PI * 2 + Math.PI / 4;
-          const l = L * (i % 2 ? .55 : 1);
-          line(g, c + Math.cos(a) * 1.5, c + Math.sin(a) * 1.5,
-                  c + Math.cos(a) * l, c + Math.sin(a) * l, 'B', th);
-          line(g, c + Math.cos(a) * 1.5, c + Math.sin(a) * 1.5,
-                  c + Math.cos(a) * l * .6, c + Math.sin(a) * l * .6, 'W', Math.max(1, th - 1));
+        const el = def.el || 'physical';
+        const gro = [.42, .85, 1, .8][f];          // 퍼짐
+        const fade = [1, 1, .75, .45][f];          // 심지가 사라진다
+        const R = 30 * gro;
+
+        const stroke = (x0, y0, x1, y1, t0, t1, ch) => {
+          const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0)) * 2 + 1;
+          for (let i = 0; i <= n; i++) {
+            const u = i / n, t = t0 + (t1 - t0) * u;
+            if (t < .5) continue;
+            const x = x0 + (x1 - x0) * u, y = y0 + (y1 - y0) * u;
+            const h = Math.max(1, Math.round(t));
+            rect(g, x - h / 2, y - h / 2, x + h / 2 - 1, y + h / 2 - 1, ch);
+          }
+        };
+        const arcStroke = (r, a0, a1, t0, t1, ch) => {
+          const n = 40;
+          let px1 = c + Math.cos(a0) * r, py1 = c + Math.sin(a0) * r;
+          for (let i = 1; i <= n; i++) {
+            const u = i / n, a = a0 + (a1 - a0) * u;
+            const x = c + Math.cos(a) * r, y = c + Math.sin(a) * r;
+            stroke(px1, py1, x, y, t0 + (t1 - t0) * u, t0 + (t1 - t0) * u, ch);
+            px1 = x; py1 = y;
+          }
+        };
+
+        if (el === 'fire') {
+          // 불꽃 혀 — 위로 갈수록 가늘고 밝다
+          for (let i = 0; i < 7; i++) {
+            const a = -Math.PI / 2 + (i - 3) * .42 + f * .12;
+            const L = R * (.7 + ((i * 7) % 5) * .1);
+            const bx = c + Math.cos(a) * 3, by = c + Math.sin(a) * 3;
+            const mx = c + Math.cos(a - .3) * L * .6, my = c + Math.sin(a - .3) * L * .6;
+            const tx = c + Math.cos(a - .55) * L, ty = c + Math.sin(a - .55) * L;
+            stroke(bx, by, mx, my, 7 * gro, 4 * gro, 'B');
+            stroke(mx, my, tx, ty, 4 * gro, 1.5, 'G');
+          }
+          ell(g, c, c + R * .1, R * .42, R * .3, 'B');
+          ell(g, c, c + R * .12, R * .28 * fade, R * .2 * fade, 'G');
+          if (fade > .7) ell(g, c, c + R * .12, R * .13, R * .1, 'W');
+          for (let i = 0; i < 6; i++)                     // 불티
+            put(g, c + Math.cos(i * 1.9 + f) * R * (.9 + (i % 3) * .12),
+                   c + Math.sin(i * 1.9 + f) * R * .7 - R * .3, 'G');
+        } else if (el === 'frost') {
+          // 서리 결정 — 여섯 갈래에 잔가지. 눈송이는 여섯이라야 눈송이다.
+          for (let i = 0; i < 6; i++) {
+            const a = i / 6 * Math.PI * 2 + Math.PI / 12;
+            const ex = c + Math.cos(a) * R, ey = c + Math.sin(a) * R;
+            stroke(c, c, ex, ey, 5 * gro, 1.5, 'B');
+            stroke(c, c, c + Math.cos(a) * R * .55, c + Math.sin(a) * R * .55, 3 * gro, 1.5, 'W');
+            for (const sd of [-1, 1])                     // 잔가지
+              for (const t of [.42, .68]) {
+                const bx = c + Math.cos(a) * R * t, by = c + Math.sin(a) * R * t;
+                stroke(bx, by, bx + Math.cos(a + sd * .9) * R * .22,
+                       by + Math.sin(a + sd * .9) * R * .22, 2.5, 1.5, 'B');
+              }
+          }
+          for (let i = 0; i < 5; i++) {                   // 떨어져 나간 조각
+            const a = i * 1.3 + f, d = R * (1.05 + (i % 2) * .12);
+            rect(g, c + Math.cos(a) * d - 1, c + Math.sin(a) * d - 1,
+                    c + Math.cos(a) * d + 1, c + Math.sin(a) * d + 1, 'G');
+          }
+          ell(g, c, c, 5 * fade, 5 * fade, 'W');
+        } else if (el === 'storm') {
+          // 갈래 번개 — 곧은 선은 번개가 아니다. 꺾여야 번개다.
+          for (let i = 0; i < 4; i++) {
+            const a0 = i / 4 * Math.PI * 2 + f * .6;
+            let px1 = c, py1 = c, a = a0;
+            for (let k = 0; k < 4; k++) {
+              a += (((i * 7 + k * 13 + f * 5) % 7) / 7 - .5) * 1.1;
+              const L = R * .3;
+              const x = px1 + Math.cos(a) * L, y = py1 + Math.sin(a) * L;
+              stroke(px1, py1, x, y, 5 * gro - k, Math.max(1.5, 4 * gro - k), k < 2 ? 'W' : 'B');
+              if (k === 1) {                              // 갈라지는 가지
+                const b = a + (k % 2 ? 1 : -1) * .9;
+                stroke(x, y, x + Math.cos(b) * L * .8, y + Math.sin(b) * L * .8, 2.5, 1.5, 'B');
+              }
+              px1 = x; py1 = y;
+            }
+          }
+          ell(g, c, c, 6 * fade, 6 * fade, 'W');
+          ell(g, c, c, 9 * fade, 9 * fade * .5, 'G');
+        } else if (el === 'holy') {
+          // 빛기둥 십자 — 세로가 길고 가로가 짧다. 정십자는 표식이지 빛이 아니다.
+          const H = R * 1.5, Wd = R * .8;
+          for (const [dx, dy, len, t] of [[0, -1, H, 8], [0, 1, H * .6, 6],
+                                          [-1, 0, Wd, 6], [1, 0, Wd, 6]]) {
+            stroke(c, c, c + dx * len, c + dy * len, t * gro, 1.5, 'B');
+            stroke(c, c, c + dx * len * .6, c + dy * len * .6, (t - 2) * gro, 1.5, 'W');
+          }
+          for (let i = 0; i < 8; i++) {                    // 퍼지는 잔광
+            const a = i / 8 * Math.PI * 2 + Math.PI / 8;
+            stroke(c + Math.cos(a) * R * .35, c + Math.sin(a) * R * .35,
+                   c + Math.cos(a) * R * .8, c + Math.sin(a) * R * .8, 3 * gro, 1.5, 'G');
+          }
+          ell(g, c, c, 7 * fade, 7 * fade, 'W');
+        } else if (el === 'blood') {
+          // 튄 자국 — 규칙적이면 안 된다. 큰 덩어리 몇에 꼬리를 단다.
+          /* 정원 방울에 곧은 꼬리를 달았더니 분자 모형이 됐다.
+             튄 자국은 날아간 방향으로 늘어나고, 꼬리는 방울 쪽이 굵다. */
+          for (let i = 0; i < 9; i++) {
+            const a = i * 2.4 + f * .7;
+            const d = R * (.45 + ((i * 11) % 6) / 6 * .6);
+            const bx = c + Math.cos(a) * d, by = c + Math.sin(a) * d;
+            const rr = (1.4 + ((i * 5) % 4) * .85) * gro;
+            ell(g, bx, by, rr * (1 + Math.abs(Math.cos(a)) * .7),
+                          rr * (1 + Math.abs(Math.sin(a)) * .7), 'B');
+            stroke(c + Math.cos(a) * d * .3, c + Math.sin(a) * d * .3, bx, by,
+                   1.5, rr * 1.3, 'B');                    // 꼬리 — 방울 쪽이 굵다
+            if (i % 3 === 0) put(g, bx - 1, by - 1, 'G');
+          }
+          for (let i = 0; i < 3; i++) {                    // 길게 튄 줄기 몇
+            const a = i * 2.1 + f * 1.1 + .6;
+            stroke(c + Math.cos(a) * R * .3, c + Math.sin(a) * R * .3,
+                   c + Math.cos(a) * R * 1.15, c + Math.sin(a) * R * 1.15, 3.5 * gro, 1.5, 'B');
+          }
+          ell(g, c, c, R * .3, R * .3, 'B');
+          ell(g, c, c, R * .18 * fade, R * .18 * fade, 'G');
+          if (fade > .7) ell(g, c, c, R * .08, R * .08, 'W');
+        } else {
+          /* 물리 — 베인 자국. 별표는 '무언가 터졌다'이지 '베였다'가 아니다.
+             무기가 지나간 길이 보여야 한다.
+             호 둘을 마주 보게 놓았더니 괄호가 됐다 — 엇갈려야 벤 자국이다.
+             가운데가 굵고 양 끝이 가늘어야 획이지, 균일하면 막대다. */
+          for (const [a, L, t] of [[-.55, R * 1.05, 11], [.72, R * .85, 8]]) {
+            const dx = Math.cos(a), dy = Math.sin(a);
+            stroke(c, c, c + dx * L, c + dy * L, t * gro, 1.5, 'B');
+            stroke(c, c, c - dx * L * .8, c - dy * L * .8, t * gro, 1.5, 'B');
+            stroke(c, c, c + dx * L * .58, c + dy * L * .58, (t - 4) * gro, 1.5, 'W');
+            stroke(c, c, c - dx * L * .48, c - dy * L * .48, (t - 4) * gro, 1.5, 'W');
+          }
+          for (let i = 0; i < 7; i++) {                    // 튀는 파편
+            const a = i * 1.7 + f * .8, d = R * (.8 + (i % 3) * .16);
+            put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, i % 2 ? 'W' : 'G');
+          }
+          ell(g, c, c, 6 * fade, 6 * fade, 'G');
+          ell(g, c, c, 3 * fade, 3 * fade, 'W');
         }
-        const cr = [4.5, 3.5, 2, 0][f];
-        if (cr) { ell(g, c, c, cr, cr, 'G'); ell(g, c, c, cr * .5, cr * .5, 'W'); }
         return g;
       },
 
       // 폭발 — 흰 섬광에서 시작해 속성색 고리로 비어 간다
-      boom(f, S) {
+      boom(f, S, def) {
         const g = mk(S), c = (S - 1) / 2;
-        const R = [9, 16.5, 20.5, 22][f];
-        const inner = [0, 0, 8, 14][f];
-        // 흰 심지가 남는 경계. 뒤로 갈수록 심지가 사라지고 속성색만 남는다
+        const el = def.el || 'physical';
+        const R = [S * .19, S * .34, S * .43, S * .46][f];
+        const inner = [0, 0, S * .17, S * .29][f];
         const wCut = [.42, .32, .18, 0][f], gCut = [.75, .68, .6, .45][f];
         for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
           const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
           const a = Math.atan2(dy, dx);
-          // 정원이면 폭발이 아니라 공이다. 다만 주기가 낮으면 꽃잎이 된다 —
-          // 주기를 올리고 진폭을 낮춰 '울퉁불퉁한 덩어리'로 만든다.
-          const lump = 1 + Math.sin(a * 7 + f * 1.3) * .08
+          /* 정원이면 폭발이 아니라 공이다. 다만 주기가 낮으면 꽃잎이 된다 —
+             주기를 올리고 진폭을 낮춰 '울퉁불퉁한 덩어리'로 만든다.
+             속성마다 가장자리의 성격이 다르다 — 불은 뭉실, 얼음은 각지게. */
+          const amp = el === 'frost' ? .16 : el === 'fire' ? .13 : el === 'blood' ? .17 : .08;
+          const freq = el === 'frost' ? 6 : el === 'fire' ? 9 : 7;
+          const lump = 1 + Math.sin(a * freq + f * 1.3) * amp
                          + Math.sin(a * 11 - f * 2) * .05
                          + Math.sin(a * 3 + f) * .05;
           const rr = R * lump, ir = inner * lump;
@@ -637,9 +774,35 @@ const N = 4;                                   // 애니메이션 4프레임
           const t = (d - ir) / Math.max(1, rr - ir);
           g[y][x] = t < wCut ? 'W' : t < gCut ? 'G' : 'B';
         }
-        for (let i = 0; i < 11; i++) {                 // 튀는 파편
-          const a = i / 11 * Math.PI * 2 + f * .5, d = Math.min(R + 3 + f * 2, c - 1);
-          put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, 'G');
+        // 속성마다 고리 밖으로 뻗는 것이 다르다
+        const spike = (n, len, th, ch, off) => {
+          for (let i = 0; i < n; i++) {
+            const a = i / n * Math.PI * 2 + off;
+            const x0 = c + Math.cos(a) * R * .9, y0 = c + Math.sin(a) * R * .9;
+            const x1 = c + Math.cos(a) * (R + len), y1 = c + Math.sin(a) * (R + len);
+            line(g, x0, y0, x1, y1, ch, th);
+          }
+        };
+        if (el === 'frost') spike(8, S * .1 * (1 - f * .18), 3, 'G', f * .3);
+        else if (el === 'holy') spike(12, S * .13, 2, 'G', f * .2);
+        else if (el === 'storm') {
+          for (let i = 0; i < 6; i++) {                  // 고리를 가로지르는 방전
+            const a = i / 6 * Math.PI * 2 + f * .7;
+            let px1 = c + Math.cos(a) * R * .5, py1 = c + Math.sin(a) * R * .5, aa = a;
+            for (let k = 0; k < 3; k++) {
+              aa += (((i * 7 + k * 11 + f * 3) % 7) / 7 - .5) * 1.2;
+              const x = px1 + Math.cos(aa) * R * .3, y = py1 + Math.sin(aa) * R * .3;
+              line(g, px1, py1, x, y, k ? 'G' : 'W', 2);
+              px1 = x; py1 = y;
+            }
+          }
+        }
+        for (let i = 0; i < 11; i++) {                   // 튀는 파편
+          const a = i / 11 * Math.PI * 2 + f * .5;
+          const d = Math.min(R + S * .07 + f * S * .04, c - 1);
+          if (el === 'blood') ell(g, c + Math.cos(a) * d, c + Math.sin(a) * d,
+                                  1 + (i % 3) * .8, 1 + (i % 3) * .8, 'B');
+          else put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, 'G');
         }
         return g;
       },
@@ -1208,7 +1371,8 @@ const N = 4;                                   // 애니메이션 4프레임
        대신 함수 자체가 S 로 매개화돼 있으므로 최종 크기를 그대로 넘긴다. */
     const SCALE = 2;
     const RAW = new Set(['floor', 'floordeco', 'boom']);
-    const NATIVE = new Set(['hero', 'boss', 'blob', 'bat', 'ghost', 'humanoid', 'hound']);
+    const NATIVE = new Set(['hero', 'boss', 'blob', 'bat', 'ghost', 'humanoid', 'hound',
+                            'hit', 'cast']);
     const rows = Object.entries(SPEC.frames);
     let maxS = 0, H = 0;
     for (const [, f] of rows) { const S = f.h * SCALE; H += S; if (S > maxS) maxS = S; }

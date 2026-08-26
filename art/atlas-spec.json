@@ -269,7 +269,8 @@
       "color": "#93a6c4",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "physical"
     },
     "fx_hit_fire": {
       "shape": "hit",
@@ -277,7 +278,8 @@
       "color": "#ff8a3c",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "fire"
     },
     "fx_hit_frost": {
       "shape": "hit",
@@ -285,7 +287,8 @@
       "color": "#7fd2ff",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "frost"
     },
     "fx_hit_storm": {
       "shape": "hit",
@@ -293,7 +296,8 @@
       "color": "#ffe066",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "storm"
     },
     "fx_hit_holy": {
       "shape": "hit",
@@ -301,7 +305,8 @@
       "color": "#ffc266",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "holy"
     },
     "fx_hit_blood": {
       "shape": "hit",
@@ -309,7 +314,8 @@
       "color": "#e0426a",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 22
+      "fps": 22,
+      "el": "blood"
     },
     "fx_boom_physical": {
       "shape": "boom",
@@ -317,7 +323,8 @@
       "color": "#93a6c4",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "physical"
     },
     "fx_boom_fire": {
       "shape": "boom",
@@ -325,7 +332,8 @@
       "color": "#ff8a3c",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "fire"
     },
     "fx_boom_frost": {
       "shape": "boom",
@@ -333,7 +341,8 @@
       "color": "#7fd2ff",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "frost"
     },
     "fx_boom_storm": {
       "shape": "boom",
@@ -341,7 +350,8 @@
       "color": "#ffe066",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "storm"
     },
     "fx_boom_holy": {
       "shape": "boom",
@@ -349,7 +359,8 @@
       "color": "#ffc266",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "holy"
     },
     "fx_boom_blood": {
       "shape": "boom",
@@ -357,7 +368,8 @@
       "color": "#e0426a",
       "glow": "#ffffff",
       "h": 48,
-      "fps": 13
+      "fps": 13,
+      "el": "blood"
     },
     "fx_cast_physical": {
       "shape": "cast",
@@ -365,7 +377,8 @@
       "color": "#93a6c4",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "physical"
     },
     "fx_cast_fire": {
       "shape": "cast",
@@ -373,7 +386,8 @@
       "color": "#ff8a3c",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "fire"
     },
     "fx_cast_frost": {
       "shape": "cast",
@@ -381,7 +395,8 @@
       "color": "#7fd2ff",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "frost"
     },
     "fx_cast_storm": {
       "shape": "cast",
@@ -389,7 +404,8 @@
       "color": "#ffe066",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "storm"
     },
     "fx_cast_holy": {
       "shape": "cast",
@@ -397,7 +413,8 @@
       "color": "#ffc266",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "holy"
     },
     "fx_cast_blood": {
       "shape": "cast",
@@ -405,7 +422,8 @@
       "color": "#e0426a",
       "glow": "#ffffff",
       "h": 32,
-      "fps": 20
+      "fps": 20,
+      "el": "blood"
     },
     "floor": {
       "shape": "floor",

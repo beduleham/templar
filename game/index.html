@@ -1629,7 +1629,10 @@ const slashes    = makePool(24,  () => ({ x: 0, y: 0, ang: 0, len: 0, life: 0, m
 const waves      = makePool(40,  () => ({ x: 0, y: 0, r: 0, maxR: 0, life: 0, maxLife: 1, dmg: 0, color: "#fff", element: "physical", heal: 0, hitIds: new Set() }));
 const gems       = makePool(700, () => ({ x: 0, y: 0, vx: 0, vy: 0, value: 1, tier: 0, pulled: false, bob: 0 }));
 const pickups    = makePool(72,  () => ({ x: 0, y: 0, kind: "heart", bob: 0 }));
-const particles  = makePool(500, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, r: 3, color: "#fff", drag: .92 }));
+/* 파티클. streak 는 '빠르면 선으로 그린다'는 뜻이고, g 는 중력이다.
+   예전에는 둘 다 없어서 모든 파티클이 같은 크기의 네모로 사방에 퍼졌다가
+   제자리에서 사라졌다 — 타격감이 아니라 색종이 조각이었다. */
+const particles  = makePool(500, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, r: 3, color: "#fff", drag: .92, g: 0, streak: 0 }));
 const numbers    = makePool(120, () => ({ x: 0, y: 0, vy: 0, life: 0, text: "", color: "#fff", size: 14 }));
 const bolts      = makePool(24,  () => ({ x: 0, y: 0, life: 0, seed: 0 }));
 // 첨탑이 쏘는 빛줄기 — 즉시 맞히고 자취만 잠깐 남는다
@@ -1701,6 +1704,8 @@ function pxPal(col) {
   return c;
 }
 const PJ_STEEL = ["#e2e6ef", "#b9c0d1", "#8f96ab"];   // 단검 — 색이 고정이라 미리 만든다
+// 심지·앞날에 쓰는 흰 3단계. 매 프레임 만들 이유가 없다.
+const PJ_WHITE = ["#ffffff", "#fff6e0", "#ffe9b8"];
 const ESHOT_RING = ["#ff4d6d", "#ff4d6d", "#ff4d6d"];  // 적 탄의 붉은 테두리
 // 두 색을 섞는다 (t=0 이면 앞, 1 이면 뒤). 구조물이 꺼져 있을 때의 색에 쓴다.
 function mixHex(c1, c2, t) {
@@ -2021,12 +2026,17 @@ function spawnFx(key, x, y, px, rot) {
 const fxKey = (kind, elem) =>
   ATLAS_FRAMES["fx_" + kind + "_" + elem] ? "fx_" + kind + "_" + elem : "fx_" + kind + "_physical";
 
-function spawnParticles(x, y, n, color, speed = 120, life = .5, r = 3) {
+function spawnParticles(x, y, n, color, speed = 120, life = .5, r = 3, opt) {
+  const g = opt && opt.g || 0, streak = opt && opt.streak || 0, drag = opt && opt.drag || .9;
+  const spread = opt && opt.spread, dir = opt && opt.dir;
   for (let i = 0; i < n; i++) {
     const p = alloc(particles); if (!p) return;
-    const a = rnd(TAU), s = rnd(speed * .3, speed);
+    // 방향을 주면 부채꼴로 튄다 — 맞은 쪽으로 피가 튀어야 어디서 맞았는지 읽힌다
+    const a = spread !== undefined ? dir + rnd(-spread, spread) : rnd(TAU);
+    const s = rnd(speed * .3, speed);
     p.active = true; p.x = x; p.y = y; p.vx = Math.cos(a) * s; p.vy = Math.sin(a) * s;
-    p.life = p.maxLife = rnd(life * .5, life); p.r = rnd(r * .6, r); p.color = color; p.drag = .9;
+    p.life = p.maxLife = rnd(life * .5, life); p.r = rnd(r * .6, r); p.color = color;
+    p.drag = drag; p.g = g; p.streak = streak;
   }
 }
 function spawnNumber(x, y, text, color, size = 14) {
@@ -2174,13 +2184,30 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
     spawnWave({ x: e.x, y: e.y, maxR: 90 * player.stats.area, dmg: final * .6,
       life: .26, color: "#c94a2a", element: "fire" });
   if (e.hp <= 0) killEnemy(e, elem);
-  else spawnParticles(e.x, e.y, 2, e.type.color, 90, .3, 2.5);
+  else {
+    /* 타격 불티. 예전에는 사방으로 똑같이 퍼졌다 — 어디서 맞았는지가 안 보인다.
+       damageEnemy 는 이미 fromX/fromY 를 안다. 맞은 반대쪽으로 튀게 하면
+       같은 파티클 두 개로 '이쪽에서 왔다'가 읽힌다. */
+    const dx = e.x - fromX, dy = e.y - fromY;
+    const d = Math.hypot(dx, dy);
+    if (d > 1)
+      spawnParticles(e.x, e.y, 3, e.type.color, 150, .28, 3,
+        { dir: Math.atan2(dy, dx), spread: .8, streak: 6, g: 200, drag: .9 });
+    else spawnParticles(e.x, e.y, 2, e.type.color, 90, .3, 2.5);
+  }
 }
 
 function killEnemy(e, elem) {
   const wasSlowed = e.slow > 0;
   e.active = false;
   spawnFx(fxKey("boom", elem || "physical"), e.x, e.y, e.r * 2.6 + 12, 0);
+  /* 처치 파편. 예전에는 정예·희귀만 있었고 보통 몹은 소리 없이 사라졌다 —
+     한 판에 수천 번 일어나는 일에 아무 되먹임이 없었던 셈이다.
+
+     다만 개수를 넉넉히 잡으면 안 된다. 후반에는 초당 수십 마리가 죽어서
+     파티클 풀(500)이 포화되고, 그러면 정작 타격 불티가 자리를 못 얻는다 —
+     계측해 보니 467/500 이었다. 셋으로, 짧게. */
+  spawnParticles(e.x, e.y, 3, e.type.color, 200, .3, 4, { g: 380, streak: 7, drag: .93 });
   Game.kills++;
   if (e.type.onDeath) e.type.onDeath(e);
   // 등급 보상 — 정예·희귀는 눈에 띄게 돌려준다
@@ -3581,6 +3608,9 @@ function update(dt) {
     if (p.life <= 0) { p.active = false; continue; }
     p.x += p.vx * dt; p.y += p.vy * dt;
     p.vx *= p.drag; p.vy *= p.drag;
+    /* 중력. 위에서 내려다보는 화면이지만 파편이 '아래로 처지면' 무게가 생긴다 —
+       실제 물리가 아니라 눈이 그렇게 읽는다. */
+    if (p.g) p.vy += p.g * dt;
   }
   for (const n of numbers) {
     if (!n.active) continue;
@@ -4847,7 +4877,12 @@ function drawWorld() {
               sl.ang, reach - from, (10 + sl.len * .022) * (1 - t * .4), cols);
     } else {
       const R = sl.len * (.55 + t * .5), span = .55 + t * 1.5;
-      pxArc(sx, sy, R, sl.ang - span / 2, sl.ang + span / 2, (7 + sl.len * .05) * (1 - t * .55), cols);
+      const th = (7 + sl.len * .05) * (1 - t * .55);
+      pxArc(sx, sy, R, sl.ang - span / 2, sl.ang + span / 2, th, cols);
+      /* 심지 — 벤 자국 안쪽에 얇고 밝은 선 하나. 레퍼런스 그림의 참격이 이렇다.
+         한 겹이면 색칠한 부채꼴이고, 두 겹이면 '지나간 길'이 된다. */
+      if (th > PIX * 1.6)
+        pxArc(sx, sy, R, sl.ang - span * .38, sl.ang + span * .38, Math.max(PIX, th * .3), PJ_WHITE);
     }
     ctx.restore();
   }
@@ -4874,9 +4909,15 @@ function drawWorld() {
     ctx.globalAlpha = (1 - t) * .18;
     ctx.fillStyle = wv.color;
     ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
-    ctx.globalAlpha = (1 - t) * .75;
     ctx.globalCompositeOperation = "lighter";
+    // 뒤에 남는 흐린 테 — 파동이 '지나갔다'가 보인다
+    ctx.globalAlpha = (1 - t) * .3;
+    pxRing(sx, sy, wv.r * .82, 3 + (1 - t) * 4, pxPal(wv.color));
+    ctx.globalAlpha = (1 - t) * .75;
     pxRing(sx, sy, wv.r, 4 + (1 - t) * 7, pxPal(wv.color));
+    // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다.
+    ctx.globalAlpha = (1 - t) * .85;
+    pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE);
     ctx.restore();
   }
 
@@ -4904,6 +4945,11 @@ function drawWorld() {
       ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.angle);
       ctx.fillStyle = "#6d4c33"; ctx.fillRect(-p.r * 1.2, -p.r * .22, p.r * .8, p.r * .44);
       ctx.fillStyle = "#e8c96a"; ctx.fillRect(-p.r * .62, -p.r * .6, p.r * .22, p.r * 1.2);
+      // 잔상 — 날아가는 것에는 자국이 남아야 속도가 읽힌다
+      ctx.globalAlpha = .32;
+      ctx.fillStyle = "#cfd6e6";
+      ctx.fillRect(-p.r * 3.4, -PIX / 2, p.r * 2.4, PIX);
+      ctx.globalAlpha = 1;
       ctx.restore();
     } else {
       const flame = p.kind === "flame";
@@ -4911,6 +4957,20 @@ function drawWorld() {
       if (pjCols !== cols) { if (pjCols) pxFlush(pjCols); pjCols = cols; }
       // 불꽃은 날아가면서 사그라든다
       const t = clamp(p.life / p.maxLife, 0, 1);
+      /* 꼬리. 이력을 저장하면 탄 300발 × 프레임마다 배열이 커진다 —
+         속도 방향으로 뒤에 점점 작아지는 원을 몇 개 찍는 것으로 충분하다.
+         멈춰 있는 탄(속도 0)에는 꼬리가 안 붙어야 하므로 속도로 나눈다. */
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 40) {
+        /* 작아지기만 하고 흐려지지 않으면 꼬리가 아니라 구슬 목걸이가 된다 —
+           실제로 그렇게 나왔다. 뒤로 갈수록 흐려져야 하나의 자국으로 읽힌다. */
+        const ux = p.vx / sp, uy = p.vy / sp, step = p.r * .8;
+        for (let k = 3; k >= 1; k--) {
+          ctx.globalAlpha = .5 - k * .11;
+          pxDisc(sx - ux * step * k, sy - uy * step * k, p.r * (1 - k * .22), cols);
+        }
+        ctx.globalAlpha = 1;
+      }
       pxDisc(sx, sy, flame ? p.r * (.75 + t * .45) : p.r, cols);
     }
   }
@@ -4984,18 +5044,39 @@ function drawWorld() {
   }
   ctx.restore();
 
-  // 파티클
-  // 파티클은 수백 개라 색깔이 바뀔 때만 칠한다. 원 대신 격자 칸이라 가장자리가 또렷하다.
+  /* 파티클. 수백 개라 색깔이 바뀔 때만 칠한다. 원 대신 격자 칸이라 가장자리가 또렷하다.
+
+     예전에는 전부 같은 크기의 네모였다. 두 가지를 더했다 —
+       ① 수명이 줄면 같이 줄어든다. 끝까지 같은 크기면 '꺼지는' 게 아니라 '사라지는' 것이다.
+       ② 빠른 것(streak)은 진행 방향으로 늘어난 자국을 남긴다. 불티와 피가 그렇다.
+     둘 다 알파를 함께 쓰므로 globalAlpha 가 바뀌는 지점에서 경로를 끊어야 한다 —
+     그래서 알파를 세 단계로 끊어 묶는다(안 그러면 파티클마다 fill 이 한 번씩 열린다). */
   {
-    let pc = null;
+    let pc = null, pa = -1;
     for (const p of particles) {
       if (!p.active) continue;
-      const a = clamp(p.life / p.maxLife, 0, 1);
-      if (p.color !== pc) { if (pc) ctx.fill(); pc = p.color; ctx.fillStyle = pc; ctx.beginPath(); }
-      ctx.globalAlpha = a;
-      const s2 = Math.max(PIX, Math.round(p.r / PIX) * PIX);
-      ctx.rect(Math.round((p.x - cam.x) / PIX) * PIX - s2 / 2,
-               Math.round((p.y - cam.y) / PIX) * PIX - s2 / 2, s2, s2);
+      const t = clamp(p.life / p.maxLife, 0, 1);
+      const a = Math.ceil(t * 3) / 3;                 // 알파를 세 단계로 — 묶어 칠하려고
+      if (p.color !== pc || a !== pa) {
+        if (pc) ctx.fill();
+        pc = p.color; pa = a;
+        ctx.fillStyle = pc; ctx.globalAlpha = a; ctx.beginPath();
+      }
+      const s2 = Math.max(PIX, Math.round(p.r * (.35 + t * .65) / PIX) * PIX);
+      const gx = Math.round((p.x - cam.x) / PIX) * PIX, gy = Math.round((p.y - cam.y) / PIX) * PIX;
+      if (p.streak) {
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > 60) {
+          const L = Math.min(p.streak, sp * .035);
+          const ux = p.vx / sp, uy = p.vy / sp;
+          const n = Math.max(1, Math.round(L / PIX));
+          for (let k = 0; k <= n; k++)
+            ctx.rect(Math.round((gx - ux * k * PIX) / PIX) * PIX - s2 / 2,
+                     Math.round((gy - uy * k * PIX) / PIX) * PIX - s2 / 2, s2, s2);
+          continue;
+        }
+      }
+      ctx.rect(gx - s2 / 2, gy - s2 / 2, s2, s2);
     }
     if (pc) ctx.fill();
   }

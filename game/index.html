@@ -1599,7 +1599,13 @@ function makePool(size, factory) {
   return arr;
 }
 function alloc(pool) {
-  for (let i = 0; i < pool.length; i++) if (!pool[i].active) return pool[i];
+  /* dying 은 '죽는 처리를 하는 중이라 아직 남의 것이 되면 안 되는 칸'이다.
+     killEnemy 는 e.active = false 로 시작하는데, 그 안에서 onDeath 가 새 적을 소환하면
+     alloc 이 방금 비운 바로 그 칸을 돌려준다 — 자식이 부모 객체를 덮어쓰고,
+     그 아래 코드는 전부 자식의 값을 읽게 된다.
+     분열체가 세대를 못 세고 무한히 불어난 원인이 이것이었다. (33절 참고)
+     다른 풀의 객체에는 dying 이 없으므로(undefined) 동작이 달라지지 않는다. */
+  for (let i = 0; i < pool.length; i++) if (!pool[i].active && !pool[i].dying) return pool[i];
   return null;               // 풀이 가득 차면 스폰을 건너뛴다 (프레임 드랍 방지)
 }
 
@@ -1619,7 +1625,7 @@ function allocEvict(pool, keep) {
   return far;
 }
 
-const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0 }));
+const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0, dying: false }));
 // 적이 쏘는 탄 — 원거리 몬스터와 보스 패턴에 쓰인다
 const eshots     = makePool(220, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 7, dmg: 0, life: 0, color: "#fff" }));
 // 바닥 장판 — 독 웅덩이, 폭발 흔적
@@ -2199,7 +2205,12 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
 
 function killEnemy(e, elem) {
   const wasSlowed = e.slow > 0;
-  e.active = false;
+  /* 이 함수가 끝날 때까지 이 칸을 잠근다.
+     active 는 false 로 둔 채(자기 자신을 때리거나 표적으로 삼는 일이 없게)
+     alloc 만 못 가져가게 한다. 아래 코드가 전부 e.x · e.rank · e.maxHp · e.burn 을
+     읽는데, 그 사이에 자식이 이 칸을 덮으면 등급 보상도 폭발도 전부 엉뚱한 적의
+     값으로 계산된다. */
+  e.active = false; e.dying = true;
   spawnFx(fxKey("boom", elem || "physical"), e.x, e.y, e.r * 2.6 + 12, 0);
   /* 처치 파편. 예전에는 정예·희귀만 있었고 보통 몹은 소리 없이 사라졌다 —
      한 판에 수천 번 일어나는 일에 아무 되먹임이 없었던 셈이다.
@@ -2308,6 +2319,7 @@ function killEnemy(e, elem) {
     Game.heartCd = TRASH_CD;
   }
   Sfx.hit();
+  e.dying = false;
 }
 
 /* 지형지물에 닿았을 때 — 이동에 목적을 주는 지점 */
@@ -3058,6 +3070,7 @@ const Game = {
     e.telT = 0; e.telX = 0; e.telY = 0; e.telR = 0;   // 예고 범위기
     e.shieldMax = e.shieldHp = T.shieldHp ? T.shieldHp * rank.hp * d.hp : 0;
     e.flash = 0; e.wob = rnd(TAU); e.slow = 0; e.burn = 0; e.burnDps = 0; e.sigilKey = null;
+    e.dying = false;
     return e;
   },
 

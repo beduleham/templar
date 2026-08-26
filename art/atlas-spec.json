@@ -26,14 +26,16 @@
       "color": "#8aa35c",
       "glow": "#fff2c0",
       "h": 32,
-      "fps": 8
+      "fps": 8,
+      "var": "zombie"
     },
     "brute": {
       "shape": "humanoid",
       "color": "#e0694a",
       "glow": "#fff2c0",
       "h": 32,
-      "fps": 8
+      "fps": 8,
+      "var": "brute"
     },
     "reaper": {
       "shape": "ghost",
@@ -54,14 +56,16 @@
       "color": "#7ad0b0",
       "glow": "#fff2c0",
       "h": 32,
-      "fps": 8
+      "fps": 8,
+      "var": "archer"
     },
     "charger": {
       "shape": "humanoid",
       "color": "#ff7a4a",
       "glow": "#fff2c0",
       "h": 32,
-      "fps": 8
+      "fps": 8,
+      "var": "charger"
     },
     "splitter": {
       "shape": "blob",
@@ -89,7 +93,8 @@
       "color": "#8a9ab0",
       "glow": "#fff2c0",
       "h": 32,
-      "fps": 8
+      "fps": 8,
+      "var": "shield"
     },
     "guardian": {
       "shape": "boss",
@@ -435,6 +440,14 @@
     },
     "floordeco": {
       "shape": "floordeco",
+      "fx": true,
+      "color": "#33334c",
+      "glow": "#ffffff",
+      "h": 64,
+      "fps": 1
+    },
+    "floordeco2": {
+      "shape": "floordeco2",
       "fx": true,
       "color": "#33334c",
       "glow": "#ffffff",

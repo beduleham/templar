@@ -242,56 +242,125 @@ const N = 4;                                   // 애니메이션 4프레임
           line(g, cx + s2 * 12, hy + 4, cx + s2 * 19, hy + 12 + oy, 'D', 5);
         return g;
       },
-      /* 인간형 — 다리가 번갈아 나간다. 좀비·거구·궁수·돌격병·방패병이 같이 쓴다.
-         예전엔 몸통이 한 덩어리라 '초록 유령'으로 읽혔다. 팔다리를 떼어 놓는다. */
-      humanoid(f, S) {
+      /* 인간형 — 좀비 · 거구 · 궁수 · 돌격병 · 방패병이 같이 쓴다.
+
+         예전엔 다섯이 색만 다르고 실루엣이 똑같았다. 화면에 200마리가 있는데
+         '무엇이 오는지'가 색으로만 구별되면 난전에서는 못 읽는다.
+         위험한 것과 안 위험한 것은 모양이 달라야 한다.
+
+         뼈대는 공유하고 붙는 것만 다르다 —
+           좀비는 맨몸에 드러난 갈비뼈 · 거구는 어깨가 몸통보다 넓다 ·
+           궁수는 활과 화살통 · 돌격병은 뿔투구 · 방패병은 큰 방패. */
+      humanoid(f, S, def) {
         const g = mk(S);
+        const v = (def && def.var) || 'zombie';
+        const big = v === 'brute', lean = v === 'archer';
         const sw = [0, 4, 0, -4][f];
         const br = [0, 1, 0, -1][f];
-        const cx = 31, hy = 17 + br;
+        const cx = 31, hy = (v === 'charger' ? 19 : 17) + br;
+        const SH = big ? 16 : lean ? 10 : 13;          // 어깨 너비
         const edgeLine = (x0, y0, x1, y1, ch, t) => {
           line(g, x0, y0, x1, y1, 'O', t + 3); line(g, x0, y0, x1, y1, ch, t);
         };
         // ── 다리 ──
         for (const s2 of [-1, 1]) {
-          const lx = cx + s2 * 6 + s2 * sw * .5;
-          edgeLine(lx, 44, lx + s2 * sw * .3, 55, 'D', 7);
+          const lx = cx + s2 * (big ? 7 : 6) + s2 * sw * .5;
+          edgeLine(lx, 44, lx + s2 * sw * .3, 55, 'D', big ? 9 : 7);
           line(g, lx - 2, 44, lx + s2 * sw * .3 - 2, 54, 'B', 2);
           rect(g, lx - 5, 55, lx + 4, 58, 'c');                      // 발
         }
-        // ── 팔 ── 앞으로 늘어뜨린다. 좀비의 자세다.
+        // ── 팔 ── 직업마다 자세가 다르다
         for (const s2 of [-1, 1]) {
-          const ex = cx + s2 * 15, ey = 34 + s2 * sw;
-          edgeLine(cx + s2 * 11, 26 + br, ex, ey, 'D', 7);
-          edgeLine(ex, ey, cx + s2 * 17, ey + 12, 'D', 6);
-          line(g, cx + s2 * 11 - 2, 25 + br, ex - 2, ey - 1, 'B', 2);
-          ell(g, cx + s2 * 17, ey + 13, 4.5, 4, 'c');                // 주먹
-          for (let k = -1; k <= 1; k++)                              // 손톱
-            put(g, cx + s2 * 17 + k * 2, ey + 17, 'E');
+          const isL = s2 < 0;
+          let ex, ey, hx2, hy2;
+          if (v === 'charger') {                       // 뒤로 젖힌 팔 — 달려든다
+            ex = cx + s2 * (SH + 3); ey = 30 + s2 * sw * .4;
+            hx2 = cx + s2 * (SH + 5); hy2 = ey + 10;
+          } else if (v === 'archer' && isL) {          // 활을 든 왼팔은 앞으로
+            ex = cx - SH - 6; ey = 28; hx2 = cx - SH - 11; hy2 = 28;
+          } else if (v === 'shield' && isL) {          // 방패를 든 왼팔은 몸 앞
+            ex = cx - SH - 3; ey = 30; hx2 = cx - SH - 5; hy2 = 34;
+          } else {
+            ex = cx + s2 * (SH + 2); ey = 34 + s2 * sw;
+            hx2 = cx + s2 * (SH + 4); hy2 = ey + 12;
+          }
+          const t = big ? 9 : 7;
+          edgeLine(cx + s2 * (SH - 2), 26 + br, ex, ey, 'D', t);
+          edgeLine(ex, ey, hx2, hy2, 'D', t - 1);
+          line(g, cx + s2 * (SH - 2) - 2, 25 + br, ex - 2, ey - 1, 'B', 2);
+          ell(g, hx2, hy2 + 1, big ? 6 : 4.5, big ? 5.5 : 4, 'c');   // 주먹
+          if (v === 'zombie' || big)
+            for (let k = -1; k <= 1; k++) put(g, hx2 + k * 2, hy2 + (big ? 6 : 5), 'E');
         }
         // ── 몸통 ──
-        ell(g, cx, 26 + br, 13, 9, 'B');                             // 굽은 어깨
-        rect(g, cx - 11, 26 + br, cx + 11, 45, 'B');
-        rect(g, cx - 11, 26 + br, cx - 8, 44, 'C');                  // 왼쪽 빛
-        rect(g, cx + 9, 28 + br, cx + 11, 45, 'D');
-        for (let i = 0; i < 3; i++)                                  // 드러난 갈비뼈
-          rect(g, cx - 7 + i, 31 + br + i * 4, cx + 6 - i, 32 + br + i * 4, 'E');
-        rect(g, cx - 11, 41, cx + 11, 43, 'c');                      // 허리
-        for (const s2 of [-1, 1]) {                                  // 어깨 갑판
-          ell(g, cx + s2 * 11, 27 + br, 5.5, 4, 'c');
-          ell(g, cx + s2 * 11, 26 + br, 5, 3.5, 'C');
+        ell(g, cx, 26 + br, SH, big ? 11 : 9, 'B');                  // 굽은 어깨
+        rect(g, cx - SH + 2, 26 + br, cx + SH - 2, 45, 'B');
+        rect(g, cx - SH + 2, 26 + br, cx - SH + 5, 44, 'C');         // 왼쪽 빛
+        rect(g, cx + SH - 4, 28 + br, cx + SH - 2, 45, 'D');
+        if (v === 'zombie')
+          for (let i = 0; i < 3; i++)                                // 드러난 갈비뼈
+            rect(g, cx - 7 + i, 31 + br + i * 4, cx + 6 - i, 32 + br + i * 4, 'E');
+        else if (big)
+          for (let i = 0; i < 4; i++)                                // 두꺼운 근육 결
+            rect(g, cx - 10 + i, 32 + br + i * 3, cx + 9 - i, 33 + br + i * 3, 'D');
+        else {                                                       // 가죽 갑옷
+          rect(g, cx - SH + 2, 30 + br, cx + SH - 2, 32 + br, 'c');
+          rect(g, cx - SH + 2, 38, cx + SH - 2, 40, 'c');
         }
-        // ── 머리 ── 어깨 사이에 파묻힌다
-        ell(g, cx, hy + 1, 8.5, 8.5, 'c');
-        ell(g, cx, hy, 8, 8, 'B');
-        ell(g, cx - 2, hy - 3, 5, 4, 'C');
+        rect(g, cx - SH + 2, 41, cx + SH - 2, 43, 'c');              // 허리
+        for (const s2 of [-1, 1]) {                                  // 어깨 갑판
+          ell(g, cx + s2 * (SH - 2), 27 + br, big ? 7 : 5.5, big ? 5 : 4, 'c');
+          ell(g, cx + s2 * (SH - 2), 26 + br, big ? 6.5 : 5, big ? 4.5 : 3.5, 'C');
+        }
+        // ── 머리 ──
+        const hr = big ? 7 : 8;
+        ell(g, cx, hy + 1, hr + .5, hr + .5, 'c');
+        ell(g, cx, hy, hr, hr, 'B');
+        ell(g, cx - 2, hy - 3, hr * .6, hr * .5, 'C');
+        if (v === 'charger') {                                       // 뿔투구
+          rect(g, cx - hr, hy - 5, cx + hr, hy - 1, 'c');
+          rect(g, cx - hr, hy - 5, cx - hr + 3, hy - 1, 'C');
+          for (const s2 of [-1, 1]) {
+            line(g, cx + s2 * hr, hy - 4, cx + s2 * (hr + 5), hy - 9, 'E', 3);
+            put(g, cx + s2 * (hr + 6), hy - 10, 'F');
+          }
+        } else if (v === 'shield') {                                 // 챙 달린 투구
+          rect(g, cx - hr, hy - 6, cx + hr, hy - 2, 'c');
+          rect(g, cx - hr - 2, hy - 2, cx + hr + 2, hy, 'C');
+        } else if (lean) {                                           // 두건
+          ell(g, cx, hy - 2, hr, hr - 1, 'c');
+          rect(g, cx - hr, hy - 2, cx + hr, hy, 'c');
+        }
         rect(g, cx - 6, hy + 4, cx + 5, hy + 8, 'c');                // 턱
         for (let i = -2; i <= 2; i++) put(g, cx + i * 2, hy + 7, 'F');  // 이빨
+        // ── 붙는 것 ──
+        if (v === 'archer') {
+          for (let i = 0; i < 2; i++)                                // 등에 멘 화살
+            line(g, cx + 9 + i * 3, 20, cx + 12 + i * 3, 12, 'E', 2);
+          rect(g, cx + 8, 20, cx + 15, 27, 'c');                     // 화살통
+          const bx = cx - SH - 13;                                   // 활
+          for (let i = -10; i <= 10; i++) {
+            const yy = 28 + i, xx = bx + Math.abs(i) * .38 - 2;
+            put(g, xx, yy, 'E');
+            if (Math.abs(i) < 10) put(g, xx - 1, yy, 'F');
+          }
+          line(g, bx - 2, 18, bx - 2, 38, 'C', 1);                   // 시위
+        } else if (v === 'shield') {
+          const sx2 = cx - SH - 8;                                   // 큰 방패
+          ell(g, sx2, 33, 11, 15, 'c');
+          ell(g, sx2, 32, 9.5, 13.5, 'D');
+          rect(g, sx2 - 9.5, 20, sx2 + 9.5, 24, 'D');
+          rect(g, sx2 - 1.5, 22, sx2 + 1.5, 44, 'C');                // 세로 띠
+          rect(g, sx2 - 7, 30, sx2 + 7, 34, 'C');
+          ell(g, sx2, 32, 2.5, 2.5, 'G');                            // 방패 보스
+          rect(g, sx2 - 10, 24, sx2 - 8, 42, 'C');                   // 왼쪽 테 빛
+        }
         outline(g);
         eyes(g, cx, hy - 1, 4, 'O', 4);
         eyes(g, cx, hy, 4, 'G', 2);
         return g;
       },
+
       /* 사냥개 — 네 다리가 달린다.
 
          한 번 크게 틀렸다. 몸을 가로로 길게 늘이고 꼬리를 굵은 선으로 45도 세웠더니
@@ -590,6 +659,100 @@ const N = 4;                                   // 애니메이션 4프레임
             rect(g, cx - 2 * K, cy - .2 * K, cx - 1 * K, cy + .7 * K, 'O');
             rect(g, cx + 1 * K, cy - .2 * K, cx + 2 * K, cy + .7 * K, 'O');
             rect(g, cx - 1.2 * K, cy + 2.2 * K, cx + 1.2 * K, cy + 2.9 * K, 'n');
+          }
+        }
+        return g;
+      },
+
+      /* 바닥 장식 둘째 겹 — 사람이 지나간 흔적.
+
+         첫째 겹(floordeco)이 '자연'(이끼·풀·돌·뼈)이라면 이쪽은 '유물'이다.
+         레퍼런스 그림과 우리 바닥의 차이 중 큰 하나가 이것이었다 —
+         저쪽 바닥에는 무늬 박은 판석과 부서진 널판이 있고 우리는 풀만 있었다.
+
+         규칙은 첫째 겹과 같다: 밝기는 바닥의 두 배 안, 덩어리 대신 낱개,
+         사분면을 나눠 겹치지 않게. */
+      floordeco2(f, S) {
+        const g = mk(S);
+        const H = (a, b) => {
+          let x = Math.imul(a * 2654435761 + b * 40503 + f * 131, 2246822519);
+          x = (x ^ (x >>> 13)) >>> 0;
+          return x / 4294967296;
+        };
+        const K = S / 64, T = Math.max(1, Math.round(K));
+        const cx = S / 2, cy = S / 2;
+        // 좌표를 해시로만 뽑으면 넷이 한자리에 겹친다 — 첫째 겹에서 이미 겪었다
+        const QD = [[.28, .28], [.72, .3], [.3, .72], [.7, .7]];
+
+        if (f === 0) {
+          /* 무늬 박은 판석 — 상감이라 바닥과 같은 높이다.
+             처음엔 크게 그리고 모서리를 밝게 둘렀더니 바닥에 놓인 상자 뚜껑이 됐다.
+             박아 넣은 것은 그림자도 테두리도 없다. 톤 차이만 아주 조금. */
+          const R = 12 * K;
+          rect(g, cx - R, cy - R, cx + R, cy + R, '2');
+          rect(g, cx - R, cy - R, cx + R, cy - R + T - 1, '1');       // 이음선만
+          rect(g, cx - R, cy - R, cx - R + T - 1, cy + R, '1');
+          rect(g, cx + R - T + 1, cy - R, cx + R, cy + R, '1');
+          rect(g, cx - R, cy + R - T + 1, cx + R, cy + R, '1');
+          for (let i = 0; i < 4; i++) {                               // 네 잎 무늬
+            const a2 = i / 4 * Math.PI * 2 + Math.PI / 4;
+            const d = 6 * K;
+            ell(g, cx + Math.cos(a2) * d, cy + Math.sin(a2) * d, 3 * K, 3 * K, '4');
+            ell(g, cx + Math.cos(a2) * d, cy + Math.sin(a2) * d, 1.6 * K, 1.6 * K, '1');
+          }
+          ell(g, cx, cy, 3.4 * K, 3.4 * K, '1');
+          ell(g, cx, cy, 2 * K, 2 * K, '4');
+          for (let i = 0; i < 8; i++)                                 // 닳은 자국
+            put(g, cx + (H(i, 3) - .5) * R * 2.2, cy + (H(i, 7) - .5) * R * 2.2, '1');
+        } else if (f === 1) {
+          /* 물웅덩이 — 젖은 자리는 바닥보다 어둡고 그 위에 가느다란 윤이 뜬다.
+             흰 테를 둘렀더니 접시가 됐고, 나란한 줄 두 개를 그으니 등호(=)가 됐다.
+             윤은 하나만, 짧게, 비스듬히. */
+          for (let i = 0; i < 2; i++) {
+            const q = QD[(i + Math.floor(H(9, 61) * 4)) % 4];
+            const px2 = (q[0] + (H(i, 43) - .5) * .14) * S;
+            const py2 = (q[1] + (H(i, 47) - .5) * .14) * S;
+            const rx = (9 + H(i, 3) * 5) * K, ry = rx * .52;
+            ell(g, px2, py2, rx + T * 1.5, ry + T, '1');              // 젖어 번진 가장자리
+            ell(g, px2, py2, rx, ry, 'k');                            // 물 — 가장 어둡다
+            line(g, px2 - rx * .5, py2 + ry * .18, px2 + rx * .05, py2 - ry * .3, '5', T);
+            put(g, px2 + rx * .42, py2 + ry * .3, '4');
+          }
+        } else if (f === 2) {
+          /* 부서진 널판 — 상자였던 것.
+             흙색으로 두니 바닥에 묻혔고, 좌표를 해시로 뽑으니 넷이 한자리에 겹쳐
+             사다리 하나가 됐다. 사분면을 나눠 준다(첫째 겹에서 배운 것과 같다). */
+          for (let i = 0; i < 4; i++) {
+            const q = QD[(i + Math.floor(H(5, 61) * 4)) % 4];
+            const px2 = (q[0] + (H(i, 43) - .5) * .16) * S;
+            const py2 = (q[1] + (H(i, 47) - .5) * .16) * S;
+            const a2 = H(i, 5) * Math.PI;
+            const L = (8 + H(i, 23) * 5) * K, w2 = T * 1.6;
+            const dx = Math.cos(a2) * L, dy = Math.sin(a2) * L * .55;
+            line(g, px2 - dx, py2 - dy + w2, px2 + dx, py2 + dy + w2, 'k', w2);
+            line(g, px2 - dx, py2 - dy, px2 + dx, py2 + dy, '6', w2);
+            line(g, px2 - dx, py2 - dy - T * .6, px2 + dx, py2 + dy - T * .6, '7', T * .8);
+            for (const sg of [-1, 1]) put(g, px2 + dx * sg * .64, py2 + dy * sg * .64, '5');
+          }
+          for (let i = 0; i < 6; i++)                                 // 튄 조각
+            put(g, cx + (H(i, 31) - .5) * 40 * K, cy + (H(i, 37) - .5) * 32 * K, '6');
+        } else {
+          /* 덩굴 — 줄기가 판을 가로지르고 잎이 붙는다. 이끼와 달리 '길게' 뻗는다. */
+          for (let i = 0; i < 2; i++) {
+            const y0 = (.28 + i * .4) * S;
+            let px2 = 0, py2 = y0;
+            for (let k = 1; k <= 8; k++) {
+              const x2 = k / 8 * S;
+              const y2 = y0 + Math.sin(k * .9 + i * 2) * 5 * K;
+              line(g, px2, py2 + T, x2, y2 + T, 'k', T);
+              line(g, px2, py2, x2, y2, 'v', T);
+              if (k % 2 === 0) {                                       // 잎
+                const s2 = k % 4 === 0 ? 1 : -1;
+                ell(g, x2, y2 + s2 * 3 * K, 2.6 * K, 1.8 * K, 'v');
+                ell(g, x2 - K * .5, y2 + s2 * 3 * K - K * .5, 1.4 * K, 1 * K, 'V');
+              }
+              px2 = x2; py2 = y2;
+            }
           }
         }
         return g;
@@ -1370,7 +1533,7 @@ const N = 4;                                   // 애니메이션 4프레임
        바닥·폭발은 격자를 직접 훑어(g[y][x]) 배율을 먹일 수 없다 —
        대신 함수 자체가 S 로 매개화돼 있으므로 최종 크기를 그대로 넘긴다. */
     const SCALE = 2;
-    const RAW = new Set(['floor', 'floordeco', 'boom']);
+    const RAW = new Set(['floor', 'floordeco', 'floordeco2', 'boom']);
     const NATIVE = new Set(['hero', 'boss', 'blob', 'bat', 'ghost', 'humanoid', 'hound',
                             'hit', 'cast']);
     const rows = Object.entries(SPEC.frames);
@@ -1431,6 +1594,9 @@ const N = 4;                                   // 애니메이션 4프레임
            이 게임에서 채도가 높은 것은 몬스터와 이펙트뿐이어야 한다. */
         v: '#313f24', V: '#46592a',                 // 이끼 뿌리 · 잎 끝
         r: '#353341', R: '#494551',                 // 돌부스러기 (바닥과 같은 계열)
+        /* 나무. 돌부스러기 색(차가운 회색)으로 널판을 그렸더니 뼈로 보였다 —
+           둘째 겹에 이미 뼈가 있어서 더 헷갈렸다. 나무는 따뜻해야 나무다. */
+        6: '#3e2e22', 7: '#523d28',
         n: '#4d4a41', N: '#5f5b4e',                 // 뼈 · 뼈 마디
         p: '#7a6a48', P: '#5f4d63',                 // 꽃 — 바랜 금빛 · 바랜 자주
       };

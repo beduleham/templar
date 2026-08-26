@@ -155,17 +155,22 @@ const N = 4;                                   // 애니메이션 4프레임
           ell(g, cx + Math.cos(a) * rx * .45, cy + Math.sin(a) * ry * .3 + ry * .2,
               2.4, 1.8, 'c');
         }
-        line(g, cx + rx * .3, cy + ry * .35, cx + rx * .52, cy + ry * .1, 'E', 2);   // 삼킨 뼈
-        put(g, cx + rx * .52, cy + ry * .1, 'F');
+        /* 삼킨 뼈. 입 높이에 두면 담배를 문 것처럼 보인다 — 몸 안쪽 위로 올린다. */
+        line(g, cx + rx * .24, cy + ry * .1, cx + rx * .5, cy - ry * .16, 'E', 2);
+        put(g, cx + rx * .5, cy - ry * .16, 'F');
         // 반짝임 — 젤의 표면
         ell(g, cx - rx * .48, cy - ry * .5, 4.5, 3, 'W');
         ell(g, cx - rx * .2, cy - ry * .62, 2, 1.4, 'W');
         outline(g);
-        eyes(g, cx, cy - ry * .24, 7, 'O', 7);                      // 눈구멍
-        eyes(g, cx, cy - ry * .2, 7, 'W', 3);
-        rect(g, cx - 4, cy + ry * .28, cx + 3, cy + ry * .28, 'O'); // 입
-        rect(g, cx - 5, cy + ry * .28 - 1, cx - 4, cy + ry * .28, 'O');
-        rect(g, cx + 3, cy + ry * .28 - 1, cx + 4, cy + ry * .28, 'O');
+        /* eyes() 는 네모라 젤에 붙이면 선글라스가 된다. 둥글게 직접 판다. */
+        for (const s2 of [-1, 1]) {
+          ell(g, cx + s2 * 8, cy - ry * .26, 4, 4.6, 'O');
+          ell(g, cx + s2 * 8 - 1.2, cy - ry * .34, 1.5, 1.7, 'W');
+        }
+        /* 입꼬리를 올리면 웃는다. 죽이러 오는 것이 웃고 있으면 안 된다 — 내린다. */
+        rect(g, cx - 4, cy + ry * .2, cx + 3, cy + ry * .2, 'O');   // 입
+        rect(g, cx - 5, cy + ry * .2 + 1, cx - 4, cy + ry * .2 + 1, 'O');
+        rect(g, cx + 3, cy + ry * .2 + 1, cx + 4, cy + ry * .2 + 1, 'O');
         return g;
       },
       // 박쥐 — 날개가 위아래로. 막에 손가락뼈가 있어야 날개로 읽힌다.
@@ -316,8 +321,8 @@ const N = 4;                                   // 애니메이션 4프레임
         for (let i = 0; i < 3; i++)                        // 등가시 — 뼈가 아니라 어두운 털
           line(g, 22 + i * 6, 25, 20 + i * 6, 19 - i, 'c', 3 - (i > 1 ? 1 : 0));
         leg(27, 1, 'D', 7); leg(45, -1, 'D', 7);           // 가까운 쪽 다리
-        edgeLine(16, 31, 8, 25 - a, 'D', 4);               // 꼬리 — 가늘어진다
-        edgeLine(8, 25 - a, 3, 16 - a * 2, 'c', 2);
+        edgeLine(16, 31, 9, 27 - a, 'D', 3);               // 꼬리 — 가늘어진다
+        edgeLine(9, 27 - a, 3, 21 - a * 2, 'c', 2);
         edgeLine(45, 30, 49, 24, 'B', 8);                  // 목
         ell(g, 51, 22, 8, 7.5, 'B');                       // 머리
         ell(g, 50, 19, 6, 4, 'C');

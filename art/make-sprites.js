@@ -18,13 +18,24 @@ const N = 4;                                   // 애니메이션 4프레임
   const pg = await b.newPage();
   const res = await pg.evaluate(({ SPEC, N }) => {
 
-    /* ---------- 픽셀 도구 ---------- */
-    const mk = S => Array.from({ length: S }, () => Array(S).fill('.'));
+    /* ---------- 픽셀 도구 ----------
+       실루엣은 전부 32(보스·바닥은 64) 좌표계로 손으로 적혀 있다.
+       해상도를 올리려고 그 숫자를 전부 다시 쓰는 대신, 원시함수가 배율을 먹는다.
+       ell 은 확대된 크기에서 다시 래스터화하므로 '픽셀을 두 배로 늘린' 게 아니라
+       실제로 더 촘촘한 곡선이 나온다 — 그게 해상도를 올리는 유일한 의미다. */
+    let CURK = 1;
+    const mk = S => {
+      const n = Math.round(S * CURK);
+      const g = Array.from({ length: n }, () => Array(n).fill('.'));
+      g.k = CURK;
+      return g;
+    };
     const put = (g, x, y, ch) => {
       x = Math.round(x); y = Math.round(y);
       if (g[y] && x >= 0 && x < g.length) g[y][x] = ch;
     };
     const ell = (g, cx, cy, rx, ry, ch) => {
+      const k = g.k; cx *= k; cy *= k; rx *= k; ry *= k;
       for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
         for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
           const dx = (x - cx) / rx, dy = (y - cy) / ry;
@@ -34,12 +45,13 @@ const N = 4;                                   // 애니메이션 4프레임
     // 좌우 대칭으로 그릴 때 x0 > x1 이 되는 호출이 많다.
     // 정렬하지 않으면 루프가 돌지 않아 한쪽이 통째로 빠진다(실제로 보스의 왼쪽 어깨와 깃이 없었다).
     const rect = (g, x0, y0, x1, y1, ch) => {
-      const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
-      const ay = Math.min(y0, y1), by = Math.max(y0, y1);
-      for (let y = Math.round(ay); y <= Math.round(by); y++)
-        for (let x = Math.round(ax); x <= Math.round(bx); x++) put(g, x, y, ch);
+      const k = g.k;
+      const ax = Math.round(Math.min(x0, x1) * k), bx = Math.round(Math.max(x0, x1) * k) + k - 1;
+      const ay = Math.round(Math.min(y0, y1) * k), by = Math.round(Math.max(y0, y1) * k) + k - 1;
+      for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) put(g, x, y, ch);
     };
     const line = (g, x0, y0, x1, y1, ch, t = 1) => {
+      const k = g.k; x0 *= k; y0 *= k; x1 *= k; y1 *= k; t = Math.max(1, Math.round(t * k));
       const n = Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0))) * 2 + 1;
       for (let i = 0; i <= n; i++) {
         const x = x0 + (x1 - x0) * i / n, y = y0 + (y1 - y0) * i / n;
@@ -50,6 +62,9 @@ const N = 4;                                   // 애니메이션 4프레임
     // 몸에 붙은 바깥 픽셀을 윤곽으로 — 두께 2
     const outline = (g, t = 2) => {
       const S = g.length;
+      // 판이 두 배가 되면 같은 두께가 절반으로 보인다 — 배율을 따라간다.
+      // 다만 그대로 곱하면 고해상도 픽셀 아트치고 굵어서, 한 겹만 더 준다.
+      t = t + (g.k > 1 ? 1 : 0);
       for (let pass = 0; pass < t; pass++) {
         const add = [];
         for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
@@ -65,8 +80,41 @@ const N = 4;                                   // 애니메이션 4프레임
     };
     // 아래쪽을 그늘로
     const shade = (g, fromY) => {
-      for (let y = Math.round(fromY); y < g.length; y++)
+      for (let y = Math.round(fromY * g.k); y < g.length; y++)
         for (let x = 0; x < g.length; x++) if (g[y][x] === 'B') g[y][x] = 'D';
+    };
+
+    /* ---------- 빛 ----------
+       실루엣만으로는 형태가 납작하다. 레퍼런스와의 차이는 해상도보다 여기서 온다 —
+       같은 그림도 빛이 붙으면 갑옷이 갑옷으로, 천이 천으로 읽힌다.
+
+       왼쪽 위에서 빛이 온다고 보고, 각 픽셀에서 그 방향이 얼마나 열려 있는지로 밝기를 정한다.
+       열려 있으면(=바깥이면) 빛을 받는 면이고, 반대쪽이 열려 있으면 그늘진 면이다.
+
+       중요한 건 마지막의 양자화다. 연속 그라디언트로 두면 픽셀 아트가 아니라 에어브러시가 된다 —
+       단계로 끊어야 색면이 생기고, 그래야 픽셀 아트로 읽힌다. */
+    const STEPS = 3;
+    const lightMap = g => {
+      const S = g.length;
+      const out = Array.from({ length: S }, () => new Array(S).fill(0));
+      const open = (x, y) => {
+        const v = g[y] && g[y][x];
+        return !v || v === '.' || v === 'O' ? 1 : 0;
+      };
+      for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+        const v = g[y][x];
+        if (v === '.' || v === 'O') continue;
+        let lit = 0, dark = 0, wsum = 0;
+        for (let r = 1; r <= 3; r++) {
+          const w = 4 - r;
+          wsum += w;
+          lit += w * (open(x - r, y - r) + open(x, y - r) + open(x - r, y)) / 3;
+          dark += w * (open(x + r, y + r) + open(x, y + r) + open(x + r, y)) / 3;
+        }
+        const f = (lit - dark) / wsum;
+        out[y][x] = Math.round(Math.max(-1, Math.min(1, f)) * STEPS) / STEPS;
+      }
+      return out;
     };
     const eyes = (g, cx, cy, d, ch, w = 2) => {
       for (const s of [-1, 1])
@@ -119,21 +167,35 @@ const N = 4;                                   // 애니메이션 4프레임
         eyes(g, 15.5, 13 + oy, 4, 'G');
         return g;
       },
-      // 인간형 — 다리가 번갈아 나간다
+      /* 인간형 — 다리가 번갈아 나간다.
+         판을 두 배로 올린 뒤 디테일을 얹었다. 해상도만 올리면 같은 그림이 매끄러워질 뿐이고,
+         늘어난 픽셀이 무언가를 담아야 '더 선명해졌다'가 된다.
+         어깨 갑판 · 가슴 띠 · 허리 · 손 · 눈구멍을 넣는다. 전부 0.5 단위라 예전 좌표계에서
+         표현할 수 없던 것들이다. */
       humanoid(f, S) {
         const g = mk(S);
         const sw = [0, 2, 0, -2][f];
-        // 몸통을 넓히고 어깨를 굽힌다. 가는 막대기는 어떤 색을 입혀도 허약해 보인다.
-        rect(g, 9.5, 13, 22.5, 23, 'B');                    // 몸통 — 넓게
-        ell(g, 16, 13, 7, 4, 'B');                          // 굽은 어깨
-        ell(g, 16, 9, 4.5, 4.5, 'B');                       // 머리 — 어깨 사이에 파묻힌다
+        const br = [0, .5, 0, -.5][f];                      // 숨 — 몸통이 미세하게 오르내린다
+        rect(g, 9.5, 13 + br, 22.5, 23, 'B');               // 몸통 — 넓게
+        ell(g, 16, 13 + br, 7, 4, 'B');                     // 굽은 어깨
+        ell(g, 16, 9 + br, 4.5, 4.5, 'B');                  // 머리 — 어깨 사이에 파묻힌다
         line(g, 10, 15, 6 - sw, 22 + sw, 'B', 4);           // 팔 — 굵게, 앞으로 늘어뜨린다
         line(g, 22, 15, 26 + sw, 22 - sw, 'B', 4);
         line(g, 13, 23, 12.5 - sw, 29, 'B', 4);             // 다리 — 굵게
         line(g, 19, 23, 19.5 + sw, 29, 'B', 4);
         shade(g, 19);
+        // 어깨 갑판 — 몸통보다 밝게 얹어 어깨가 따로 읽히게
+        for (const s2 of [-1, 1]) ell(g, 16 + s2 * 5.5, 13.5 + br, 3, 2, 'G');
+        // 가슴 띠와 허리 — 그늘로 새겨 몸통이 한 덩어리로 뭉치지 않게
+        line(g, 11.5, 15.5 + br, 20.5, 18.5 + br, 'D', 1.5);
+        rect(g, 11, 21.5, 21, 22.5, 'D');
+        // 손 — 팔 끝에 덩어리를 둔다
+        ell(g, 6 - sw, 22 + sw, 1.8, 1.8, 'D');
+        ell(g, 26 + sw, 22 - sw, 1.8, 1.8, 'D');
         outline(g);
-        eyes(g, 16, 8, 2, 'G', 1);
+        // 눈구멍을 먼저 어둡게 파고 그 안에 빛을 둔다 — 얼굴이 생긴다
+        eyes(g, 16, 7.5 + br, 2.2, 'O', 2);
+        eyes(g, 16, 8 + br, 2, 'G', 1);
         return g;
       },
 
@@ -533,10 +595,18 @@ const N = 4;                                   // 애니메이션 4프레임
       .toString(16).padStart(2, '0')).join('');
     const mix = (c, t, k) => c.map((v, i) => v + (t[i] - v) * k);
 
-    /* ---------- 시트 ---------- */
+    /* ---------- 시트 ----------
+       SCALE 이 해상도다. 규격에 적힌 h 는 '손으로 그린 좌표계'의 크기고,
+       실제 판은 그 SCALE 배로 나온다. 몹 32→64 · 보스 64→128 · 바닥 64→128.
+
+       바닥·폭발은 격자를 직접 훑어(g[y][x]) 배율을 먹일 수 없다 —
+       대신 함수 자체가 S 로 매개화돼 있으므로 최종 크기를 그대로 넘긴다. */
+    const SCALE = 2;
+    const RAW = new Set(['floor', 'floordeco', 'boom']);
     const rows = Object.entries(SPEC.frames);
-    const W = 64 * N;
-    let H = 0; for (const [, f] of rows) H += f.h;
+    let maxS = 0, H = 0;
+    for (const [, f] of rows) { const S = f.h * SCALE; H += S; if (S > maxS) maxS = S; }
+    const W = maxS * N;
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
     const c = cv.getContext('2d');
@@ -544,7 +614,10 @@ const N = 4;                                   // 애니메이션 4프레임
     const frames = {};
     let y0 = 0;
     for (const [key, def] of rows) {
-      const S = def.h;
+      /* RAW 는 격자를 직접 훑어 배율을 못 먹이는 것들이다. 대신 함수가 S 로 매개화돼 있어
+         최종 크기를 그대로 넘기면 그 크기로 알아서 그린다 — 결과는 같다. */
+      const raw = RAW.has(def.shape);
+      const S = def.h * SCALE;
       const base = hex(def.color);
       const pal = {
         O: '#0a0a12',
@@ -560,16 +633,31 @@ const N = 4;                                   // 애니메이션 4프레임
         W: '#ffffff',
       };
       for (let f = 0; f < N; f++) {
-        const g = SIL[def.shape](f, S, def);
+        CURK = raw ? 1 : SCALE;
+        const g = SIL[def.shape](f, raw ? S : def.h, def);
+        /* 이펙트는 빛을 입히지 않는다 — 발광체라 방향을 가진 그림자가 붙으면 거짓이 된다.
+           바닥 타일도 뺀다. 이어 붙는 그림이라 방향광이 들어가면 이음매가 드러난다. */
+        const lm = (def.fx || raw) ? null : lightMap(g);
         for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
           const v = g[y][x];
           if (v === '.') continue;
-          c.fillStyle = pal[v];
+          let col = pal[v];
+          if (lm && v !== 'O' && v !== 'W') {
+            const t = lm[y][x];
+            if (t > 0) col = toHex(mix(hex(col), [255, 250, 235], t * .46));
+            else if (t < 0) col = toHex(mix(hex(col), [12, 10, 26], -t * .52));
+          }
+          c.fillStyle = col;
           c.fillRect(f * S + x, y0 + y, 1, 1);
         }
       }
+      /* 화면 크기는 예전 그대로 두고 픽셀 밀도만 올린다.
+         크기까지 같이 키우면 보스가 84 → 96px 로 커져 게임 자체가 달라진다 —
+         이번에 바꾸려는 건 '더 선명한가'지 '더 큰가'가 아니다.
+         예전 화면 크기: 32px 판은 32, 그 외(48·64)는 28.
+         고밀도 화면(dpr 2)에서 64 기기픽셀 = 64px 판과 1:1 이 된다. */
       frames[key] = { x: 0, y: y0, w: S, h: S, n: N, fps: def.fps || 8 };
-      if (S !== 32 && !def.fx) frames[key].s = +(28 / S).toFixed(3);
+      if (!def.fx && !raw) frames[key].s = +((def.h === 32 ? 32 : 28) / S).toFixed(4);
       y0 += S;
     }
     return { url: cv.toDataURL('image/png'), frames, W, H: y0 };

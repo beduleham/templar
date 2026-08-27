@@ -2171,7 +2171,22 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   if (Opt.numbers) spawnNumber(e.x, e.y - e.r, Math.round(final), col, crit ? 19 : 14);
   if (knock) {
     const a = Math.atan2(e.y - fromY, e.x - fromX);
-    e.kx += Math.cos(a) * knock; e.ky += Math.sin(a) * knock;
+    /* 세기의 바닥을 올린다.
+
+       "몬스터가 전부 같은 방향으로 밀려난다"는 제보를 재 보니 방향 계산은
+       열다섯 군데 호출부가 전부 맞았다(원형으로 세운 적은 오차 0도로 정확히
+       바깥으로 밀렸다). 문제는 세기였다. 한 대에 옮기던 거리가 K×0.12px 라
+       성역(40)은 4.8px — 픽셀아트 한 칸 반이다. 눈에 보이는 넉백은 참격(260)뿐이었고,
+       참격은 부채꼴이 ±35도라 맞은 적이 다 같은 쪽으로 간다. 그래서
+       '보이는 넉백 = 전부 같은 방향' 이 되었던 것이다.
+
+       120 아래를 끌어올리되 순서는 지킨다(20→78 · 40→87 · 60→95 · 120→120).
+       연속이라 120 근처에서 튀지 않는다.
+
+       우두머리는 0.7 을 곱해 감쇠를 늦추기 전과 같은 거리만 밀리게 둔다 —
+       거구가 붕붕 뜨면 무게가 사라진다. */
+    const k = e.boss ? knock * .7 : (knock < 120 ? 70 + knock * .42 : knock);
+    e.kx += Math.cos(a) * k; e.ky += Math.sin(a) * k;
   }
   // 전직: 처형 — 체력이 바닥난 적을 즉시 끝낸다
   const exe = advVal("execute", 0);
@@ -3460,7 +3475,18 @@ function update(dt) {
       if (e.hp <= 0) { killEnemy(e, "fire"); continue; }
     }
     const spd = (e.slow > 0 ? e.spd * SLOW_MUL : e.spd) * (e.hasteT > 0 ? 1.45 : 1);
-    let vx = dx / d * spd, vy = dy / d * spd;
+    /* 넉백이 살아 있는 동안에는 추격을 그만큼 눌러 준다.
+
+       예전에는 추격 속도를 그대로 두고 넉백을 더하기만 했다. 밀린 만큼 곧바로
+       걸어 돌아오니 '맞은 쪽으로 밀린다'가 화면에서 사라졌다.
+
+       분모에 적의 속도를 넣는 이유: 빠른 적일수록 같은 넉백에 덜 밀려야 한다.
+
+       하한 0.35 를 두는 이유: 넉백은 잠깐 멈추는 것이지 영영 못 오게 하는 것이 아니다.
+       완전히 0 으로 두면 사격이 이어지는 동안 아무도 다가오지 못해 장르가 바뀐다. */
+    const kmag = Math.hypot(e.kx, e.ky);
+    const chase = kmag > 8 ? Math.max(.35, 1 - kmag / (spd * 2.2 + 40)) : 1;
+    let vx = dx / d * spd * chase, vy = dy / d * spd * chase;
 
     // 서로 겹치지 않도록 밀어내기
     const near = hash.query(e.x, e.y, sepR + e.r, scratch2);
@@ -3478,7 +3504,10 @@ function update(dt) {
 
     e.x += (vx + e.kx) * dt; e.y += (vy + e.ky) * dt;
     if (obstacles.length) pushOutOfObstacles(e, e.r);
-    e.kx *= .86; e.ky *= .86;
+    /* 감쇠를 0.86 에서 0.90 으로 늦춘다. 한 번의 넉백이 실제로 옮기는 거리는
+       세기 K 에 대해 K/60/(1-감쇠) 다 — 0.86 이면 K×0.12, 0.90 이면 K×0.17.
+       세기 40 짜리 성역은 4.8px, 즉 픽셀아트 기준 1.6칸이었다. 안 보이는 게 당연했다. */
+    e.kx *= .90; e.ky *= .90;
     if (e.flash > 0) e.flash -= dt;
 
   }
@@ -5532,8 +5561,10 @@ const CLASSES = [
               const e = found[i];
               if (!e.active || e.boss) continue;
               const a = Math.atan2(p.y - e.y, p.x - e.x);
-              e.kx += Math.cos(a) * 60 * tl * dt * 60;
-              e.ky += Math.sin(a) * 60 * tl * dt * 60;
+              // 42 는 예전의 60 이다 — 넉백 감쇠를 0.86 에서 0.90 으로 늦추면서
+              // 같은 값이 40% 더 세게 당기게 됐다. 도발의 세기는 그대로 두려고 되돌린다.
+              e.kx += Math.cos(a) * 42 * tl * dt * 60;
+              e.ky += Math.sin(a) * 42 * tl * dt * 60;
             }
           }
         }

@@ -116,6 +116,16 @@ const N = 4;                                   // 애니메이션 4프레임
       }
       return out;
     };
+    /* 젤 덩어리의 테두리에 한 줄 빛을 두른다. 안쪽만 밝히면 물방울이 아니라 공이 된다. */
+    const ringf2 = (g, cx, cy, rx, ry) => {
+      const k = g.k;
+      for (let y = Math.floor((cy - ry) * k); y <= Math.ceil((cy + ry) * k); y++)
+        for (let x = Math.floor((cx - rx) * k); x <= Math.ceil((cx + rx) * k); x++) {
+          const dx = (x - cx * k) / (rx * k), dy = (y - cy * k) / (ry * k);
+          const d = dx * dx + dy * dy;
+          if (d <= 1 && d > .84 && g[y] && g[y][x] && g[y][x] !== '.') g[y][x] = dy < .2 ? 'G' : 'C';
+        }
+    };
     const eyes = (g, cx, cy, d, ch, w = 2) => {
       for (const s of [-1, 1])
         rect(g, cx + s * d - (w - 1), cy, cx + s * d, cy + w - 1, ch);
@@ -144,20 +154,29 @@ const N = 4;                                   // 애니메이션 4프레임
         const rx = [22, 20, 22, 24][f], ry = [16, 18, 16, 14][f];
         const cx = 31, cy = 43;
         ell(g, cx, cy, rx, ry, 'B');
-        ell(g, cx, cy + ry * .3, rx * .96, ry * .72, 'D');          // 아래는 그늘
-        /* 젤이라 아래로 빛이 샌다. 다만 흰색으로 넓게 두면 흰 배가 된다 — 한 번 그렇게 나왔다. */
-        ell(g, cx, cy + ry * .66, rx * .72, ry * .3, 'C');
-        ell(g, cx, cy + ry * .82, rx * .4, ry * .14, 'W');
+        ell(g, cx, cy + ry * .25, rx * .98, ry * .78, 'D');         // 아래는 그늘
+        ell(g, cx, cy + ry * .45, rx * .9, ry * .58, 'a');          // 더 아래는 더 깊게
+        /* 젤이라 아래로 빛이 샌다. 다만 흰색으로 넓게 두면 흰 배가 된다 — 한 번 그렇게 나왔다.
+           대신 아래로 갈수록 밝아지는 단계를 겹쳐 '빛이 통과한' 것으로 만든다. */
+        ell(g, cx, cy + ry * .62, rx * .78, ry * .34, 'C');
+        ell(g, cx, cy + ry * .74, rx * .58, ry * .22, 'G');
+        ell(g, cx, cy + ry * .82, rx * .4, ry * .14, 'T');
         ell(g, cx - rx * .3, cy - ry * .3, rx * .5, ry * .4, 'C');  // 위쪽 면
-        // 삼킨 것들 — 젤 안에 무언가 떠 있어야 젤로 읽힌다
+        ell(g, cx - rx * .34, cy - ry * .42, rx * .3, ry * .2, 'G');
+        ringf2(g, cx, cy, rx, ry);                                  // 테두리에 도는 빛
+        /* 삼킨 것들 — 젤 안에 무언가 떠 있어야 젤로 읽힌다.
+           예전엔 전부 같은 어두운 점이었다. 재질을 갈라야 '삼킨 것'으로 읽힌다. */
         for (let i = 0; i < 3; i++) {
           const a = i * 2.1 + f * .3;
           ell(g, cx + Math.cos(a) * rx * .45, cy + Math.sin(a) * ry * .3 + ry * .2,
-              2.4, 1.8, 'c');
+              2.4, 1.8, 't');
         }
         /* 삼킨 뼈. 입 높이에 두면 담배를 문 것처럼 보인다 — 몸 안쪽 위로 올린다. */
         line(g, cx + rx * .24, cy + ry * .1, cx + rx * .5, cy - ry * .16, 'E', 2);
         put(g, cx + rx * .5, cy - ry * .16, 'F');
+        ell(g, cx - rx * .44, cy + ry * .3, 2.6, 2.2, 'J');         // 삼킨 금화
+        ell(g, cx - rx * .44, cy + ry * .3, 1.2, 1, 'o');
+        ell(g, cx + rx * .08, cy + ry * .5, 2, 1.6, 'x');           // 삼킨 녹슨 조각
         // 반짝임 — 젤의 표면
         ell(g, cx - rx * .48, cy - ry * .5, 4.5, 3, 'W');
         ell(g, cx - rx * .2, cy - ry * .62, 2, 1.4, 'W');
@@ -187,26 +206,33 @@ const N = 4;                                   // 애니메이션 4프레임
             const bx = cx + (elx - cx) * t * 2 * (t < .5 ? 1 : 0) + (t >= .5 ? (elx - cx) + (tipx - elx) * (t - .5) * 2 : 0);
             const by = cy + (ely - cy) * Math.min(1, t * 2) + (t >= .5 ? (tipy - ely) * (t - .5) * 2 : 0);
             const drop = 13 - Math.abs(t - .5) * 10;
-            rect(g, bx, by, bx, by + drop, 'c');   // 막은 몸보다 확실히 어둡게
+            rect(g, bx, by, bx, by + drop, 't');   // 막은 몸보다 확실히 어둡게
+            rect(g, bx, by + drop - 1, bx, by + drop, 'h');   // 막 끝에 비치는 핏빛
           }
           line(g, cx + s2 * 4, cy - 3, elx, ely, 'B', 4);            // 앞모서리
           line(g, elx, ely, tipx, tipy, 'B', 3);
-          for (let k = 1; k <= 3; k++) {                             // 손가락뼈
+          line(g, cx + s2 * 4, cy - 4, elx, ely - 1, 'C', 1);
+          for (let k = 1; k <= 3; k++) {                             // 손가락뼈 — 뼈로 그린다
             const t = k / 4;
             const jx = elx + (tipx - elx) * t, jy = ely + (tipy - ely) * t;
-            line(g, elx, ely + 1, jx, jy + 13 - Math.abs(t - .3) * 8, 'D', 1);
+            line(g, elx, ely + 1, jx, jy + 13 - Math.abs(t - .3) * 8, 'E', 1);
           }
-          line(g, tipx - s2, tipy, tipx - s2 * 3, tipy - 4, 'E', 1); // 날개 끝 갈고리 — 작게
+          line(g, tipx - s2, tipy, tipx - s2 * 3, tipy - 4, 'F', 1); // 날개 끝 갈고리 — 작게
         }
         ell(g, cx, cy, 9, 10, 'B');                                  // 몸
         ell(g, cx, cy + 3, 7, 7, 'D');                               // 배
+        ell(g, cx, cy + 6, 5, 4, 'a');
         ell(g, cx - 3, cy - 4, 5, 4, 'C');                           // 등에 드는 빛
-        for (const s2 of [-1, 1]) {                                  // 귀
+        ell(g, cx - 4, cy - 6, 3, 2, 'G');
+        for (const s2 of [-1, 1]) {                                  // 귀 — 안쪽은 살빛이라야 귀다
           line(g, cx + s2 * 4, cy - 8, cx + s2 * 8, cy - 17, 'B', 4);
-          line(g, cx + s2 * 4, cy - 8, cx + s2 * 7, cy - 15, 'c', 2);
+          line(g, cx + s2 * 4, cy - 8, cx + s2 * 7, cy - 15, 'i', 2);
+          put(g, cx + s2 * 6, cy - 12, 'I');
         }
         ell(g, cx, cy - 2, 6, 5, 'B');                               // 얼굴
-        rect(g, cx - 2, cy, cx + 1, cy + 3, 'C');                    // 주둥이
+        ell(g, cx - 2, cy - 4, 3.4, 2.4, 'C');
+        rect(g, cx - 2, cy, cx + 1, cy + 3, 'i');                    // 주둥이 — 살빛
+        put(g, cx, cy, 'I');
         outline(g);
         eyes(g, cx, cy - 4, 3, 'G', 3);
         eyes(g, cx, cy - 4, 3, 'W', 1);
@@ -233,13 +259,26 @@ const N = 4;                                   // 애니메이션 4프레임
           for (let y = hy - 4; y <= hy + 20; y++)
             rect(g, cx + 14 * t, y, cx + 14 * t + 1, y, 'D');
         // 두건 안쪽 — 깊은 구멍이라야 얼굴이 없다는 게 읽힌다
-        ell(g, cx, hy - 1, 10, 9, 'c');
+        ell(g, cx, hy - 1, 10, 9, 't');
         ell(g, cx, hy, 8, 7, 'O');
+        /* 구멍만 두면 '얼굴 없음'에서 멈춘다. 그 안에 뼈 얼굴을 반쯤 띄우면
+           '얼굴이 없는 게 아니라 남은 게 뼈뿐'이 된다 — 훨씬 무섭고 색도 는다. */
+        ell(g, cx, hy + 1, 5.5, 5, 'E');
+        ell(g, cx - 1, hy, 3.6, 3, 'F');
+        rect(g, cx - 4, hy + 5, cx + 3, hy + 6, 'E');                // 이
+        for (let i = -1; i <= 1; i++) put(g, cx + i * 2, hy + 5, 'O');
         outline(g);
-        eyes(g, cx, hy - 1, 4, 'G', 4);
-        eyes(g, cx, hy - 1, 4, 'W', 2);
-        for (const s2 of [-1, 1])                                    // 소맷자락처럼 흐르는 팔
+        eyes(g, cx, hy - 1, 4, 'O', 4);
+        eyes(g, cx, hy - 1, 4, 'G', 3);
+        eyes(g, cx, hy - 1, 4, 'W', 1);
+        for (const s2 of [-1, 1]) {                                  // 소맷자락처럼 흐르는 팔
           line(g, cx + s2 * 12, hy + 4, cx + s2 * 19, hy + 12 + oy, 'D', 5);
+          line(g, cx + s2 * 12, hy + 3, cx + s2 * 18, hy + 10 + oy, 'C', 1);
+          for (let k = 0; k < 3; k++)                                // 삐져나온 뼈 손가락
+            put(g, cx + s2 * (19 + k), hy + 14 + oy + k, 'E');
+        }
+        for (let x = cx - 12; x <= cx + 12; x += 6)                  // 허리에 두른 녹슨 사슬
+          { put(g, x, hy + 13 + oy, 'w'); put(g, x + 2, hy + 13 + oy, 'x'); }
         return g;
       },
       /* 인간형 — 좀비 · 거구 · 궁수 · 돌격병 · 방패병이 같이 쓴다.
@@ -267,7 +306,10 @@ const N = 4;                                   // 애니메이션 4프레임
           const lx = cx + s2 * (big ? 7 : 6) + s2 * sw * .5;
           edgeLine(lx, 44, lx + s2 * sw * .3, 55, 'D', big ? 9 : 7);
           line(g, lx - 2, 44, lx + s2 * sw * .3 - 2, 54, 'B', 2);
-          rect(g, lx - 5, 55, lx + 4, 58, 'c');                      // 발
+          line(g, lx - 3, 44, lx + s2 * sw * .3 - 3, 53, 'C', 1);
+          rect(g, lx - 5, 55, lx + 4, 58, 'l');                      // 발 — 가죽 신
+          rect(g, lx - 5, 55, lx + 4, 55, 'L');
+          rect(g, lx - 5, 58, lx + 4, 58, 'd');
         }
         // ── 팔 ── 직업마다 자세가 다르다
         for (const s2 of [-1, 1]) {
@@ -296,64 +338,109 @@ const N = 4;                                   // 애니메이션 4프레임
         ell(g, cx, 26 + br, SH, big ? 11 : 9, 'B');                  // 굽은 어깨
         rect(g, cx - SH + 2, 26 + br, cx + SH - 2, 45, 'B');
         rect(g, cx - SH + 2, 26 + br, cx - SH + 5, 44, 'C');         // 왼쪽 빛
+        rect(g, cx - SH + 2, 26 + br, cx - SH + 2, 44, 'G');
         rect(g, cx + SH - 4, 28 + br, cx + SH - 2, 45, 'D');
-        if (v === 'zombie')
-          for (let i = 0; i < 3; i++)                                // 드러난 갈비뼈
+        rect(g, cx + SH - 2, 30 + br, cx + SH - 2, 45, 'a');         // 오른쪽 끝은 더 깊게
+        if (v === 'zombie') {
+          for (let i = 0; i < 3; i++) {                              // 드러난 갈비뼈
             rect(g, cx - 7 + i, 31 + br + i * 4, cx + 6 - i, 32 + br + i * 4, 'E');
-        else if (big)
+            rect(g, cx - 7 + i, 31 + br + i * 4, cx + 2 - i, 31 + br + i * 4, 'F');
+          }
+          ell(g, cx - 1, 38 + br, 3.4, 2.6, 't');                    // 뚫린 배 — 네모면 주머니다
+          ell(g, cx - 1, 38.5 + br, 2.2, 1.6, 'h');                  // 마른 피
+          put(g, cx - 2, 40 + br, 'h'); put(g, cx + 1, 41 + br, 'h'); // 흘러내린 자국
+          for (let k = 0; k < 3; k++) put(g, cx - 5 + k * 5, 43, 'h');
+          rect(g, cx - SH + 1, 33 + br, cx - SH + 4, 45, 'l');       // 걸친 넝마
+          rect(g, cx - SH + 1, 33 + br, cx - SH + 2, 44, 'L');
+        } else if (big) {
           for (let i = 0; i < 4; i++)                                // 두꺼운 근육 결
-            rect(g, cx - 10 + i, 32 + br + i * 3, cx + 9 - i, 33 + br + i * 3, 'D');
-        else {                                                       // 가죽 갑옷
-          rect(g, cx - SH + 2, 30 + br, cx + SH - 2, 32 + br, 'c');
-          rect(g, cx - SH + 2, 38, cx + SH - 2, 40, 'c');
+            rect(g, cx - 10 + i, 32 + br + i * 3, cx + 9 - i, 33 + br + i * 3, 'a');
+          for (const s2 of [-1, 1]) {                                // 어깨를 가로지르는 가죽띠
+            line(g, cx + s2 * 12, 22 + br, cx - s2 * 8, 45, 'L', 4);
+            line(g, cx + s2 * 12, 22 + br, cx - s2 * 8, 45, 'u', 1);
+            for (let k = 0; k < 3; k++)                              // 띠에 박은 쇠못
+              put(g, cx + s2 * (10 - k * 7), 26 + br + k * 8, 'm');
+          }
+          rect(g, cx - 5, 30 + br, cx + 4, 33 + br, 'h');            // 가슴의 상처
+          rect(g, cx - 4, 31 + br, cx + 3, 32 + br, 'i');
+        } else {                                                     // 가죽 갑옷
+          rect(g, cx - SH + 2, 30 + br, cx + SH - 2, 32 + br, 'L');
+          rect(g, cx - SH + 2, 30 + br, cx + SH - 2, 30 + br, 'u');
+          rect(g, cx - SH + 2, 38, cx + SH - 2, 40, 'L');
+          rect(g, cx - SH + 2, 38, cx + SH - 2, 38, 'u');
+          for (let k = -1; k <= 1; k++) put(g, cx + k * 6, 39, 'm');  // 갑옷의 쇠못
         }
-        rect(g, cx - SH + 2, 41, cx + SH - 2, 43, 'c');              // 허리
+        rect(g, cx - SH + 2, 41, cx + SH - 2, 43, 'l');              // 허리띠 — 가죽
+        rect(g, cx - SH + 2, 41, cx + SH - 2, 41, 'L');
+        rect(g, cx - 2, 41, cx + 2, 43, 'J');                        // 버클
         for (const s2 of [-1, 1]) {                                  // 어깨 갑판
-          ell(g, cx + s2 * (SH - 2), 27 + br, big ? 7 : 5.5, big ? 5 : 4, 'c');
-          ell(g, cx + s2 * (SH - 2), 26 + br, big ? 6.5 : 5, big ? 4.5 : 3.5, 'C');
+          ell(g, cx + s2 * (SH - 2), 27 + br, big ? 7 : 5.5, big ? 5 : 4, 't');
+          ell(g, cx + s2 * (SH - 2), 26 + br, big ? 6.5 : 5, big ? 4.5 : 3.5, 'D');
+          ell(g, cx + s2 * (SH - 2) - 1, 25 + br, big ? 4.5 : 3.4, big ? 3 : 2.4, 'C');
         }
         // ── 머리 ──
         const hr = big ? 7 : 8;
         ell(g, cx, hy + 1, hr + .5, hr + .5, 'c');
         ell(g, cx, hy, hr, hr, 'B');
         ell(g, cx - 2, hy - 3, hr * .6, hr * .5, 'C');
-        if (v === 'charger') {                                       // 뿔투구
-          rect(g, cx - hr, hy - 5, cx + hr, hy - 1, 'c');
-          rect(g, cx - hr, hy - 5, cx - hr + 3, hy - 1, 'C');
+        if (v === 'charger') {                                       // 뿔투구 — 녹슨 쇠
+          rect(g, cx - hr, hy - 5, cx + hr, hy - 1, 'x');
+          rect(g, cx - hr, hy - 5, cx + hr, hy - 5, 'w');
+          rect(g, cx - hr, hy - 5, cx - hr + 2, hy - 1, 'w');
           for (const s2 of [-1, 1]) {
             line(g, cx + s2 * hr, hy - 4, cx + s2 * (hr + 5), hy - 9, 'E', 3);
+            line(g, cx + s2 * hr, hy - 5, cx + s2 * (hr + 4), hy - 9, 'F', 1);
             put(g, cx + s2 * (hr + 6), hy - 10, 'F');
+            put(g, cx + s2 * hr, hy - 3, 'm');                       // 뿔을 무는 쇠고리
           }
-        } else if (v === 'shield') {                                 // 챙 달린 투구
-          rect(g, cx - hr, hy - 6, cx + hr, hy - 2, 'c');
-          rect(g, cx - hr - 2, hy - 2, cx + hr + 2, hy, 'C');
+          put(g, cx, hy + 3, 'w'); put(g, cx + 1, hy + 3, 'x');      // 코뚜레
+        } else if (v === 'shield') {                                 // 챙 달린 투구 — 강철
+          rect(g, cx - hr, hy - 6, cx + hr, hy - 2, 'm');
+          rect(g, cx - hr, hy - 6, cx - hr + 2, hy - 2, 'M');
+          rect(g, cx - hr - 2, hy - 2, cx + hr + 2, hy, 'M');
+          rect(g, cx - hr - 2, hy - 2, cx + hr + 2, hy - 2, 'H');
+          rect(g, cx - 1, hy - 6, cx + 1, hy, 'e');                  // 코가리개
         } else if (lean) {                                           // 두건
-          ell(g, cx, hy - 2, hr, hr - 1, 'c');
-          rect(g, cx - hr, hy - 2, cx + hr, hy, 'c');
+          ell(g, cx, hy - 2, hr, hr - 1, 't');
+          rect(g, cx - hr, hy - 2, cx + hr, hy, 't');
+          rect(g, cx - hr, hy - 3, cx - hr + 3, hy, 'c');            // 두건의 볕
         }
-        rect(g, cx - 6, hy + 4, cx + 5, hy + 8, 'c');                // 턱
+        rect(g, cx - 6, hy + 4, cx + 5, hy + 8, 't');                // 턱 안쪽
         for (let i = -2; i <= 2; i++) put(g, cx + i * 2, hy + 7, 'F');  // 이빨
+        rect(g, cx - 6, hy + 4, cx + 5, hy + 4, 'E');                // 잇몸 — 뼈 한 줄
         // ── 붙는 것 ──
         if (v === 'archer') {
-          for (let i = 0; i < 2; i++)                                // 등에 멘 화살
-            line(g, cx + 9 + i * 3, 20, cx + 12 + i * 3, 12, 'E', 2);
-          rect(g, cx + 8, 20, cx + 15, 27, 'c');                     // 화살통
-          const bx = cx - SH - 13;                                   // 활
+          for (let i = 0; i < 2; i++) {                              // 등에 멘 화살 — 나무 대에 쇠촉
+            line(g, cx + 9 + i * 3, 20, cx + 12 + i * 3, 12, 'L', 2);
+            put(g, cx + 12 + i * 3, 11, 'm'); put(g, cx + 12 + i * 3, 10, 'M');
+            put(g, cx + 9 + i * 3, 21, 'F');                         // 깃
+          }
+          rect(g, cx + 8, 20, cx + 15, 27, 'l');                     // 화살통 — 가죽
+          rect(g, cx + 8, 20, cx + 15, 21, 'L');
+          rect(g, cx + 8, 24, cx + 15, 24, 'u');
+          const bx = cx - SH - 13;                                   // 활 — 나무
           for (let i = -10; i <= 10; i++) {
             const yy = 28 + i, xx = bx + Math.abs(i) * .38 - 2;
-            put(g, xx, yy, 'E');
-            if (Math.abs(i) < 10) put(g, xx - 1, yy, 'F');
+            put(g, xx, yy, 'l');
+            if (Math.abs(i) < 10) put(g, xx - 1, yy, 'L');
+            if (Math.abs(i) < 8) put(g, xx - 2, yy, 'u');
           }
-          line(g, bx - 2, 18, bx - 2, 38, 'C', 1);                   // 시위
+          put(g, bx + 1.8, 18, 'w'); put(g, bx + 1.8, 38, 'w');      // 활 끝의 쇠
+          line(g, bx - 2, 18, bx - 2, 38, 'F', 1);                   // 시위
         } else if (v === 'shield') {
-          const sx2 = cx - SH - 8;                                   // 큰 방패
-          ell(g, sx2, 33, 11, 15, 'c');
-          ell(g, sx2, 32, 9.5, 13.5, 'D');
-          rect(g, sx2 - 9.5, 20, sx2 + 9.5, 24, 'D');
-          rect(g, sx2 - 1.5, 22, sx2 + 1.5, 44, 'C');                // 세로 띠
-          rect(g, sx2 - 7, 30, sx2 + 7, 34, 'C');
-          ell(g, sx2, 32, 2.5, 2.5, 'G');                            // 방패 보스
-          rect(g, sx2 - 10, 24, sx2 - 8, 42, 'C');                   // 왼쪽 테 빛
+          const sx2 = cx - SH - 8;                                   // 큰 방패 — 강철
+          ell(g, sx2, 33, 11, 15, 'e');
+          ell(g, sx2, 32, 9.5, 13.5, 'm');
+          rect(g, sx2 - 9.5, 20, sx2 + 9.5, 24, 'm');
+          ell(g, sx2 - 2, 28, 6, 8, 'M');                            // 왼쪽 위가 밝다
+          rect(g, sx2 - 1.5, 22, sx2 + 1.5, 44, 'J');                // 금 세로 띠
+          rect(g, sx2 - 7, 30, sx2 + 7, 34, 'J');
+          rect(g, sx2 - 1.5, 22, sx2 - .5, 43, 'o');
+          rect(g, sx2 - 7, 31, sx2 + 6, 31, 'o');
+          ell(g, sx2, 32, 3, 3, 'o');                                // 방패 보스
+          ell(g, sx2 - 1, 31, 1.4, 1.4, 'Z');
+          rect(g, sx2 - 10, 24, sx2 - 9, 42, 'H');                   // 왼쪽 테 광
+          for (let k = 0; k < 4; k++) put(g, sx2 - 8 + k * 5, 22, 'w');   // 녹슨 못
         }
         outline(g);
         eyes(g, cx, hy - 1, 4, 'O', 4);
@@ -381,30 +468,50 @@ const N = 4;                                   // 애니메이션 4프레임
           edgeLine(kx, 48, kx + sgn * a * .8, 55, ch, t - 1);
           rect(g, kx + sgn * a * .8 - 3, 55, kx + sgn * a * .8 + 3, 58, 'c');
         };
-        leg(23, -1, 'c', 6); leg(41, 1, 'c', 6);           // 먼 쪽 다리는 어둡게
+        leg(23, -1, 't', 6); leg(41, 1, 't', 6);           // 먼 쪽 다리는 어둡게
         ell(g, 30, 33, 15, 10, 'B');                       // 몸
         ell(g, 21, 32, 10, 9, 'D');                        // 엉덩이
         ell(g, 39, 33, 10, 9, 'B');                        // 가슴
         rect(g, 17, 26, 40, 29, 'C');                      // 등에 드는 빛
-        rect(g, 20, 39, 40, 41, 'c');                      // 배의 그늘
+        rect(g, 19, 25, 38, 26, 'G');                      // 등마루의 빛
+        rect(g, 20, 39, 40, 41, 'a');                      // 배의 그늘
+        rect(g, 22, 41, 38, 42, 't');
         for (let i = 0; i < 3; i++)                        // 등가시 — 뼈가 아니라 어두운 털
-          line(g, 22 + i * 6, 25, 20 + i * 6, 19 - i, 'c', 3 - (i > 1 ? 1 : 0));
+          line(g, 22 + i * 6, 25, 20 + i * 6, 19 - i, 't', 3 - (i > 1 ? 1 : 0));
         leg(27, 1, 'D', 7); leg(45, -1, 'D', 7);           // 가까운 쪽 다리
+        for (const bx of [27, 45]) {                       // 발톱 — 뼈는 여기와 이빨에만
+          for (let k = -1; k <= 1; k++) put(g, bx + k * 2 + a * .8, 58, 'E');
+        }
         edgeLine(16, 31, 9, 27 - a, 'D', 3);               // 꼬리 — 가늘어진다
-        edgeLine(9, 27 - a, 3, 21 - a * 2, 'c', 2);
+        edgeLine(9, 27 - a, 3, 21 - a * 2, 't', 2);
         edgeLine(45, 30, 49, 24, 'B', 8);                  // 목
+        /* 목줄. 짐승에 사람이 채운 물건이 하나 붙으면 '야생'이 아니라 '풀려난 것'이 된다 —
+           같은 실루엣이 훨씬 사납게 읽힌다. */
+        line(g, 44, 26, 48, 32, 'x', 4);
+        line(g, 44, 25, 47, 30, 'w', 2);
+        for (let k = 0; k < 3; k++) put(g, 45 + k, 27 + k * 2, 'm');   // 목줄의 쇠징
         ell(g, 51, 22, 8, 7.5, 'B');                       // 머리
         ell(g, 50, 19, 6, 4, 'C');
+        ell(g, 49, 17.5, 3.4, 2, 'G');
         rect(g, 55, 22, 62, 27, 'B');                      // 주둥이
         rect(g, 55, 22, 61, 23, 'C');
-        rect(g, 55, 27, 62, 28, 'c');
-        put(g, 62, 23, 'c');                               // 코
-        for (const s2 of [-1, 1])                          // 귀
+        rect(g, 55, 27, 62, 28, 'a');
+        rect(g, 61, 22, 62, 24, 't');                      // 코
+        put(g, 62, 23, 'x');
+        for (const s2 of [-1, 1]) {                        // 귀 — 안쪽은 살빛
           line(g, 49 + s2 * 2, 16, 47 + s2 * 4, 8, 'D', 4);
+          line(g, 49 + s2 * 2, 15, 47 + s2 * 3, 10, 'i', 1);
+        }
         outline(g);
-        for (let i = 0; i < 4; i++) put(g, 56 + i * 2, 26, 'F');   // 이빨 — 뼈는 여기만
-        rect(g, 52, 20, 55, 22, 'G');                      // 눈
-        put(g, 53, 20, 'W');
+        for (let i = 0; i < 4; i++) {                      // 이빨 — 뼈
+          put(g, 56 + i * 2, 26, 'F');
+          put(g, 56 + i * 2, 27, 'E');
+        }
+        /* 눈을 4칸 폭으로 붉게 두었더니 귀 안쪽의 살빛과 합쳐져 얼굴이 분홍 덩어리가 됐다.
+           짐승의 눈은 작고 깊어야 사납다 — 좁히고 둘레를 어둡게 판다. */
+        rect(g, 52, 20, 54, 22, 't');
+        rect(g, 52, 20, 53, 21, 'I');
+        put(g, 52, 20, 'W');
         return g;
       },
 
@@ -1529,7 +1636,11 @@ const N = 4;                                   // 애니메이션 4프레임
           const w = capeW(y);
           rect(g, cx - w, y, cx + w, y, 'D');
           rect(g, cx - w, y, cx - w + 3, y, 'B');            // 왼쪽 빛
+          rect(g, cx - w, y, cx - w, y, 'C');
           rect(g, cx + w - 2, y, cx + w, y, 'c');            // 오른쪽 그늘
+          rect(g, cx + w, y, cx + w, y, 't');
+          // 안감 — 몸에 가려 접힌 안쪽 면. 붉은 한 줄이 갑옷의 채도를 살린다
+          if (y > sh + 6) { rect(g, cx - 18, y, cx - 16, y, 'i'); rect(g, cx + 16, y, cx + 18, y, 'h'); }
         }
         for (const t of [-.66, -.3, .26, .64])               // 주름
           for (let y = sh + 8; y <= hem; y++) {
@@ -1576,20 +1687,28 @@ const N = 4;                                   // 애니메이션 4프레임
         ell(g, cx, sh + 14, 6, 7, 'B');
         ell(g, cx, sh + 14, 4, 5, 'G');
         ell(g, cx - 1, sh + 12, 2, 2, 'W');
-        for (let i = 0; i < 6; i++) {                        // 보석을 문 발톱
+        for (let i = 0; i < 6; i++) {                        // 보석을 문 발톱 — 금
           const a = i / 6 * Math.PI * 2 + .5;
           line(g, cx + Math.cos(a) * 6, sh + 14 + Math.sin(a) * 7,
-                  cx + Math.cos(a) * 10, sh + 14 + Math.sin(a) * 11, 'Q', 2);
+                  cx + Math.cos(a) * 10, sh + 14 + Math.sin(a) * 11, 'J', 2);
+          put(g, cx + Math.cos(a) * 6, sh + 14 + Math.sin(a) * 7, 'o');
         }
         edged(cx - 18, sh + 34, cx + 18, sh + 41, 'q', 'Q', 'c');   // 허리띠
+        rect(g, cx - 18, sh + 34, cx + 18, sh + 35, 'J');            // 띠의 금단
+        rect(g, cx - 18, sh + 34, cx + 17, sh + 34, 'o');
+        rect(g, cx - 5, sh + 36, cx + 4, sh + 40, 'J');              // 버클
+        rect(g, cx - 4, sh + 37, cx + 3, sh + 38, 'o');
+        put(g, cx - 3, sh + 37, 'Z');
 
         // ── 어깨 갑판 ── 두 겹. 가시는 하나만, 그리고 갑옷색이다(뼈로 두면 벌레가 된다).
         for (const s2 of [-1, 1]) {
           edged(cx + s2 * 16, sh - 4, cx + s2 * 33, sh + 9, 'q', 'Q', 'c');
+          rect(g, cx + s2 * 16, sh + 8, cx + s2 * 33, sh + 9, 'J');   // 갑판 아래 금단
           edged(cx + s2 * 19, sh + 7, cx + s2 * 31, sh + 16, 'q', 'Q', 'c');
+          rect(g, cx + s2 * 19, sh + 15, cx + s2 * 31, sh + 16, 'J');
           edgedLine(cx + s2 * 27, sh - 3, cx + s2 * 33, sh - 13 - p, 'q', 8);
           line(g, cx + s2 * 26, sh - 5, cx + s2 * 31, sh - 12 - p, 'Q', 3);
-          put(g, cx + s2 * 21, sh - 6, 'F');                  // 못 하나
+          put(g, cx + s2 * 21, sh - 6, 'o');                  // 금 못 하나
         }
 
         // ── 깃 ── 머리 뒤로만. 어깨와 겹치지 않게 위쪽에만.
@@ -1629,6 +1748,9 @@ const N = 4;                                   // 애니메이션 4프레임
           for (let i = 1; i <= 4; i++)                        // 마디
             line(g, cx + s2 * (8 + i * 3.4), hy - 10 - i * 4.1,
                     cx + s2 * (12 + i * 3.4), hy - 13 - i * 4.1, 'O', 1);
+          // 뿔 밑동을 무는 금관 — 뼈만 있으면 짐승이고, 금이 붙으면 왕이다
+          edgedLine(cx + s2 * 7, hy - 8, cx + s2 * 13, hy - 14, 'J', 5);
+          line(g, cx + s2 * 7, hy - 10, cx + s2 * 12, hy - 15, 'o', 2);
         }
         // ── 왕관 ── 셋이 밖으로 벌어진다. 가운데 하나만 세우면 더듬이가 된다.
         for (let i = -1; i <= 1; i++) {
@@ -1690,6 +1812,8 @@ const N = 4;                                   // 애니메이션 4프레임
         /* 보스용. 몸 전체가 B 한 색이라 색종이로 오린 것 같았다 —
            천은 네 단계(C·B·D·c), 갑옷은 채도를 죽인 두 단계(Q·q)로 나눈다.
            갑옷을 진짜 강철로 두면 보스 넷이 다 같아 보인다. 색은 남기고 채도만 죽인다. */
+        /* 몸색 여덟 단계. 이 표는 처음부터 t·c·a·D·B·C·G·T 를 갖고 있었는데
+           몹은 그중 넷(c·D·B·C)만 썼다. 색이 모자랐던 게 아니라 안 쓰고 있었던 것이다. */
         C: toHex(mix(base, [255, 255, 255], .34)),
         c: toHex(mix(base, [0, 0, 0], .58)),
         q: toHex(mix(base, [46, 44, 62], .62)),
@@ -1717,8 +1841,12 @@ const N = 4;                                   // 애니메이션 4프레임
         U: '#c19170', u: '#93694a', L: '#6d4c33', l: '#452e1f', d: '#2a1a10',
         // 금 넷 — 갑옷 테두리 · 코등이 · 버클 · 자수
         Z: '#ffe9a8', o: '#e6b845', J: '#a8791f', j: '#6b4a10',
-        // 붉은 안감 셋 — 망토 안쪽과 허리천. 금 옆에 붉은 게 있어야 갑옷이 산다
+        // 붉은 안감 셋 — 망토 안쪽과 허리천. 금 옆에 붉은 게 있어야 갑옷이 산다.
+        // 몬스터에서는 마른 피와 상처, 박쥐 귀 안쪽으로도 쓴다
         I: '#c04452', i: '#8f2530', h: '#57141d',
+        /* 녹슨 쇠 둘 — 몬스터 전용. 강철(M·m·e)은 차가운 회색이라 주인공 갑옷의 색이고,
+           족쇄·목줄·화살촉처럼 '버려진 쇠'는 따뜻하게 삭아야 한다. */
+        w: '#8a5326', x: '#4a2d13',
         W: '#ffffff',
         /* 바닥용 밝기 단계. 판석마다 톤이 조금씩 달라야 '바닥'이지,
            한 톤이면 벽지가 된다. 폭은 좁게 잡는다 —

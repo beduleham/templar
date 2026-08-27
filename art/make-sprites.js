@@ -131,6 +131,25 @@ const N = 4;                                   // 애니메이션 4프레임
         rect(g, cx + s * d - (w - 1), cy, cx + s * d, cy + w - 1, ch);
     };
 
+/* ---------- 속성별 열(熱) 램프 ----------
+
+       예전 이펙트는 색이 셋뿐이었다 — B(속성색) · G(밝은 속성색) · W(흰 심지).
+       그래서 폭발이 '흰 원 안의 색 원'이었다. 불도 얼음도 같은 구조라
+       속성이 다르다는 게 형태로만 전해졌다.
+
+       진짜 폭발은 색조가 아니라 '온도'가 변한다. 심지는 희고, 그 다음이 노랗고,
+       그 다음이 속성색이고, 가장자리는 식어서 어둡다. 그 순서를 여기 적어 둔다.
+       (심지 → 가장자리 순. 팔레트의 여덟 단계와 금·강철·피를 섞어 쓴다.) */
+    const HEAT = {
+      physical: ['W', 'X', 'H', 'M', 'm', 'e'],              // 쇠끼리 부딪친 불똥
+      fire:     ['W', 'Z', 'o', 'G', 'B', 'D', 'c'],         // 흰 심지 → 금빛 → 불색 → 식은 가장자리
+      frost:    ['W', 'T', 'G', 'C', 'B', 'a', 'c'],
+      storm:    ['W', 'Z', 'T', 'G', 'B', 'a', 'c'],         // 번개는 심지가 노랗다
+      holy:     ['W', 'Z', 'o', 'G', 'B', 'C', 'a'],
+      blood:    ['W', 'G', 'B', 'D', 'c', 'i', 'h'],         // 가장자리는 굳은 피
+    };
+    const heatOf = el => HEAT[el] || HEAT.physical;
+
     /* ---------- 실루엣 6종 ----------
        각 함수는 프레임 번호(0~3)를 받아 픽셀 격자를 돌려준다. */
     const SIL = {
@@ -869,6 +888,7 @@ const N = 4;                                   // 애니메이션 4프레임
          몬스터·주인공과 달리 검은 윤곽을 두르지 않는다. 빛이기 때문이다.
          B = 속성색 · G = 밝은 속성색 · W = 흰 심지. 이 세 겹이 타격감을 만든다. */
 
+
       /* 예전에는 속성 여섯이 전부 같은 별표였고 색만 달랐다. 화면에서 가장 자주,
          가장 많이 보이는 것이 이건데 형태가 하나뿐이면 '무엇에 맞았는지'가 안 읽힌다.
 
@@ -914,22 +934,36 @@ const N = 4;                                   // 애니메이션 4프레임
             const bx = c + Math.cos(a) * 3, by = c + Math.sin(a) * 3;
             const mx = c + Math.cos(a - .3) * L * .6, my = c + Math.sin(a - .3) * L * .6;
             const tx = c + Math.cos(a - .55) * L, ty = c + Math.sin(a - .55) * L;
-            stroke(bx, by, mx, my, 7 * gro, 4 * gro, 'B');
+            stroke(bx, by, mx, my, 8 * gro, 5 * gro, 'D');    // 혀의 뿌리는 식어 있다
+            stroke(bx, by, mx, my, 6 * gro, 3.5 * gro, 'B');
             stroke(mx, my, tx, ty, 4 * gro, 1.5, 'G');
+            stroke(mx, my, tx, ty, 2 * gro, 1.5, 'o');       // 끝은 금빛
           }
+          ell(g, c, c + R * .08, R * .48, R * .34, 'D');     // 밑동의 식은 테
           ell(g, c, c + R * .1, R * .42, R * .3, 'B');
-          ell(g, c, c + R * .12, R * .28 * fade, R * .2 * fade, 'G');
-          if (fade > .7) ell(g, c, c + R * .12, R * .13, R * .1, 'W');
-          for (let i = 0; i < 6; i++)                     // 불티
-            put(g, c + Math.cos(i * 1.9 + f) * R * (.9 + (i % 3) * .12),
-                   c + Math.sin(i * 1.9 + f) * R * .7 - R * .3, 'G');
+          ell(g, c, c + R * .11, R * .34 * fade, R * .24 * fade, 'G');
+          ell(g, c, c + R * .12, R * .24 * fade, R * .17 * fade, 'o');
+          ell(g, c, c + R * .12, R * .16 * fade, R * .12 * fade, 'Z');
+          if (fade > .7) ell(g, c, c + R * .12, R * .09, R * .07, 'W');
+          for (let i = 0; i < 8; i++) {                     // 불티 — 뜨거운 것과 식은 것
+            const px3 = c + Math.cos(i * 1.9 + f) * R * (.9 + (i % 3) * .12);
+            const py3 = c + Math.sin(i * 1.9 + f) * R * .7 - R * .3;
+            put(g, px3, py3, i % 3 ? 'o' : 'Z');
+            put(g, px3 + 1, py3 + 1, 'D');
+          }
+          if (f >= 2) for (let i = 0; i < 5; i++)           // 피어오르는 연기
+            ell(g, c + Math.cos(i * 2.3 + f) * R * .8, c - R * (.5 + (i % 3) * .15),
+                2.4 + (i % 2), 1.8 + (i % 2), f === 2 ? '9' : '8');
         } else if (el === 'frost') {
           // 서리 결정 — 여섯 갈래에 잔가지. 눈송이는 여섯이라야 눈송이다.
           for (let i = 0; i < 6; i++) {
             const a = i / 6 * Math.PI * 2 + Math.PI / 12;
             const ex = c + Math.cos(a) * R, ey = c + Math.sin(a) * R;
+            stroke(c, c, ex, ey, 6 * gro, 1.5, 'a');      // 결정의 두꺼운 그림자면
             stroke(c, c, ex, ey, 5 * gro, 1.5, 'B');
-            stroke(c, c, c + Math.cos(a) * R * .55, c + Math.sin(a) * R * .55, 3 * gro, 1.5, 'W');
+            stroke(c, c, c + Math.cos(a) * R * .7, c + Math.sin(a) * R * .7, 3.5 * gro, 1.5, 'C');
+            stroke(c, c, c + Math.cos(a) * R * .55, c + Math.sin(a) * R * .55, 2.5 * gro, 1.5, 'T');
+            stroke(c, c, c + Math.cos(a) * R * .3, c + Math.sin(a) * R * .3, 2 * gro, 1.5, 'W');
             for (const sd of [-1, 1])                     // 잔가지
               for (const t of [.42, .68]) {
                 const bx = c + Math.cos(a) * R * t, by = c + Math.sin(a) * R * t;
@@ -940,9 +974,12 @@ const N = 4;                                   // 애니메이션 4프레임
           for (let i = 0; i < 5; i++) {                   // 떨어져 나간 조각
             const a = i * 1.3 + f, d = R * (1.05 + (i % 2) * .12);
             rect(g, c + Math.cos(a) * d - 1, c + Math.sin(a) * d - 1,
-                    c + Math.cos(a) * d + 1, c + Math.sin(a) * d + 1, 'G');
+                    c + Math.cos(a) * d + 1, c + Math.sin(a) * d + 1, 'C');
+            put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, 'T');
           }
-          ell(g, c, c, 5 * fade, 5 * fade, 'W');
+          ell(g, c, c, 6 * fade, 6 * fade, 'C');
+          ell(g, c, c, 4.5 * fade, 4.5 * fade, 'T');
+          ell(g, c, c, 3 * fade, 3 * fade, 'W');
         } else if (el === 'storm') {
           // 갈래 번개 — 곧은 선은 번개가 아니다. 꺾여야 번개다.
           for (let i = 0; i < 4; i++) {
@@ -952,7 +989,9 @@ const N = 4;                                   // 애니메이션 4프레임
               a += (((i * 7 + k * 13 + f * 5) % 7) / 7 - .5) * 1.1;
               const L = R * .3;
               const x = px1 + Math.cos(a) * L, y = py1 + Math.sin(a) * L;
-              stroke(px1, py1, x, y, 5 * gro - k, Math.max(1.5, 4 * gro - k), k < 2 ? 'W' : 'B');
+              stroke(px1, py1, x, y, 6 * gro - k, Math.max(1.5, 5 * gro - k), k < 2 ? 'G' : 'a');
+              stroke(px1, py1, x, y, 4 * gro - k, Math.max(1.5, 3 * gro - k), k < 2 ? 'W' : 'T');
+              if (k < 2) stroke(px1, py1, x, y, 2 * gro, 1.5, 'Z');   // 심지는 노랗다
               if (k === 1) {                              // 갈라지는 가지
                 const b = a + (k % 2 ? 1 : -1) * .9;
                 stroke(x, y, x + Math.cos(b) * L * .8, y + Math.sin(b) * L * .8, 2.5, 1.5, 'B');
@@ -960,22 +999,30 @@ const N = 4;                                   // 애니메이션 4프레임
               px1 = x; py1 = y;
             }
           }
-          ell(g, c, c, 6 * fade, 6 * fade, 'W');
-          ell(g, c, c, 9 * fade, 9 * fade * .5, 'G');
+          ell(g, c, c, 10 * fade, 10 * fade * .5, 'G');
+          ell(g, c, c, 7 * fade, 7 * fade * .55, 'T');
+          ell(g, c, c, 5 * fade, 5 * fade, 'Z');
+          ell(g, c, c, 3 * fade, 3 * fade, 'W');
         } else if (el === 'holy') {
           // 빛기둥 십자 — 세로가 길고 가로가 짧다. 정십자는 표식이지 빛이 아니다.
           const H = R * 1.5, Wd = R * .8;
           for (const [dx, dy, len, t] of [[0, -1, H, 8], [0, 1, H * .6, 6],
                                           [-1, 0, Wd, 6], [1, 0, Wd, 6]]) {
-            stroke(c, c, c + dx * len, c + dy * len, t * gro, 1.5, 'B');
-            stroke(c, c, c + dx * len * .6, c + dy * len * .6, (t - 2) * gro, 1.5, 'W');
+            stroke(c, c, c + dx * len, c + dy * len, t * gro, 1.5, 'C');
+            stroke(c, c, c + dx * len * .8, c + dy * len * .8, (t - 1.5) * gro, 1.5, 'o');
+            stroke(c, c, c + dx * len * .6, c + dy * len * .6, (t - 3) * gro, 1.5, 'Z');
+            stroke(c, c, c + dx * len * .35, c + dy * len * .35, (t - 4.5) * gro, 1.5, 'W');
           }
           for (let i = 0; i < 8; i++) {                    // 퍼지는 잔광
             const a = i / 8 * Math.PI * 2 + Math.PI / 8;
             stroke(c + Math.cos(a) * R * .35, c + Math.sin(a) * R * .35,
                    c + Math.cos(a) * R * .8, c + Math.sin(a) * R * .8, 3 * gro, 1.5, 'G');
+            stroke(c + Math.cos(a) * R * .35, c + Math.sin(a) * R * .35,
+                   c + Math.cos(a) * R * .6, c + Math.sin(a) * R * .6, 1.5 * gro, 1.5, 'Z');
           }
-          ell(g, c, c, 7 * fade, 7 * fade, 'W');
+          ell(g, c, c, 9 * fade, 9 * fade, 'o');
+          ell(g, c, c, 7 * fade, 7 * fade, 'Z');
+          ell(g, c, c, 4 * fade, 4 * fade, 'W');
         } else if (el === 'blood') {
           // 튄 자국 — 규칙적이면 안 된다. 큰 덩어리 몇에 꼬리를 단다.
           /* 정원 방울에 곧은 꼬리를 달았더니 분자 모형이 됐다.
@@ -985,38 +1032,58 @@ const N = 4;                                   // 애니메이션 4프레임
             const d = R * (.45 + ((i * 11) % 6) / 6 * .6);
             const bx = c + Math.cos(a) * d, by = c + Math.sin(a) * d;
             const rr = (1.4 + ((i * 5) % 4) * .85) * gro;
+            /* 방울을 한 색으로 두면 스티커다. 젖은 것은 가장자리가 굳어 어둡고
+               가운데가 밝게 젖어 있고 위쪽에 점 하나가 빛난다. */
+            ell(g, bx, by, rr * (1 + Math.abs(Math.cos(a)) * .7) + .6,
+                          rr * (1 + Math.abs(Math.sin(a)) * .7) + .6, 'i');
             ell(g, bx, by, rr * (1 + Math.abs(Math.cos(a)) * .7),
-                          rr * (1 + Math.abs(Math.sin(a)) * .7), 'B');
+                          rr * (1 + Math.abs(Math.sin(a)) * .7), 'D');
+            ell(g, bx - .4, by - .4, rr * .7, rr * .7, 'B');
             stroke(c + Math.cos(a) * d * .3, c + Math.sin(a) * d * .3, bx, by,
-                   1.5, rr * 1.3, 'B');                    // 꼬리 — 방울 쪽이 굵다
+                   1.5, rr * 1.3, 'D');                    // 꼬리 — 방울 쪽이 굵다
             if (i % 3 === 0) put(g, bx - 1, by - 1, 'G');
+            if (i % 4 === 0) put(g, bx - 1, by - 2, 'W');   // 젖은 광
           }
           for (let i = 0; i < 3; i++) {                    // 길게 튄 줄기 몇
             const a = i * 2.1 + f * 1.1 + .6;
             stroke(c + Math.cos(a) * R * .3, c + Math.sin(a) * R * .3,
                    c + Math.cos(a) * R * 1.15, c + Math.sin(a) * R * 1.15, 3.5 * gro, 1.5, 'B');
           }
-          ell(g, c, c, R * .3, R * .3, 'B');
-          ell(g, c, c, R * .18 * fade, R * .18 * fade, 'G');
-          if (fade > .7) ell(g, c, c, R * .08, R * .08, 'W');
+          ell(g, c, c, R * .34, R * .34, 'h');            // 바깥은 굳은 피
+          ell(g, c, c, R * .3, R * .3, 'D');
+          ell(g, c, c, R * .22, R * .22, 'B');
+          ell(g, c, c, R * .14 * fade, R * .14 * fade, 'G');
+          if (fade > .7) ell(g, c, c, R * .07, R * .07, 'W');
         } else {
           /* 물리 — 베인 자국. 별표는 '무언가 터졌다'이지 '베였다'가 아니다.
              무기가 지나간 길이 보여야 한다.
              호 둘을 마주 보게 놓았더니 괄호가 됐다 — 엇갈려야 벤 자국이다.
              가운데가 굵고 양 끝이 가늘어야 획이지, 균일하면 막대다. */
+          /* 획도 한 색이면 종이 오린 자국이다. 바깥은 식은 쇳빛, 안쪽은 흰 심지 —
+             네 단계로 겹치면 '날이 지나간 자리'가 된다. */
           for (const [a, L, t] of [[-.55, R * 1.05, 11], [.72, R * .85, 8]]) {
             const dx = Math.cos(a), dy = Math.sin(a);
-            stroke(c, c, c + dx * L, c + dy * L, t * gro, 1.5, 'B');
-            stroke(c, c, c - dx * L * .8, c - dy * L * .8, t * gro, 1.5, 'B');
-            stroke(c, c, c + dx * L * .58, c + dy * L * .58, (t - 4) * gro, 1.5, 'W');
-            stroke(c, c, c - dx * L * .48, c - dy * L * .48, (t - 4) * gro, 1.5, 'W');
+            for (const [sg, sc] of [[1, 1], [-1, .8]]) {
+              stroke(c, c, c + sg * dx * L * sc, c + sg * dy * L * sc, t * gro, 1.5, 'm');
+              stroke(c, c, c + sg * dx * L * sc * .92, c + sg * dy * L * sc * .92,
+                     (t - 2) * gro, 1.5, 'M');
+              stroke(c, c, c + sg * dx * L * sc * .7, c + sg * dy * L * sc * .7,
+                     (t - 4) * gro, 1.5, 'H');
+              stroke(c, c, c + sg * dx * L * sc * .5, c + sg * dy * L * sc * .5,
+                     (t - 6) * gro, 1.5, 'W');
+            }
           }
-          for (let i = 0; i < 7; i++) {                    // 튀는 파편
+          for (let i = 0; i < 9; i++) {                    // 튀는 불똥 — 꼬리가 붙는다
             const a = i * 1.7 + f * .8, d = R * (.8 + (i % 3) * .16);
-            put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, i % 2 ? 'W' : 'G');
+            const px3 = c + Math.cos(a) * d, py3 = c + Math.sin(a) * d;
+            put(g, px3, py3, i % 3 ? 'X' : 'W');
+            put(g, px3 - Math.cos(a) * 1.8, py3 - Math.sin(a) * 1.8, 'H');
+            put(g, px3 - Math.cos(a) * 3.2, py3 - Math.sin(a) * 3.2, 'm');
           }
-          ell(g, c, c, 6 * fade, 6 * fade, 'G');
-          ell(g, c, c, 3 * fade, 3 * fade, 'W');
+          ell(g, c, c, 8 * fade, 8 * fade, 'm');
+          ell(g, c, c, 6 * fade, 6 * fade, 'M');
+          ell(g, c, c, 4 * fade, 4 * fade, 'H');
+          ell(g, c, c, 2 * fade, 2 * fade, 'W');
         }
         return g;
       },
@@ -1027,7 +1094,11 @@ const N = 4;                                   // 애니메이션 4프레임
         const el = def.el || 'physical';
         const R = [S * .19, S * .34, S * .43, S * .46][f];
         const inner = [0, 0, S * .17, S * .29][f];
-        const wCut = [.42, .32, .18, 0][f], gCut = [.75, .68, .6, .45][f];
+        const rmp = heatOf(el);
+        /* 프레임이 갈수록 심지가 식는다. 램프를 바깥쪽으로 밀어 내면
+           흰 심지가 줄고 가장자리의 어두운 색이 안쪽까지 올라온다 —
+           '커지면서 식는' 것이 폭발이다. 예전에는 띠가 셋뿐이라 그냥 커지기만 했다. */
+        const shift = [0, .12, .3, .52][f];
         for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
           const dx = x - c, dy = y - c, d = Math.hypot(dx, dy);
           const a = Math.atan2(dy, dx);
@@ -1042,7 +1113,28 @@ const N = 4;                                   // 애니메이션 4프레임
           const rr = R * lump, ir = inner * lump;
           if (d > rr || d < ir) continue;
           const t = (d - ir) / Math.max(1, rr - ir);
-          g[y][x] = t < wCut ? 'W' : t < gCut ? 'G' : 'B';
+          /* 두 가지를 안 하면 폭발이 과녁이 된다.
+
+             ① 띠를 고르게 나누면 안 된다. 실제로는 뜨거운 심지가 넓고 식은 테가 얇다 —
+                t 를 그대로 쓰면 폭이 같은 고리 일곱이 되어 표적판이 나온다(그렇게 나왔다).
+                제곱을 먹여 안쪽을 넓히고 바깥을 좁힌다.
+             ② 띠 경계가 완전한 원이면 안 된다. 띠마다 다른 위상으로 흔들어
+                경계가 서로 어긋나게 한다. 한 위상으로 흔들면 꽃잎이 된다. */
+          const wob = Math.sin(a * 5 + f * 2) * .05 + Math.sin(a * 9 - f * 3) * .035
+                    + Math.sin(a * 2 + f * 1.7) * .03;
+          const u = Math.min(.999, Math.max(0, shift + Math.pow(t, 1.65) * (1 - shift) + wob));
+          g[y][x] = rmp[Math.floor(u * rmp.length)];
+        }
+        /* 식은 연기. 불·물리·흡혈만 연기가 난다 — 얼음과 번개와 신성은 연기가 안 맞는다. */
+        if ((el === 'fire' || el === 'physical' || el === 'blood') && f === 3) {
+          /* 연기는 마지막 프레임에만, 작게. 크게 두르면 고리를 덮어 회색 도넛이 된다. */
+          for (let i = 0; i < 6; i++) {
+            const a = i * 2.6 + f * .6, d = R * (1.06 + (i % 3) * .05);
+            const rr = S * .035 * (.8 + (i % 4) * .1);
+            ell(g, c + Math.cos(a) * d, c + Math.sin(a) * d, rr, rr * .8, '9');
+            ell(g, c + Math.cos(a) * d - rr * .3, c + Math.sin(a) * d - rr * .3,
+                rr * .5, rr * .4, '8');
+          }
         }
         // 속성마다 고리 밖으로 뻗는 것이 다르다
         const spike = (n, len, th, ch, off) => {
@@ -1053,8 +1145,10 @@ const N = 4;                                   // 애니메이션 4프레임
             line(g, x0, y0, x1, y1, ch, th);
           }
         };
-        if (el === 'frost') spike(8, S * .1 * (1 - f * .18), 3, 'G', f * .3);
-        else if (el === 'holy') spike(12, S * .13, 2, 'G', f * .2);
+        if (el === 'frost') { spike(8, S * .1 * (1 - f * .18), 3, 'C', f * .3);
+                              spike(8, S * .07 * (1 - f * .18), 1, 'T', f * .3); }
+        else if (el === 'holy') { spike(12, S * .13, 2, 'o', f * .2);
+                                  spike(12, S * .09, 1, 'Z', f * .2); }
         else if (el === 'storm') {
           for (let i = 0; i < 6; i++) {                  // 고리를 가로지르는 방전
             const a = i / 6 * Math.PI * 2 + f * .7;
@@ -1062,7 +1156,7 @@ const N = 4;                                   // 애니메이션 4프레임
             for (let k = 0; k < 3; k++) {
               aa += (((i * 7 + k * 11 + f * 3) % 7) / 7 - .5) * 1.2;
               const x = px1 + Math.cos(aa) * R * .3, y = py1 + Math.sin(aa) * R * .3;
-              line(g, px1, py1, x, y, k ? 'G' : 'W', 2);
+              line(g, px1, py1, x, y, k ? (k > 1 ? 'G' : 'T') : 'W', 2);
               px1 = x; py1 = y;
             }
           }
@@ -1070,23 +1164,34 @@ const N = 4;                                   // 애니메이션 4프레임
         for (let i = 0; i < 11; i++) {                   // 튀는 파편
           const a = i / 11 * Math.PI * 2 + f * .5;
           const d = Math.min(R + S * .07 + f * S * .04, c - 1);
-          if (el === 'blood') ell(g, c + Math.cos(a) * d, c + Math.sin(a) * d,
-                                  1 + (i % 3) * .8, 1 + (i % 3) * .8, 'B');
-          else put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, 'G');
+          if (el === 'blood') {
+            const rr = 1 + (i % 3) * .8;
+            ell(g, c + Math.cos(a) * d, c + Math.sin(a) * d, rr, rr, 'D');
+            ell(g, c + Math.cos(a) * d - .4, c + Math.sin(a) * d - .4, rr * .55, rr * .55, 'B');
+          } else {
+            put(g, c + Math.cos(a) * d, c + Math.sin(a) * d, i % 3 ? rmp[1] : 'W');
+            put(g, c + Math.cos(a) * (d + 1.6), c + Math.sin(a) * (d + 1.6), rmp[3]);
+          }
         }
         return g;
       },
 
       // 시전 섬광 — 무기 끝에서 한 번 터진다
-      cast(f, S) {
+      cast(f, S, def) {
         const g = mk(S), c = (S - 1) / 2;
+        const rmp = heatOf((def && def.el) || 'physical');
         const R = [4, 8, 11, 13][f], th = [3, 2, 2, 1][f];
-        for (let i = 0; i < 8; i++) {
+        for (let i = 0; i < 8; i++) {                       // 갈래도 뿌리에서 끝으로 식는다
           const a = i / 8 * Math.PI * 2 + f * .2, L = R * (i % 2 ? .5 : 1);
-          line(g, c, c, c + Math.cos(a) * L, c + Math.sin(a) * L, i % 2 ? 'B' : 'W', th);
+          line(g, c, c, c + Math.cos(a) * L, c + Math.sin(a) * L, rmp[3], th + 1);
+          line(g, c, c, c + Math.cos(a) * L * .8, c + Math.sin(a) * L * .8, rmp[2], th);
+          line(g, c, c, c + Math.cos(a) * L * .5, c + Math.sin(a) * L * .5, rmp[1], Math.max(1, th - 1));
         }
         const cr = [4.5, 5.5, 3.5, 1.5][f];
-        ell(g, c, c, cr, cr, 'B'); ell(g, c, c, cr * .6, cr * .6, 'W');
+        ell(g, c, c, cr, cr, rmp[3]);
+        ell(g, c, c, cr * .78, cr * .78, rmp[2]);
+        ell(g, c, c, cr * .55, cr * .55, rmp[1]);
+        ell(g, c, c, cr * .3, cr * .3, 'W');
         return g;
       },
 
@@ -1847,6 +1952,9 @@ const N = 4;                                   // 애니메이션 4프레임
         /* 녹슨 쇠 둘 — 몬스터 전용. 강철(M·m·e)은 차가운 회색이라 주인공 갑옷의 색이고,
            족쇄·목줄·화살촉처럼 '버려진 쇠'는 따뜻하게 삭아야 한다. */
         w: '#8a5326', x: '#4a2d13',
+        /* 연기 둘 — 이펙트 전용. 폭발이 속성색만으로 끝나면 '색 원'이지 폭발이 아니다.
+           식은 가장자리에 중립색이 있어야 안쪽의 뜨거운 색이 뜨거워 보인다. */
+        8: '#6d6a7d', 9: '#3b3849',
         W: '#ffffff',
         /* 바닥용 밝기 단계. 판석마다 톤이 조금씩 달라야 '바닥'이지,
            한 톤이면 벽지가 된다. 폭은 좁게 잡는다 —

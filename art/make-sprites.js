@@ -551,8 +551,22 @@ const N = 4;                                   // 애니메이션 4프레임
          판석이 어긋나 붙는다. */
       floor(f, S) {
         const g = mk(S);
+        /* 해시 둘. 이걸 하나로 쓴 것이 오래된 잘못이었다.
+
+           H 는 변종 번호 f 를 섞는다. 그런데 판석의 줄 위치·너비·시작점까지 H 로 뽑고
+           있었다 — 그러면 변종마다 배치가 달라져서, 옆 타일과 이어 붙였을 때
+           판석 줄이 어긋나 128칸 격자가 그대로 눈에 들어온다.
+           넓게 깔아 놓고 보니 타일 경계가 줄줄이 보였다.
+
+           HL(layout)은 f 를 안 섞는다. 배치는 넷이 똑같고, 톤·흠집·이끼만 다르다 —
+           주석에는 처음부터 그렇게 적혀 있었는데 코드가 안 그랬다. */
         const H = (a, b) => {
           let x = Math.imul(a * 374761393 + b * 668265263 + f * 2246822519, 1274126177);
+          x = (x ^ (x >>> 15)) >>> 0;
+          return x / 4294967296;
+        };
+        const HL = (a, b) => {
+          let x = Math.imul(a * 374761393 + b * 668265263, 1274126177);
           x = (x ^ (x >>> 15)) >>> 0;
           return x / 4294967296;
         };
@@ -571,32 +585,36 @@ const N = 4;                                   // 애니메이션 4프레임
            px 가 좌표를 감싸므로 판석이 타일 경계를 넘어가도 반대쪽으로 이어진다 —
            위상을 어긋내도 이음매는 그대로 맞는다. */
         const rowCuts = ry => {
-          const n = H(ry * 17 + 5, 23) > .45 ? 3 : 2;
+          const n = HL(ry * 17 + 5, 23) > .45 ? 3 : 2;
           if (n === 2) {
-            const a2 = Math.round(S * (.36 + H(ry, 29) * .28));
+            const a2 = Math.round(S * (.36 + HL(ry, 29) * .28));
             return [a2, S - a2];
           }
-          const a2 = Math.round(S * (.24 + H(ry, 31) * .16));
-          const b2 = Math.round(S * (.28 + H(ry, 37) * .16));
+          const a2 = Math.round(S * (.24 + HL(ry, 31) * .16));
+          const b2 = Math.round(S * (.28 + HL(ry, 37) * .16));
           return [a2, b2, S - a2 - b2];
         };
-        const yPh = Math.round(H(f * 5 + 3, 19) * RH);
+        const yPh = Math.round(HL(3, 19) * RH);
 
         // 1. 판석마다 제 톤으로 채운다 — 폭을 좁게. 대비를 세우면 바닥이 몬스터와 싸운다.
         const stones = [];
         for (let ry = 0; ry < 4; ry++) {
           const ws = rowCuts(ry);
-          let x = Math.round(H(ry * 3 + 7, 41) * S);       // 줄마다 다른 시작점
+          let x = Math.round(HL(ry * 3 + 7, 41) * S);      // 줄마다 다른 시작점
           const y0 = yPh + ry * RH;
           for (let si = 0; si < ws.length; si++) {
+            /* 판석마다 밝기 셋 중 하나를 고르던 것을, 색조까지 섞어 다섯 중 하나로 넓힌다.
+               밝기 폭은 그대로다 — 늘어난 것은 '어떤 돌이냐'지 '얼마나 밝냐'가 아니다. */
             const n = H(ry * 7 + 1, si * 13 + 3);
-            const tone = n > .78 ? '4' : n > .34 ? '3' : '2';
+            const tone = n > .86 ? '4' : n > .70 ? 'f' : n > .54 ? 'g' : n > .26 ? '3' : '2';
+            // 알갱이도 그 돌의 색조를 따라간다. 전부 회색 점이면 돌이 아니라 종이가 된다.
+            const spec = tone === 'f' ? 'K' : tone === 'g' ? '5' : '4';
             stones.push({ x, y: y0, w: ws[si], tone });
             for (let dy = 0; dy < RH; dy++) for (let dx = 0; dx < ws[si]; dx++) {
               const wx = wrap(x + dx), wy = wrap(y0 + dy);
               // 알갱이는 아주 옅게, 아주 드물게. 예전에 이걸 세웠다가 TV 노이즈가 됐다.
               const q = H(wx * 3 + 11, wy * 5 + 7);
-              px(wx, wy, q > .982 ? '4' : q < .018 ? '2' : tone);
+              px(wx, wy, q > .986 ? spec : q < .016 ? '2' : q > .965 ? (tone === 'g' ? 'f' : 'g') : tone);
             }
             x += ws[si];
           }
@@ -625,15 +643,32 @@ const N = 4;                                   // 애니메이션 4프레임
           }
         }
 
+        /* 3-b. 젖은 자국 — 줄눈 언저리에 고인다. 물이 고이면 그 둘레에 물때가 끼고
+           그 위에 이끼가 자란다. 셋을 겹쳐 놓으면 이끼가 '붙인 것'이 아니라
+           '거기서 자란 것'이 된다. */
+        for (let i = 0; i < 4; i++) {
+          if (H(i * 5 + 83, 11) < .48) continue;
+          const ry = Math.floor(H(i, 89) * 4);
+          const wx0 = Math.floor(H(i, 97) * S), wy0 = yPh + ry * RH;
+          const rw = 5 + Math.round(H(i, 101) * 7), rh = 2 + Math.round(H(i, 103) * 3);
+          for (let dy = -rh; dy <= rh; dy++) for (let dx = -rw; dx <= rw; dx++) {
+            const q = (dx / rw) * (dx / rw) + (dy / rh) * (dy / rh);
+            if (q > 1) continue;
+            px(wx0 + dx, wy0 + dy, q > .72 ? 'z' : '0');
+          }
+        }
+
         // 4. 이끼 — 줄눈에만 낀다. 물이 고이는 자리라 그렇고, 그래야 판석이 도드라진다.
         for (let i = 0; i < 5; i++) {
           if (H(i * 3 + 61, 7) < .45) continue;
           const ry = Math.floor(H(i, 31) * 4);
           const mx = Math.floor(H(i, 37) * S), my = yPh + ry * RH;
-          for (let k2 = 0; k2 < 7; k2++) {
+          for (let k2 = 0; k2 < 9; k2++) {
             const ox = Math.round(H(i * 9 + k2, 43) * 7) - 3;
             const oy = Math.round(H(i * 9 + k2, 47) * 4) - 1;
             px(mx + ox, my + oy, H(k2, 51) > .6 ? 'V' : 'v');
+            // 둘레 한 칸은 물때 — 초록이 판석에 곧바로 닿으면 스티커로 보인다
+            if (H(k2, 53) > .5) px(mx + ox + 1, my + oy + 1, 'z');
           }
         }
 
@@ -642,6 +677,15 @@ const N = 4;                                   // 애니메이션 4프레임
           if (H(i + 71, 13) < .62) continue;
           const cx = Math.floor(H(i, 67) * S), cy = Math.floor(H(i, 73) * S);
           px(cx, cy, 'R'); px(cx + 1, cy, 'r'); px(cx, cy + 1, 'r');
+          px(cx + 1, cy + 1, H(i, 79) > .5 ? 'f' : 'g');      // 잔돌 옆의 부스러기
+        }
+        /* 6. 이 빠진 모서리 — 판석 귀퉁이가 깨져 속살이 드러난 자리.
+           바닥 전체에서 가장 밝은 점이라 한 타일에 한둘만 둔다. */
+        for (let i = 0; i < 2; i++) {
+          if (H(i + 91, 17) < .55) continue;
+          const st = stones[Math.floor(H(i + 3, 19) * stones.length)];
+          const cx = st.x + (H(i, 23) > .5 ? st.w - 2 : 1), cy = st.y + (H(i, 29) > .5 ? RH - 2 : 1);
+          px(cx, cy, 'K'); px(cx + 1, cy, 'f'); px(cx, cy + 1, '1');
         }
         return g;
       },
@@ -1965,6 +2009,15 @@ const N = 4;                                   // 애니메이션 4프레임
         3: def.color,
         4: toHex(mix(base, [255, 255, 255], .055)),
         5: toHex(mix(base, [255, 255, 255], .13)),  // 줄눈 아래 빛받는 모서리
+        /* 판석의 색조 변화. 바닥에서 '색을 늘린다'는 밝기를 늘린다는 뜻이 될 수 없다 —
+           바닥은 배경이라 대비를 세우는 순간 그 위의 몬스터와 싸운다(예전에 그랬다).
+           그래서 밝기는 거의 그대로 두고 색조만 돌린다.
+           같은 밝기의 따뜻한 돌 · 차가운 돌 · 젖은 자국 · 물때. */
+        f: toHex(mix(base, [56, 42, 36], .24)),     // 따뜻한 판석 (갈색 쪽)
+        g: toHex(mix(base, [26, 44, 62], .28)),     // 차가운 판석 (청록 쪽)
+        0: toHex(mix(base, [14, 30, 34], .42)),     // 젖은 자국 — 어둡고 푸르다
+        z: toHex(mix(base, [30, 42, 30], .40)),     // 물때 — 이끼와 줄눈 사이
+        K: toHex(mix(base, [92, 84, 70], .30)),     // 이 빠진 모서리 — 따뜻하게 밝다
         /* 바닥 장식용. 여기서 한 번 크게 틀렸다 — 풀을 '풀색'(#4a6b3a)으로,
            꽃을 흰색으로 칠했더니 어두운 남색 바닥 위에서 형광 얼룩이 됐다.
            바닥 밝기가 28 언저리인데 풀 끝이 95 였다. 3배가 넘으면 장식이 아니라 표적이다.

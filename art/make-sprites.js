@@ -1020,17 +1020,25 @@ const N = 4;                                   // 애니메이션 4프레임
         const hip = 38 + bob;
         const hy = ty - 11;             // 머리 중심
 
-        // 직업마다 겉감이 다르다. 세 단계(밝음·중간·그늘)를 한 벌로 묶어 둔다.
-        const M3 = { paladin: ['M', 'W', 'm'], warrior: ['m', 'M', 'e'],
-                     rogue: ['L', 'u', 'd'], mage: ['A', 'G', 'a'] }[cl];
-        const [ar, arHi, arLo] = M3;
+        /* 직업마다 겉감이 다르다. 다섯 단계로 묶는다 —
+           [몸통 · 빛 · 그늘 · 깊은그늘 · 광]. 셋만 두었을 때는 판마다 색이 두 개뿐이라
+           갑옷이 색종이로 오려 붙인 것처럼 보였다. */
+        const M5 = { paladin: ['M', 'H', 'm', 'e', 'X'], warrior: ['m', 'M', 'e', 'b', 'H'],
+                     rogue: ['L', 'u', 'l', 'd', 'U'], mage: ['A', 'G', 'a', 't', 'T'] }[cl];
+        const [ar, arHi, arLo, arDeep, arSpec] = M5;
+        // 금은 직업을 가리지 않는다 — 성기사는 넓게, 나머지는 죔쇠와 못에만
+        const GOLD = ['j', 'J', 'o', 'Z'];
 
-        /* 판 한 장. 위·왼쪽에 광, 오른쪽에 그늘. 이 규칙 하나로 모든 조각이 같은 빛을 받는다. */
-        const plate = (x0, y0, x1, y1, base, hi, lo) => {
+        /* 판 한 장. 위·왼쪽에 광, 오른쪽에 그늘. 이 규칙 하나로 모든 조각이 같은 빛을 받는다.
+           deep 을 주면 아래 모서리 한 줄을 한 단계 더 떨어뜨린다 — 판이 겹쳐 보인다. */
+        const plate = (x0, y0, x1, y1, base, hi, lo, deep) => {
           rect(g, x0, y0, x1, y1, base);
           if (hi) { rect(g, x0, y0, x1 - 1, y0, hi); rect(g, x0, y0, x0, y1 - 1, hi); }
           if (lo) { rect(g, x1, y0 + 1, x1, y1, lo); rect(g, x0 + 1, y1, x1, y1, lo); }
+          if (deep) rect(g, x0 + 1, y1, x1 - 1, y1, deep);
         };
+        // 금 테두리 한 줄 — 갑옷 조각의 경계에 놓는다
+        const trim = (x0, y0, x1, y1) => { rect(g, x0, y0, x1, y1, 'J'); rect(g, x0, y0, x1 - 1, y0, 'o'); };
 
         // ── 망토 ── 어깨에서 시작해야 '매달린 것'으로 보인다. 다리까지 덮으면 치마가 된다.
         if (cl !== 'mage') {
@@ -1038,11 +1046,19 @@ const N = 4;                                   // 애니메이션 4프레임
           for (let y = ty - 2; y <= feet - 5; y++) {
             const w = capeW(y);
             rect(g, cx - 4, y, cx - 4 - w, y, y > ty + 8 ? 'a' : 'A');
+            rect(g, cx - 4 - w, y, cx - 4 - w, y, y > ty + 12 ? 't' : 'a');   // 바깥 끝은 더 깊게
           }
+          /* 안감. 망토가 겉감 한 색이면 천이 아니라 판이다 —
+             몸 쪽으로 접힌 면에 붉은 안감을 한 줄 넣으면 '뒤집힌 천'으로 읽힌다. */
+          for (let y = ty + 2; y <= feet - 5; y++)
+            rect(g, cx - 4, y, cx - 5, y, y > ty + 14 ? 'h' : 'i');
           for (const t of [.34, .68])   // 주름 두 줄 — 없으면 색종이가 된다
-            for (let y = ty; y <= feet - 5; y++)
+            for (let y = ty; y <= feet - 5; y++) {
               rect(g, cx - 4 - capeW(y) * t, y, cx - 4 - capeW(y) * t, y, 'a');
+              rect(g, cx - 3 - capeW(y) * t, y, cx - 3 - capeW(y) * t, y, 'G');   // 주름의 볕 받는 쪽
+            }
           rect(g, cx - 5, ty - 2, cx - 9, ty - 1, 'A');          // 어깨에 걸린 자리
+          rect(g, cx - 5, ty - 2, cx - 9, ty - 2, 'T');
         }
 
         // ── 다리 ── 허벅지 · 무릎 · 정강이 · 장화. 네 조각이라야 다리로 읽힌다.
@@ -1050,12 +1066,16 @@ const N = 4;                                   // 애니메이션 4프레임
           const lx = cx + s2 * 5 + s2 * sw * .5;
           const legged = cl === 'rogue' || cl === 'warrior';       // 맨다리가 보이는 직업
           plate(lx - 3, hip, lx + 3, hip + 6, legged ? 'l' : ar, legged ? 'L' : arHi,
-                'd');                                                              // 허벅지
-          plate(lx - 4, hip + 6, lx + 4, hip + 9, ar, arHi, arLo);                 // 무릎 보호대
+                'd', legged ? 'd' : arDeep);                                       // 허벅지
+          plate(lx - 4, hip + 6, lx + 4, hip + 9, ar, arHi, arLo, arDeep);         // 무릎 보호대
+          put(g, lx - 3, hip + 6, arSpec);                                          // 무릎의 광
           plate(lx - 3, hip + 9, lx + 3, 51, legged ? 's' : ar, legged ? 'S' : arHi,
-                legged ? 'l' : arLo);                                              // 정강이
-          plate(lx - 4, 51, lx + 4, feet, 'L', 'l', 'd');                          // 장화
-          rect(g, lx - 4, 51, lx + 4, 52, 'l');                                    // 장화 목
+                legged ? 'y' : arLo, legged ? 'y' : arDeep);                        // 정강이
+          plate(lx - 4, 51, lx + 4, feet, 'L', 'u', 'l', 'd');                      // 장화
+          rect(g, lx - 4, 51, lx + 4, 52, 'l');                                     // 장화 목
+          rect(g, lx - 4, 52, lx + 4, 52, 'U');                                     // 목의 볕
+          rect(g, lx - 4, feet, lx + 4, feet, 'd');                                 // 바닥에 닿는 창
+          put(g, lx + 2, 53, 'J');                                                  // 장화 죔쇠
         }
 
         // ── 몸통 ──
@@ -1063,36 +1083,61 @@ const N = 4;                                   // 애니메이션 4프레임
           for (let y = ty + 1; y <= feet - 2; y++) {
             const t = (y - ty) / (feet - 2 - ty);
             const w = 7 + t * t * 9;
-            rect(g, cx - w, y, cx + w, y, y > waist ? 'A' : 'A');
+            rect(g, cx - w, y, cx + w, y, 'A');
             rect(g, cx - w, y, cx - w + 1, y, 'G');              // 왼쪽 빛
+            rect(g, cx - w, y, cx - w, y, 'T');                  // 그 바깥 한 줄은 더 밝게
             rect(g, cx + w - 1, y, cx + w, y, 'a');              // 오른쪽 그늘
+            rect(g, cx + w, y, cx + w, y, 't');                  // 끝은 깊게
           }
-          for (const t2 of [-.55, .1, .62])                       // 주름
+          for (const t2 of [-.55, .1, .62])                       // 주름 — 그늘과 볕을 붙여 세운다
             for (let y = waist; y <= feet - 3; y++) {
-              const t = (y - ty) / (feet - 2 - ty);
-              rect(g, cx + (7 + t * t * 9) * t2, y, cx + (7 + t * t * 9) * t2, y, 'a');
+              const t = (y - ty) / (feet - 2 - ty), w = 7 + t * t * 9;
+              rect(g, cx + w * t2, y, cx + w * t2, y, 'a');
+              rect(g, cx + w * t2 - 1, y, cx + w * t2 - 1, y, 'G');
             }
+          /* 밑단의 금 자수. 로브가 한 색으로 떨어지면 목욕가운이다 —
+             단이 있어야 '지어 입은 옷'이 된다. */
+          for (let y = feet - 5; y <= feet - 3; y++) {
+            const t = (y - ty) / (feet - 2 - ty), w = 7 + t * t * 9;
+            rect(g, cx - w, y, cx + w, y, y === feet - 5 ? 'o' : 'J');
+          }
+          for (let i = -2; i <= 2; i++) put(g, cx + i * 5, feet - 4, 'Z');   // 단의 무늬
         } else {
           /* 어깨 8 → 허리 6 으로 좁아진다. 폭이 같으면 사람이 아니라 상자다. */
           for (let y = ty + 1; y <= waist; y++) {
             const w = 8 - (y - ty - 1) / (waist - ty - 1) * 2;
             rect(g, cx - w, y, cx + w, y, ar);
             rect(g, cx - w, y, cx - w + 1, y, arHi);
+            rect(g, cx - w, y, cx - w, y, arSpec);                 // 왼쪽 모서리의 광
             rect(g, cx + w - 1, y, cx + w, y, arLo);
+            rect(g, cx + w, y, cx + w, y, arDeep);
           }
-          ell(g, cx, ty + 3, 8, 5, ar);
+          ell(g, cx, ty + 3, 8, 5, ar);                            // 가슴의 부풀린 면
+          ell(g, cx - 2, ty + 2, 6, 3, arHi);
           rect(g, cx - 8, ty + 1, cx - 7, ty + 5, arHi);
-          if (cl === 'warrior')                                    // 사슬갑옷 — 어두운 판이 상자가 되지 않게
+          if (cl === 'warrior') {
+            /* 사슬. 예전엔 어두운 점 하나였는데 32px 에서는 그냥 얼룩이었다 —
+               고리는 어두운 자리와 밝은 자리가 붙어 있어야 고리로 읽힌다. */
             for (let y = ty + 3; y <= waist - 2; y += 2)
-              for (let x = cx - 6 + ((y & 2) ? 1 : 0); x <= cx + 5; x += 3) put(g, x, y, 'e');
+              for (let x = cx - 6 + ((y & 2) ? 1 : 0); x <= cx + 5; x += 3) {
+                put(g, x, y, 'b'); put(g, x + 1, y, 'M');   // 어두운 자리와 밝은 자리를 붙여야 고리로 읽힌다
+              }
+          }
         }
 
         // 직업 표식
         if (cl === 'paladin') {
-          rect(g, cx - 1, ty + 3, cx + 1, waist - 2, 'A');        // 가슴 십자
-          rect(g, cx - 5, ty + 7, cx + 5, ty + 9, 'A');
-          rect(g, cx - 1, ty + 3, cx - 1, waist - 3, 'G');        // 십자의 빛 모서리
-          rect(g, cx - 5, ty + 7, cx + 4, ty + 7, 'G');
+          /* 금을 넓게 칠했더니 성기사가 통째로 금덩이가 됐다 — 직업색이 이미 금빛이라
+             갑옷·망토·십자가 한 색으로 붙어 버린다. 금은 '테두리'로만 쓴다.
+             넓은 면은 흰 강철로 두고, 대비는 망토 안감의 붉은색이 맡는다. */
+          trim(cx - 8, ty + 1, cx + 8, ty + 1);                   // 가슴판 윗단의 금
+          rect(g, cx - 1, ty + 3, cx + 1, waist - 2, 'J');        // 가슴 십자
+          rect(g, cx - 5, ty + 7, cx + 5, ty + 9, 'J');
+          rect(g, cx, ty + 3, cx, waist - 3, 'o');
+          rect(g, cx - 4, ty + 8, cx + 4, ty + 8, 'o');
+          rect(g, cx - 1, ty + 3, cx - 1, waist - 3, 'j');        // 십자의 그늘 쪽
+          rect(g, cx - 5, ty + 9, cx + 5, ty + 9, 'j');
+          put(g, cx, ty + 3, 'Z');
         } else if (cl === 'warrior') {
           /* 어깨 갑판. 타원 하나에 흰 띠를 얹었더니 널빤지가 됐다 —
              밑에 어두운 타원을 깔고 아래쪽에 그늘을 둬야 둥근 판으로 선다. */
@@ -1101,47 +1146,64 @@ const N = 4;                                   // 애니메이션 4프레임
             ell(g, px2, ty + 4, 5.6, 4.4, 'O');
             ell(g, px2, ty + 2.5, 5, 4, 'm');
             ell(g, px2 - s2, ty + 1.5, 4.2, 3, 'M');
-            rect(g, px2 - 3, ty - 1, px2 + 2, ty, 'W');           // 윗면 빛
-            ell(g, px2, ty + 5.5, 4.6, 1.6, 'e');                 // 아래 그늘
-            put(g, px2 + s2 * 4, ty + 1, 'W');                    // 못
+            ell(g, px2 - s2 * 2, ty + .5, 2.6, 1.6, 'H');
+            rect(g, px2 - 3, ty - 1, px2 + 2, ty, 'X');           // 윗면 광
+            ell(g, px2, ty + 5.5, 4.6, 1.6, 'b');                 // 아래 그늘 — 무쇠로
+            put(g, px2 + s2 * 4, ty + 1, 'o');                    // 금 못
+            put(g, px2 - s2 * 3, ty + 3, 'o');
           }
-          rect(g, cx - 7, ty + 8, cx + 7, ty + 9, 'A');           // 가죽끈
-          rect(g, cx - 7, ty + 10, cx + 7, ty + 10, 'a');
+          rect(g, cx - 7, ty + 8, cx + 7, ty + 9, 'L');           // 가죽끈
+          rect(g, cx - 7, ty + 8, cx + 7, ty + 8, 'u');
+          rect(g, cx - 7, ty + 10, cx + 7, ty + 10, 'd');
+          rect(g, cx - 2, ty + 8, cx + 2, ty + 9, 'J');           // 끈의 금 고리
         } else if (cl === 'rogue') {
           line(g, cx - 6, waist - 2, cx + 6, ty + 2, 'A', 3);     // 가슴을 지르는 띠
           line(g, cx - 6, waist - 3, cx + 6, ty + 1, 'G', 1);
-          for (let i = 0; i < 3; i++)                             // 던지는 칼 세 자루
-            put(g, cx + 2 + i * 3, ty + 4, 'M');
+          line(g, cx - 6, waist - 1, cx + 6, ty + 3, 't', 1);
+          for (let i = 0; i < 3; i++) {                           // 던지는 칼 세 자루
+            rect(g, cx + 2 + i * 3, ty + 3, cx + 2 + i * 3, ty + 5, 'M');
+            put(g, cx + 2 + i * 3, ty + 3, 'H');
+            put(g, cx + 2 + i * 3, ty + 6, 'J');                  // 자루의 금테
+          }
         }
 
         // ── 허리띠 ── 갑옷과 다리를 갈라 주는 선. 없으면 몸이 한 통이 된다.
         if (cl !== 'mage') {
-          plate(cx - 8, waist, cx + 8, waist + 2, 'L', 'l', 'd');
-          rect(g, cx - 2, waist, cx + 2, waist + 2, 'G');
-          rect(g, cx - 1, waist + 1, cx + 1, waist + 1, 'A');     // 버클
+          plate(cx - 8, waist, cx + 8, waist + 2, 'L', 'U', 'l', 'd');
+          rect(g, cx - 3, waist, cx + 3, waist + 2, 'J');         // 버클
+          rect(g, cx - 3, waist, cx + 2, waist, 'o');
+          rect(g, cx - 1, waist + 1, cx + 1, waist + 1, 'Z');
           if (cl === 'paladin' || cl === 'warrior')               // 치마판 세 장
-            for (let i = -1; i <= 1; i++)
-              plate(cx + i * 5 - 2, waist + 3, cx + i * 5 + 2, waist + 3 + (i ? 3 : 4),
-                    ar, arHi, arLo);
+            for (let i = -1; i <= 1; i++) {
+              const y1 = waist + 3 + (i ? 3 : 4);
+              plate(cx + i * 5 - 2, waist + 3, cx + i * 5 + 2, y1, ar, arHi, arLo, arDeep);
+              rect(g, cx + i * 5 - 2, y1, cx + i * 5 + 2, y1, 'J');   // 판 끝의 금단
+            }
         }
 
         // ── 목 ── 없으면 머리가 어깨에 얹힌 공이 된다
         rect(g, cx - 2, ty - 3, cx + 2, ty + 1, 's');
         rect(g, cx - 2, ty - 3, cx - 2, ty, 'S');
+        rect(g, cx + 2, ty - 3, cx + 2, ty + 1, 'y');            // 턱이 지우는 그늘
 
         // ── 머리 ──
         if (cl === 'paladin') {
           ell(g, cx, hy, 7, 7, 'M');                              // 투구
           rect(g, cx - 6, hy - 1, cx + 6, hy + 7, 'M');
-          rect(g, cx - 7, hy - 1, cx - 6, hy + 4, 'W');           // 왼쪽 빛
+          ell(g, cx - 2, hy - 2, 5, 4, 'H');                      // 정수리에 도는 빛
+          rect(g, cx - 7, hy - 1, cx - 6, hy + 4, 'X');           // 왼쪽 광
           rect(g, cx + 7, hy, cx + 7, hy + 5, 'e');
-          rect(g, cx - 6, hy - 5, cx + 6, hy - 4, 'm');           // 이마 띠
+          rect(g, cx + 6, hy + 4, cx + 7, hy + 7, 'e');
+          trim(cx - 6, hy - 5, cx + 6, hy - 4);                   // 금 이마띠
           rect(g, cx - 6, hy + 1, cx + 6, hy + 3, 'O');           // 눈매
           rect(g, cx - 1, hy - 4, cx + 1, hy + 8, 'M');           // 코가리개
-          rect(g, cx - 1, hy + 1, cx - 1, hy + 3, 'W');
+          rect(g, cx - 1, hy + 1, cx - 1, hy + 3, 'H');
           rect(g, cx - 6, hy + 5, cx + 6, hy + 8, 'M');           // 볼가리개
+          rect(g, cx - 6, hy + 5, cx + 6, hy + 5, 'm');
           rect(g, cx - 6, hy + 8, cx + 6, hy + 8, 'e');
-          eyes(g, cx + 2, hy + 2, 3, 'G', 1);
+          rect(g, cx - 5, hy + 6, cx - 4, hy + 7, 'J');           // 볼가리개의 못
+          rect(g, cx + 4, hy + 6, cx + 5, hy + 7, 'J');
+          eyes(g, cx + 2, hy + 2, 3, 'T', 1);
           /* 깃털. 위로 세우면 판을 넘어 잘리고(예전 그림이 그랬다),
              굵은 한 획으로 뒤로 눕히면 바나나가 된다. 가늘어지는 여러 가닥으로 나눈다. */
           const pt = Math.max(1, hy - 9), wag = (f & 1) * 2;
@@ -1154,24 +1216,33 @@ const N = 4;                                   // 애니메이션 4프레임
           line(g, cx - 3, hy - 8, cx - 10 - wag, pt + 2, 'G', 1);
         } else if (cl === 'warrior') {
           ell(g, cx, hy + 1, 6.5, 6.5, 'S');                      // 얼굴
+          ell(g, cx - 2, hy, 4, 3.4, 'Y');                        // 이마·광대의 볕
           rect(g, cx + 4, hy - 1, cx + 6, hy + 5, 's');           // 오른뺨 그늘
+          rect(g, cx + 6, hy, cx + 6, hy + 4, 'y');
           rect(g, cx - 7, hy - 5, cx + 7, hy - 1, 'm');           // 투구
           ell(g, cx, hy - 2, 7, 5, 'm');
-          rect(g, cx - 7, hy - 4, cx - 6, hy - 1, 'M');
-          rect(g, cx - 7, hy - 1, cx + 7, hy, 'e');               // 투구 아래 그늘
-          for (const s2 of [-1, 1]) {                             // 뿔
-            line(g, cx + s2 * 6, hy - 4, cx + s2 * 11, hy - 9, 'M', 3);
-            line(g, cx + s2 * 11, hy - 9, cx + s2 * 13, hy - 12, 'M', 2);
-            put(g, cx + s2 * 13, hy - 13, 'W');
+          ell(g, cx - 2, hy - 3, 4.4, 2.6, 'M');
+          rect(g, cx - 7, hy - 4, cx - 6, hy - 1, 'H');
+          trim(cx - 7, hy - 1, cx + 7, hy - 1);                   // 투구 아래 금테
+          rect(g, cx - 7, hy, cx + 7, hy, 'e');
+          /* 뿔을 강철로 두면 투구와 한 덩어리가 된다. 뼈는 이 화면에서
+             유일한 중립색이라, 그것만으로 '뿔'이 떨어져 나온다. */
+          for (const s2 of [-1, 1]) {
+            line(g, cx + s2 * 6, hy - 4, cx + s2 * 11, hy - 9, 'E', 3);
+            line(g, cx + s2 * 6, hy - 5, cx + s2 * 10, hy - 9, 'F', 1);
+            line(g, cx + s2 * 11, hy - 9, cx + s2 * 13, hy - 12, 'E', 2);
+            put(g, cx + s2 * 13, hy - 13, 'F');
+            put(g, cx + s2 * 6, hy - 3, 'J');                     // 뿔을 무는 금테
           }
           eyes(g, cx + 1, hy + 1, 3, 'O', 2);
           put(g, cx - 3, hy + 1, 'W'); put(g, cx + 4, hy + 1, 'W');   // 눈의 빛
           /* 수염이 얼굴을 다 덮으면 갈색 덩어리가 된다. 턱 아래만 남긴다. */
           rect(g, cx - 5, hy + 5, cx + 5, hy + 8, 'L');
-          rect(g, cx - 5, hy + 5, cx - 3, hy + 7, 'l');
+          rect(g, cx - 5, hy + 5, cx - 3, hy + 7, 'u');           // 볕 받는 쪽
+          rect(g, cx + 3, hy + 6, cx + 5, hy + 8, 'l');
           rect(g, cx - 1, hy + 4, cx + 3, hy + 5, 'l');            // 콧수염
           rect(g, cx - 3, hy + 8, cx + 3, hy + 9, 'L');
-          rect(g, cx - 3, hy + 9, cx + 3, hy + 9, 'l');
+          rect(g, cx - 3, hy + 9, cx + 3, hy + 9, 'd');
         } else if (cl === 'rogue') {
           ell(g, cx, hy + 1, 6, 6, 'S');
           /* 두건을 가죽색으로 두면 조끼·바지와 합쳐져 갈색 덩어리 하나가 된다.
@@ -1181,35 +1252,52 @@ const N = 4;                                   // 애니메이션 4프레임
           ell(g, cx, hy - 1, 7, 7, 'a');                          // 두건
           rect(g, cx - 7, hy - 1, cx + 7, hy + 2, 'a');
           rect(g, cx - 6, hy - 8, cx + 3, hy - 6, 'a');           // 정수리 각
+          rect(g, cx + 6, hy - 3, cx + 7, hy + 2, 't');           // 오른쪽 깊은 그늘
           rect(g, cx - 7, hy - 4, cx - 5, hy + 2, 'A');           // 왼쪽 빛
           rect(g, cx - 5, hy - 7, cx + 2, hy - 6, 'A');
+          rect(g, cx - 7, hy - 4, cx - 7, hy + 1, 'G');
+          put(g, cx - 6, hy - 6, 'T');                            // 정수리 모서리의 광
           rect(g, cx - 6, hy + 1, cx + 6, hy + 2, 'd');           // 두건 앞단 — 얼굴에 그늘
           rect(g, cx - 4, hy + 2, cx + 6, hy + 3, 'd');
           rect(g, cx - 1, hy + 1, cx + 6, hy + 4, 'S');           // 드러난 눈매·턱
+          rect(g, cx - 1, hy + 1, cx + 2, hy + 1, 'Y');
           rect(g, cx + 5, hy + 1, cx + 6, hy + 4, 's');
+          put(g, cx + 6, hy + 3, 'y');
           rect(g, cx - 1, hy + 5, cx + 6, hy + 6, 'l');           // 입가리개
+          rect(g, cx - 1, hy + 5, cx + 5, hy + 5, 'L');
           eyes(g, cx + 3, hy + 2, 2, 'O', 2);
-          put(g, cx + 4, hy + 2, 'G');
+          put(g, cx + 4, hy + 2, 'T');
           /* 꼬리를 옆으로 뻗으면 새 부리가 된다. 짧게, 아래로 늘어뜨린다. */
           line(g, cx - 6, hy + 3, cx - 9 - flare * .4, hy + 9 + flare * .5, 'a', 3);
           line(g, cx - 7, hy + 2, cx - 9 - flare * .4, hy + 7 + flare * .5, 'A', 1);
         } else {
           ell(g, cx, hy + 2, 5.5, 5.5, 'S');                      // 얼굴
+          rect(g, cx - 3, hy + 1, cx, hy + 2, 'Y');
           rect(g, cx + 3, hy, cx + 5, hy + 6, 's');
-          rect(g, cx - 5, hy + 4, cx + 4, hy + 10, 'M');          // 흰 수염
-          rect(g, cx - 5, hy + 4, cx - 3, hy + 9, 'm');
-          rect(g, cx - 3, hy + 10, cx + 2, hy + 11, 'M');
+          rect(g, cx + 5, hy + 1, cx + 5, hy + 5, 'y');
+          /* 수염을 강철색으로 두면 얼굴 밑에 판을 댄 것 같다. 상아가 따뜻해서 털로 읽힌다. */
+          rect(g, cx - 5, hy + 4, cx + 4, hy + 10, 'F');          // 흰 수염
+          rect(g, cx - 5, hy + 4, cx - 3, hy + 9, 'E');
+          rect(g, cx + 2, hy + 6, cx + 4, hy + 10, 'E');
+          rect(g, cx - 3, hy + 10, cx + 2, hy + 11, 'F');
+          rect(g, cx - 1, hy + 11, cx + 1, hy + 12, 'E');         // 수염 끝
           eyes(g, cx + 1, hy + 1, 3, 'O', 2);
           rect(g, cx - 8, hy - 2, cx + 8, hy, 'A');               // 모자 챙
           rect(g, cx - 8, hy - 2, cx + 7, hy - 2, 'G');
-          rect(g, cx - 7, hy, cx + 8, hy, 'a');
+          rect(g, cx - 8, hy - 2, cx - 6, hy - 2, 'T');
+          rect(g, cx - 7, hy, cx + 8, hy, 't');
+          trim(cx - 7, hy - 1, cx + 7, hy - 1);                   // 챙 위의 금띠
           for (let i = 0; i <= 14; i++) {                         // 고깔
             const w = 6.2 - i * .42, yy = hy - 3 - i;
             if (w < 0 || yy < 1) break;
             rect(g, cx - w + i * .35, yy, cx + w + i * .35, yy, 'A');
-            rect(g, cx - w + i * .35, yy, cx - w + i * .35, yy, 'G');
+            rect(g, cx - w + i * .35, yy, cx - w + i * .35 + 1, yy, 'G');
+            rect(g, cx + w + i * .35, yy, cx + w + i * .35, yy, 't');
+            if (i === 5 || i === 9) rect(g, cx - w + i * .35, yy, cx + w + i * .35, yy, 'J');   // 두른 띠
           }
-          put(g, cx + 5, hy - 15, 'G'); put(g, cx + 5, hy - 16, 'W');
+          for (const [ix, iy] of [[-2, -7], [2, -10], [-1, -12]])  // 고깔의 별
+            put(g, cx + ix, hy + iy, 'Z');
+          put(g, cx + 5, hy - 15, 'o'); put(g, cx + 5, hy - 16, 'Z');
         }
 
         /* ── 손 위치와 무기 각도 ── [x, y, 각도] · 전부 예전 32칸 값의 두 배 */
@@ -1236,80 +1324,118 @@ const N = 4;                                   // 애니메이션 4프레임
         line(g, cx + 5, ty + 3, ex, ey, sleeve, 4);
         line(g, ex, ey, hx, hh, sleeve, 3);
         line(g, cx + 5, ty + 2, ex, ey - 1, sleeveHi, 1);
+        line(g, cx + 6, ty + 5, ex + 1, ey + 1, cl === 'warrior' ? 'y' : arLo, 1);   // 팔 아래 그늘
+        put(g, ex, ey, cl === 'warrior' ? 's' : arLo);            // 팔꿈치 마디
         /* 어깨판이 몸통과 같은 색이면 통째로 사라진다(성기사가 그랬다).
            밑에 어두운 타원을 먼저 깔면 그 테두리가 삐져나와 판을 떼어 놓는다. */
         if (cl !== 'warrior' && cl !== 'mage') {
-          ell(g, cx + 8, ty + 4.5, 4.8, 3.8, 'O');
-          ell(g, cx + 8, ty + 3, 4.5, 3.5, ar);
-          rect(g, cx + 4, ty, cx + 11, ty + 1, arHi);
-          ell(g, cx - 8, ty + 4.5, 4.8, 3.8, 'O');
-          ell(g, cx - 8, ty + 3, 4.5, 3.5, ar);
-          rect(g, cx - 11, ty, cx - 4, ty + 1, arHi);
+          for (const s2 of [-1, 1]) {
+            const px2 = cx + s2 * 8;
+            ell(g, px2, ty + 4.5, 4.8, 3.8, 'O');
+            ell(g, px2, ty + 3, 4.5, 3.5, ar);
+            ell(g, px2 - 1, ty + 2, 3, 2, arHi);
+            rect(g, px2 - s2 * 3 - 1, ty, px2 + s2 * 3, ty + 1, arHi);
+            rect(g, px2 - 3, ty + 5, px2 + 3, ty + 5, arLo);      // 아래 모서리
+            put(g, px2 + s2 * 3, ty + 3, 'J');                    // 금 못
+          }
         }
         rect(g, hx - 2, hh - 2, hx + 2, hh + 2, 'L');             // 장갑
-        rect(g, hx - 2, hh - 2, hx + 1, hh - 2, 'l');
+        rect(g, hx - 2, hh - 2, hx + 1, hh - 2, 'U');
+        rect(g, hx - 2, hh + 2, hx + 2, hh + 2, 'd');
+        put(g, hx + 2, hh - 1, 'J');                              // 손등의 금판
 
         // ── 무기 ── 자루·손잡이·날을 나눈다. 막대 하나면 막대로 보인다.
         if (cl === 'paladin') {
           // 방패 — 예전엔 몸통에 겹쳐 통째로 사라졌다. 바깥으로 뺀다.
           const sx = cx - 12, sy = ty + 6;
-          ell(g, sx, sy, 6, 8, 'M');
-          rect(g, sx - 6, sy - 8, sx + 6, sy - 6, 'M');
-          ell(g, sx, sy, 4.5, 6.5, 'm');                          // 안쪽 면
-          rect(g, sx - 1, sy - 6, sx + 1, sy + 6, 'A');           // 십자
-          rect(g, sx - 4, sy - 2, sx + 4, sy, 'A');
-          ell(g, sx, sy - 1, 1.6, 1.6, 'G');                      // 보스
-          rect(g, sx - 6, sy - 7, sx - 5, sy + 3, 'W');           // 테두리 빛
+          ell(g, sx, sy, 6, 8, 'J');                              // 금 테두리
+          rect(g, sx - 6, sy - 8, sx + 6, sy - 6, 'J');
+          ell(g, sx, sy, 4.8, 6.8, 'M');                          // 강철 면
+          rect(g, sx - 5, sy - 7, sx + 5, sy - 5, 'M');
+          ell(g, sx, sy, 3.6, 5.4, 'm');                          // 안쪽 그늘
+          rect(g, sx - 1, sy - 6, sx + 1, sy + 6, 'J');           // 금 십자
+          rect(g, sx - 4, sy - 2, sx + 4, sy, 'J');
+          rect(g, sx, sy - 6, sx, sy + 5, 'o');
+          rect(g, sx - 4, sy - 1, sx + 3, sy - 1, 'o');
+          ell(g, sx, sy - 1, 1.8, 1.8, 'Z');                      // 보스
+          rect(g, sx - 6, sy - 7, sx - 5, sy + 3, 'Z');           // 테두리 빛
+          rect(g, sx + 5, sy - 2, sx + 6, sy + 5, 'j');           // 테두리 그늘
           // 검 — 자루·코등이·날·혈조
           line(g, hx - dx * 5, hh - dy * 5, hx + dx * 2, hh + dy * 2, 'L', 3);   // 손잡이
-          ell(g, hx - dx * 6, hh - dy * 6, 2, 2, 'G');                            // 자루 끝
+          line(g, hx - dx * 5 - px, hh - dy * 5 - py, hx + dx * 2 - px, hh + dy * 2 - py, 'u', 1);
+          ell(g, hx - dx * 6, hh - dy * 6, 2, 2, 'o');                            // 자루 끝 — 금
+          put(g, hx - dx * 6 - px, hh - dy * 6 - py, 'Z');
           line(g, hx + dx * 2 - px * 5, hh + dy * 2 - py * 5,
-                  hx + dx * 2 + px * 5, hh + dy * 2 + py * 5, 'A', 3);            // 코등이
+                  hx + dx * 2 + px * 5, hh + dy * 2 + py * 5, 'J', 3);            // 코등이 — 금
+          line(g, hx + dx * 1 - px * 5, hh + dy * 1 - py * 5,
+                  hx + dx * 1 + px * 5, hh + dy * 1 + py * 5, 'o', 1);
           line(g, hx + dx * 3, hh + dy * 3, hx + dx * 22, hh + dy * 22, 'M', 4);  // 날
           line(g, hx + dx * 4, hh + dy * 4, hx + dx * 20, hh + dy * 20, 'm', 1);  // 혈조
           line(g, hx + dx * 4 - px, hh + dy * 4 - py,
-                  hx + dx * 21 - px, hh + dy * 21 - py, 'W', 1);                  // 날의 빛
+                  hx + dx * 21 - px, hh + dy * 21 - py, 'X', 1);                  // 날의 광
+          line(g, hx + dx * 5 + px, hh + dy * 5 + py,
+                  hx + dx * 20 + px, hh + dy * 20 + py, 'e', 1);                  // 날의 그늘
         } else if (cl === 'warrior') {
           line(g, hx - dx * 8, hh - dy * 8, hx + dx * 16, hh + dy * 16, 'L', 4);  // 자루
-          line(g, hx - dx * 8, hh - dy * 8, hx + dx * 16, hh + dy * 16, 'l', 1);
+          line(g, hx - dx * 8 - px, hh - dy * 8 - py, hx + dx * 16 - px, hh + dy * 16 - py, 'u', 1);
+          line(g, hx - dx * 8 + px, hh - dy * 8 + py, hx + dx * 16 + px, hh + dy * 16 + py, 'd', 1);
+          for (let k = -6; k <= 12; k += 5)                        // 감은 가죽끈
+            line(g, hx + dx * k - px * 2, hh + dy * k - py * 2,
+                    hx + dx * k + px * 2, hh + dy * k + py * 2, 'l', 1);
           const ax = hx + dx * 15, ay = hh + dy * 15;
+          line(g, ax - dx * 2 - px * 3, ay - dy * 2 - py * 3,
+                  ax - dx * 2 + px * 3, ay - dy * 2 + py * 3, 'J', 2);             // 도끼 목테 — 금
           for (const sg of [-1, 1]) {                             // 양날 도끼
-            line(g, ax + px * sg * 2, ay + py * sg * 2, ax + px * sg * 8, ay + py * sg * 8, 'm', 3);
+            line(g, ax + px * sg * 2, ay + py * sg * 2, ax + px * sg * 8, ay + py * sg * 8, 'b', 3);
+            line(g, ax + dx * 5 + px * sg * 6, ay + dy * 5 + py * sg * 6,
+                    ax - dx * 4 + px * sg * 6, ay - dy * 4 + py * sg * 6, 'm', 3);
             line(g, ax + dx * 5 + px * sg * 7, ay + dy * 5 + py * sg * 7,
                     ax - dx * 4 + px * sg * 7, ay - dy * 4 + py * sg * 7, 'M', 3);
             line(g, ax + dx * 5 + px * sg * 8, ay + dy * 5 + py * sg * 8,
-                    ax - dx * 4 + px * sg * 8, ay - dy * 4 + py * sg * 8, 'W', 1);
+                    ax - dx * 4 + px * sg * 8, ay - dy * 4 + py * sg * 8, 'X', 1);
           }
-          ell(g, ax + dx * 4, ay + dy * 4, 2, 2, 'M');            // 자루 끝 못
+          ell(g, ax + dx * 4, ay + dy * 4, 2, 2, 'o');            // 자루 끝 못 — 금
         } else if (cl === 'rogue') {
           line(g, hx - dx * 4, hh - dy * 4, hx + dx * 2, hh + dy * 2, 'L', 3);   // 손잡이
+          line(g, hx - dx * 4 - px, hh - dy * 4 - py, hx + dx * 2 - px, hh + dy * 2 - py, 'u', 1);
           line(g, hx + dx * 2 - px * 3, hh + dy * 2 - py * 3,
-                  hx + dx * 2 + px * 3, hh + dy * 2 + py * 3, 'A', 2);            // 코등이
+                  hx + dx * 2 + px * 3, hh + dy * 2 + py * 3, 'J', 2);            // 코등이 — 금
           line(g, hx + dx * 3, hh + dy * 3, hx + dx * 15, hh + dy * 15, 'M', 3);  // 날
           line(g, hx + dx * 4 - px, hh + dy * 4 - py,
-                  hx + dx * 14 - px, hh + dy * 14 - py, 'W', 1);
+                  hx + dx * 14 - px, hh + dy * 14 - py, 'X', 1);
+          line(g, hx + dx * 4 + px, hh + dy * 4 + py,
+                  hx + dx * 13 + px, hh + dy * 13 + py, 'm', 1);
           /* 왼손 단검을 오른손과 같은 각도로 두면 양팔을 벌린 T 자세가 된다.
              역수로 잡아 날이 아래·뒤를 향하게 한다 — 추적자의 자세는 그쪽이다. */
           const bx = cx - 9, bb = ty + 8, ba = 2.5 - (st === 'attack' ? f * .35 : 0);
           const bdx = Math.cos(ba), bdy = Math.sin(ba);
           line(g, bx - bdx * 4, bb - bdy * 4, bx + bdx * 2, bb + bdy * 2, 'L', 3);
+          put(g, bx + bdx * 2, bb + bdy * 2, 'J');
           line(g, bx + bdx * 2, bb + bdy * 2, bx + bdx * 13, bb + bdy * 13, 'M', 3);
           line(g, bx + bdx * 3 + bdy, bb + bdy * 3 - bdx,
-                  bx + bdx * 12 + bdy, bb + bdy * 12 - bdx, 'W', 1);
+                  bx + bdx * 12 + bdy, bb + bdy * 12 - bdx, 'X', 1);
         } else {
           line(g, hx - dx * 7, hh - dy * 7, hx + dx * 16, hh + dy * 16, 'L', 4);  // 지팡이
-          line(g, hx - dx * 7, hh - dy * 7, hx + dx * 16, hh + dy * 16, 'l', 1);
+          line(g, hx - dx * 7 - px, hh - dy * 7 - py, hx + dx * 16 - px, hh + dy * 16 - py, 'u', 1);
+          line(g, hx - dx * 7 + px, hh - dy * 7 + py, hx + dx * 16 + px, hh + dy * 16 + py, 'd', 1);
           for (let i = -1; i <= 1; i++)                             // 감은 끈
             line(g, hx + dx * (i * 4) - px * 2, hh + dy * (i * 4) - py * 2,
                     hx + dx * (i * 4 + 1) + px * 2, hh + dy * (i * 4 + 1) + py * 2, 'd', 1);
           const ox2 = hx + dx * 19, oy2 = hh + dy * 19;
-          // 보석을 감싸는 발톱 — 구슬만 두면 사탕이 된다
-          for (const sg of [-1, 1])
+          // 보석을 감싸는 발톱 — 구슬만 두면 사탕이 된다. 금이라야 지팡이로 읽힌다
+          for (const sg of [-1, 1]) {
             line(g, ox2 + px * sg * 4, oy2 + py * sg * 4,
-                    ox2 - dx * 4 + px * sg * 3, oy2 - dy * 4 + py * sg * 3, 'L', 2);
+                    ox2 - dx * 4 + px * sg * 3, oy2 - dy * 4 + py * sg * 3, 'J', 2);
+            put(g, ox2 + px * sg * 4, oy2 + py * sg * 4, 'o');
+          }
+          line(g, ox2 - dx * 5 - px * 3, oy2 - dy * 5 - py * 3,
+                  ox2 - dx * 5 + px * 3, oy2 - dy * 5 + py * 3, 'J', 2);            // 목테
           const R = st === 'cast' ? [5, 6.4, 7.6, 6.4][f] : 5;
-          ell(g, ox2, oy2, R, R, 'A'); ell(g, ox2, oy2, R * .7, R * .7, 'G');
-          ell(g, ox2 - R * .3, oy2 - R * .3, R * .32, R * .32, 'W');
+          ell(g, ox2, oy2, R, R, 'a');
+          ell(g, ox2, oy2, R * .82, R * .82, 'A');
+          ell(g, ox2 - R * .18, oy2 - R * .18, R * .58, R * .58, 'G');
+          ell(g, ox2 - R * .3, oy2 - R * .3, R * .3, R * .3, 'T');
+          ell(g, ox2 - R * .38, oy2 - R * .38, R * .16, R * .16, 'W');
         }
 
         outline(g);
@@ -1571,12 +1697,28 @@ const N = 4;                                   // 애니메이션 4프레임
         // 뼈 — 뿔·엄니·발톱. 보스에 쓰는 유일한 중립색이라 이것만으로 '뿔'이 읽힌다.
         F: '#ded2b4', E: '#9d8c6f',
         G: toHex(mix(base, [255, 255, 255], .62)), // 광택 · 눈
-        // 주인공용 — 단색 실루엣으로는 영웅이 안 된다. 살·강철·가죽을 따로 둔다.
-        A: def.color,                              // 직업색
+        /* 주인공용 재질.
+
+           예전에는 살 2 · 강철 3 · 가죽 4 · 직업색 3 이었다. 그 폭으로는 갑옷의
+           금 테두리도, 망토의 붉은 안감도, 뺨의 그늘도 놓을 자리가 없다 —
+           멀리서 보면 흰 갑옷에 노란 십자 하나였다.
+           재질마다 단계를 늘리고 금·안감·상아를 새로 들인다. 주인공 한 명에
+           서른 색이 오른다. */
+        A: def.color,                               // 직업색 — 몸통
         a: toHex(mix(base, [0, 0, 0], .42)),        // 직업색 그늘 (망토 안쪽)
-        S: '#f2d8b4', s: '#c49a72',                 // 살 · 살 그늘
-        M: '#d9dee9', m: '#8d94a8', e: '#565d73',   // 강철 밝음 · 중간 · 깊은 그늘
-        L: '#6d4c33', l: '#452e1f', d: '#2a1a10', u: '#93694a',   // 가죽 — 밝음 · 중간 · 그늘 · 볕받은 면
+        t: toHex(mix(base, [0, 0, 0], .68)),        // 직업색 깊은 그늘
+        T: toHex(mix(base, [255, 255, 255], .84)),  // 직업색 광
+        // 살 넷 — 얼굴이 판판한 색면이면 인형이 된다
+        Y: '#ffeeda', S: '#f2d8b4', s: '#c99b74', y: '#9b6448',
+        // 강철 다섯 — 광(X)은 lightMap 을 타고, W 는 안 탄다. 둘을 갈라 둔 이유다
+        X: '#fbfdff', H: '#eef2fa', M: '#d9dee9', m: '#8d94a8', e: '#565d73',
+        b: '#2f3446',                               // 검은 무쇠 — 사슬·도끼 뒷날
+        // 가죽 다섯
+        U: '#c19170', u: '#93694a', L: '#6d4c33', l: '#452e1f', d: '#2a1a10',
+        // 금 넷 — 갑옷 테두리 · 코등이 · 버클 · 자수
+        Z: '#ffe9a8', o: '#e6b845', J: '#a8791f', j: '#6b4a10',
+        // 붉은 안감 셋 — 망토 안쪽과 허리천. 금 옆에 붉은 게 있어야 갑옷이 산다
+        I: '#c04452', i: '#8f2530', h: '#57141d',
         W: '#ffffff',
         /* 바닥용 밝기 단계. 판석마다 톤이 조금씩 달라야 '바닥'이지,
            한 톤이면 벽지가 된다. 폭은 좁게 잡는다 —

@@ -7226,15 +7226,31 @@ function drawTouchControls() {
 /* 막대 하나 — 체력 · 직업 자원. 예전에는 fillRect 두 번이라 종이처럼 납작했다.
    틀을 두르고 채움의 윗줄만 밝게 하면 같은 값으로 두께가 생긴다.
    빛은 위에서 온다 — 스프라이트·지형·이펙트와 같은 규칙이다. */
+/* 막대. 예전에는 몸통 한 색에 윗줄 한 색, 그리고 검은 홈뿐이었다 — 넷.
+   막대는 화면에서 늘 보이는 것이라 여기가 밋밋하면 UI 전체가 밋밋해 보인다.
+   홈 둘 · 채움 넷 · 앞머리 하나로 아홉 단계를 쓴다.
+   앞머리(선두의 밝은 한 칸)가 특히 중요하다 — 그게 있어야 '차오르는 중'으로 읽힌다. */
 function pxBar(x, y, w, h, f, color, track) {
   pxChip(x, y, w, h, track || "rgba(0,0,0,.62)", "rgba(255,255,255,.13)", 4);
+  ctx.fillStyle = "rgba(0,0,0,.4)";                            // 홈 안쪽의 깊은 그늘
+  ctx.beginPath(); pxR(x + PIX, y + PIX, w - PIX * 2, PIX); ctx.fill();
   const iw = Math.max(0, (w - PIX * 2) * clamp(f, 0, 1));
   if (iw < PIX) return;
   const pal = pxPal(color);
-  ctx.fillStyle = pal[2];
+  ctx.fillStyle = pal[2];                                      // 몸통
   ctx.beginPath(); pxR(x + PIX, y + PIX, iw, h - PIX * 2); ctx.fill();
-  ctx.fillStyle = pal[1];
+  ctx.fillStyle = pal[1];                                      // 위쪽 밝은 면
   ctx.beginPath(); pxR(x + PIX, y + PIX, iw, PIX); ctx.fill();
+  ctx.fillStyle = pal[0];                                      // 그 위 한 줄의 광
+  ctx.beginPath(); pxR(x + PIX, y + PIX, iw, Math.min(PIX, h / 4)); ctx.fill();
+  ctx.globalAlpha = .3;
+  ctx.fillStyle = "#000";                                      // 아래쪽 그늘
+  ctx.beginPath(); pxR(x + PIX, y + h - PIX * 2, iw, PIX); ctx.fill();
+  ctx.globalAlpha = 1;
+  if (iw >= PIX * 2 && f < .995) {                             // 앞머리 — 차오르는 중이라는 표시
+    ctx.fillStyle = pal[0];
+    ctx.beginPath(); pxR(x + PIX + iw - PIX, y + PIX, PIX, h - PIX * 2); ctx.fill();
+  }
 }
 
 /* 작은 칸 — 배지 · 조합 줄 · HUD 막대 · 슬롯 · 미니맵 테. panel() 의 축소판이다.
@@ -7259,9 +7275,25 @@ function pxChip(x, y, w, h, fill, stroke, r) {
   if (stroke) {
     ctx.fillStyle = stroke;
     ctx.beginPath(); pxChipPath(x, y, w, h, r); ctx.fill();
+    /* 테에 경사. panel() 과 같은 규칙이다 — 위·왼쪽은 밝고 아래·오른쪽은 어둡다.
+       반투명으로 덮으므로 테 색이 무엇이든 통하고, 자리를 하나도 안 먹는다.
+       화면에 이 칸이 수십 개라 여기 한 줄이 UI 전체의 재질을 정한다. */
+    const co = (r || 6) - P;
+    ctx.fillStyle = "rgba(255,255,255,.16)";
+    ctx.beginPath();
+    ctx.rect(x + co, y, w - co * 2, P);
+    ctx.rect(x, y + co, P, h - co * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.3)";
+    ctx.beginPath();
+    ctx.rect(x + co, y + h - P, w - co * 2, P);
+    ctx.rect(x + w - P, y + co, P, h - co * 2);
+    ctx.fill();
     if (fill) {
       ctx.fillStyle = fill;
-      ctx.beginPath(); pxChipPath(x + P, y + P, w - P * 2, h - P * 2, (r || 6) - P); ctx.fill();
+      ctx.beginPath(); pxChipPath(x + P, y + P, w - P * 2, h - P * 2, co); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,.22)";                  // 안쪽 위의 그늘 — 파인 것처럼
+      ctx.beginPath(); ctx.rect(x + P + co, y + P, w - P * 2 - co * 2, P); ctx.fill();
     }
   } else if (fill) {
     ctx.fillStyle = fill;
@@ -7291,23 +7323,60 @@ function panel(x, y, w, h, r = 14, fill = "rgba(12,12,22,.92)", stroke = "rgba(2
     }
     ctx.rect(xx, yy + c * P, ww, hh - c * 2 * P);
   };
+  /* 액자에 색을 늘리되 **크기는 건드리지 않는다.**
+
+     처음엔 테를 두 칸에서 네 칸으로 두껍게 만들었다. 색은 늘었는데 안쪽이 두 칸씩
+     줄어서, 제단 줄 아래의 진행 막대가 테에 잘렸다. 화면 구성 요소의 자리는
+     이 함수 바깥에 박혀 있으므로 액자가 자리를 먹으면 안 된다.
+
+     그래서 같은 두 칸 안에서 색을 늘린다 —
+     상태색 테에 경사를 준다(위·왼쪽은 밝게, 아래·오른쪽은 어둡게).
+     반투명으로 덮으므로 상태색이 무엇이든 통한다. 여기에 네 귀퉁이의 못과
+     안쪽 판의 두 단 광·두 단 그늘이 붙어 색 열하나가 된다. */
   ctx.fillStyle = "#07070d";                                   // 바깥 테
   ctx.beginPath(); shape(x0, y0, w0, h0, cut); ctx.fill();
   ctx.fillStyle = stroke;                                      // 상태색 테
-  ctx.beginPath(); shape(x0 + P, y0 + P, w0 - P * 2, h0 - P * 2, Math.max(1, cut - 1)); ctx.fill();
+  const bc = Math.max(1, cut - 1);
+  ctx.beginPath(); shape(x0 + P, y0 + P, w0 - P * 2, h0 - P * 2, bc); ctx.fill();
+  // 테의 경사 — 금속이라면 위가 밝고 아래가 어둡다
+  const bx = x0 + P, by = y0 + P, bw = w0 - P * 2, bh = h0 - P * 2, bo = bc * P;
+  ctx.fillStyle = "rgba(255,255,255,.24)";
+  ctx.beginPath();
+  ctx.rect(bx + bo, by, bw - bo * 2, P);
+  ctx.rect(bx, by + bo, P, bh - bo * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.38)";
+  ctx.beginPath();
+  ctx.rect(bx + bo, by + bh - P, bw - bo * 2, P);
+  ctx.rect(bx + bw - P, by + bo, P, bh - bo * 2);
+  ctx.fill();
+
   ctx.fillStyle = fill;                                        // 안쪽 판
-  ctx.beginPath(); shape(x0 + P * 2, y0 + P * 2, w0 - P * 4, h0 - P * 4, Math.max(1, cut - 1)); ctx.fill();
+  ctx.beginPath(); shape(x0 + P * 2, y0 + P * 2, w0 - P * 4, h0 - P * 4, bc); ctx.fill();
   const ix = x0 + P * 2, iy = y0 + P * 2, iw = w0 - P * 4, ih = h0 - P * 4;
-  const ic = Math.max(1, cut - 1) * P;
-  ctx.fillStyle = "rgba(255,255,255,.09)";                     // 위·왼쪽 광
+  const ic = bc * P;
+  ctx.fillStyle = "rgba(255,255,255,.10)";                     // 위·왼쪽 광
   ctx.beginPath();
   ctx.rect(ix + ic, iy, iw - ic * 2, P);
   ctx.rect(ix, iy + ic, P, ih - ic * 2);
   ctx.fill();
-  ctx.fillStyle = "rgba(0,0,0,.42)";                           // 아래·오른쪽 그늘
+  ctx.fillStyle = "rgba(255,255,255,.04)";                     // 그 아래 한 단 — 두께가 생긴다
+  ctx.beginPath(); ctx.rect(ix + ic, iy + P, iw - ic * 2, P); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.46)";                           // 아래·오른쪽 그늘
   ctx.beginPath();
   ctx.rect(ix + ic, iy + ih - P, iw - ic * 2, P);
   ctx.rect(ix + iw - P, iy + ic, P, ih - ic * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.2)";
+  ctx.beginPath(); ctx.rect(ix + ic, iy + ih - P * 2, iw - ic * 2, P); ctx.fill();
+
+  /* 네 귀퉁이의 못. 액자가 '벽에 박혀 있다'가 되려면 고정된 자리가 보여야 한다.
+     상태색 테 위에 찍으므로 안쪽 자리를 먹지 않는다. */
+  const nd = bo + P;
+  ctx.fillStyle = "#8d94a8";
+  ctx.beginPath();
+  for (const [nx, ny] of [[nd, P], [bw - nd - P, P], [nd, bh - P * 2], [bw - nd - P, bh - P * 2]])
+    ctx.rect(bx + nx, by + ny, P, P);
   ctx.fill();
 }
 const inRect = (mx, my, x, y, w, h) => mx >= x && mx <= x + w && my >= y && my <= y + h;
@@ -9158,22 +9227,46 @@ function menuScrim(a) {
   const t = Game.introT;
   ctx.fillStyle = "rgba(7,7,13," + a + ")";
   ctx.fillRect(0, 0, W, H);
-  // 위아래를 조금 더 눌러 글자가 앉을 자리를 만든다 (그라디언트 대신 띠로)
+  /* 위아래를 눌러 글자가 앉을 자리를 만든다.
+
+     예전에는 같은 색 띠 열 장을 겹쳐 쌓기만 했다 — 결과는 검정 하나였다.
+     띠마다 색을 바꾸면 같은 어둠이라도 '식은 어둠'과 '푸른 어둠'이 갈린다.
+     그라디언트를 안 쓰는 이유는 여전히 같다 — 이 화면만 매끄러우면 재질이 어긋난다. */
+  const HAZE = ["#05050a", "#070714", "#0a0a1a", "#0c0c1e"];
   for (let i = 0; i < 10; i++) {
     ctx.globalAlpha = .055;
-    ctx.fillStyle = "#05050a";
+    ctx.fillStyle = HAZE[Math.min(3, Math.floor(i / 3))];
     ctx.fillRect(0, i * 9, W, 9);
     ctx.fillRect(0, H - 90 + i * 9, W, 9);
   }
+  // 좌우도 살짝 — 네 변이 다 눌려야 화면 가운데로 눈이 모인다
+  for (let i = 0; i < 8; i++) {
+    ctx.globalAlpha = .04;
+    ctx.fillStyle = HAZE[Math.min(3, Math.floor(i / 2))];
+    ctx.fillRect(i * 10, 0, 10, H);
+    ctx.fillRect(W - 80 + i * 10, 0, 10, H);
+  }
   ctx.globalAlpha = 1;
-  // 불티
-  for (let i = 0; i < 40; i++) {
+  /* 불티. 예전에는 마흔 개가 전부 같은 주황 한 색이었다 —
+     불티는 올라가면서 식는다. 갓 올라온 것은 희고, 중간이 주황이고, 위쪽은 붉게 식는다.
+     여기에 차갑게 떠도는 먼지를 섞으면 공기에 깊이가 생긴다. */
+  const EMBER = ["#fff0c8", "#ffd9a0", "#ffb35c", "#d9762f", "#8f3f1c"];
+  for (let i = 0; i < 46; i++) {
     const p = (i * 97.3) % 1, sp = 14 + p * 30;
-    const yy = H - ((t * sp + p * H) % (H + 60)) + 30;
+    const prog = ((t * sp + p * H) % (H + 60)) / (H + 60);      // 0 = 갓 올라옴
+    const yy = H - prog * (H + 60) + 30;
     const xx = (i * 137.5) % W + Math.sin(t * .7 + i) * 14;
-    ctx.globalAlpha = .10 + p * .2;
-    ctx.fillStyle = "#ffb35c";
+    ctx.globalAlpha = (.10 + p * .2) * (1 - prog * .5);
+    ctx.fillStyle = EMBER[Math.min(4, Math.floor(prog * 5))];
     ctx.fillRect(xx, yy, 2, 2 + p * 3);
+  }
+  for (let i = 0; i < 18; i++) {                                 // 차갑게 떠도는 먼지
+    const p = (i * 61.7) % 1;
+    const yy = (t * (4 + p * 7) + p * H) % (H + 40) - 20;
+    const xx = (i * 211.3) % W + Math.sin(t * .35 + i * 2) * 26;
+    ctx.globalAlpha = .05 + p * .07;
+    ctx.fillStyle = i % 3 ? "#7f8ec4" : "#b9c4e6";
+    ctx.fillRect(xx, yy, 2, 2);
   }
   ctx.globalAlpha = 1;
 }

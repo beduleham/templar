@@ -17,6 +17,25 @@ const { chromium } = require('playwright');
   await pg.goto('file:///home/user/templar/game/index.html');
   await pg.waitForTimeout(400);
 
+  // 갈래 68개가 전부 결을 갖고 있는가, 그리고 한 화면에서 견주는 것들이 서로 다른가
+  const motif = await pg.evaluate(() => {
+    const miss = ADVANCES.filter(a => !ADV_MOTIF[a.key]).map(a => a.key);
+    /* 실제로 나란히 놓고 고르는 묶음은 '부모 + 차수' 다.
+       1차와 4차는 부모가 같아도(직업) 서로 다른 겹을 그리므로 겹쳐도 된다. */
+    const by = {}, clash = [];
+    for (const a of ADVANCES) (by[a.from + '/' + a.tier] ||= []).push(a);
+    for (const [g, kids] of Object.entries(by)) {
+      const seen = {};
+      for (const k of kids) {
+        const m = ADV_MOTIF[k.key];
+        if (seen[m]) clash.push(`${g}: ${seen[m]} 와 ${k.key} 가 둘 다 ${m}`);
+        seen[m] = k.key;
+      }
+    }
+    return { n: ADVANCES.length, miss, clash };
+  });
+  console.log(JSON.stringify(motif));
+
   const out = await pg.evaluate(() => {
     selectedClass = CLASSES.findIndex(c => c.key === 'mage');
     Game.reset(); Game.state = 'playing';
@@ -70,16 +89,35 @@ const { chromium } = require('playwright');
     for (let i = 0; i < d.length; i += 4)
       if (d[i + 1] > 110 && d[i + 1] > d[i] * 1.35 && d[i + 1] > d[i + 2] * 1.35) green++;
 
+    /* 계급뿐 아니라 갈래도 화면에서 달라야 한다. 같은 부모의 형제 둘을
+       같은 자리에 세워 놓고 픽셀을 견준다 — 색만 같아도 결이 다르면 그림이 달라야 한다. */
+    const sib = [];
+    for (const t of [1, 2, 3]) {
+      const par = t === 1 ? 'mage' : chain[t - 2].key;
+      const kids = ADVANCES.filter(a => a.tier === t && a.from === par);
+      const shots = kids.map(k => {
+        player.advance.length = 0;
+        for (let i = 0; i < t - 1; i++) player.advance.push(chain[i]);
+        player.advance.push({ key: k.key, color: '#ffd36e' });   // 색을 묶어 결만 남긴다
+        return shot();
+      });
+      sib.push({ t, same: shots[0].h === shots[1].h, keys: kids.map(k => k.key) });
+    }
+
+    player.advance.length = 0;
+    for (let i = 0; i < 4; i++) player.advance.push(chain[i]);
     const t0 = performance.now();
     for (let f = 0; f < 60; f++) drawWorld();
     const ms = (performance.now() - t0) / 60;
 
-    return { hashes: seen.map(s => s.h), lit: seen.map(s => s.on), clear, green,
+    return { hashes: seen.map(s => s.h), lit: seen.map(s => s.on), clear, green, sib,
              ms: +ms.toFixed(2), total: box.w * box.h };
   });
 
   console.log(JSON.stringify(out));
   const fail = [];
+  if (motif.miss.length) fail.push(`결이 없는 마디: ${motif.miss.join(', ')}`);
+  for (const c of motif.clash) fail.push(`같은 화면에서 고르는 둘이 같은 결이다 — ${c}`);
   if (out.err) fail.push(out.err);
   else {
     const uniq = new Set(out.hashes);
@@ -87,6 +125,8 @@ const { chromium } = require('playwright');
     for (let t = 1; t <= 4; t++)
       if (out.lit[t] <= out.lit[t - 1])
         fail.push(`${t}차가 ${t - 1}차보다 밝은 칸이 늘지 않았다 (${out.lit[t - 1]} → ${out.lit[t]})`);
+    for (const s of out.sib || [])
+      if (s.same) fail.push(`${s.t}차 형제 ${s.keys.join(' / ')} 가 화면에서 똑같이 그려진다`);
     if (out.green < out.total * .08)
       fail.push(`적에 둘러싸였는데 적 픽셀이 ${out.green} 칸뿐이다 — 문양이 난전을 덮고 있다`);
     if (out.ms > 22) fail.push(`네 겹을 두르면 한 프레임이 ${out.ms}ms 다`);

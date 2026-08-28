@@ -9272,6 +9272,22 @@ function menuScrim(a) {
   ctx.globalAlpha = 1;
 }
 
+/* 제목 글자를 새긴 것처럼 찍는다.
+
+   로비에서 가장 큰 글자인데 색이 하나뿐이라, 픽셀로 그린 문장 옆에서
+   글자만 납작하게 얹혀 보였다. 같은 글자를 네 번 찍어 단을 만든다 —
+   아래로 두 단 그늘, 위로 한 단 광, 그리고 본체.
+
+   순서가 중요하다. 광을 본체보다 **먼저** 찍어야 한다 —
+   나중에 찍으면 같은 크기라 본체를 통째로 덮어 글자가 두 개로 보인다.
+   먼저 찍으면 본체가 그 위를 덮고 위쪽 두 칸만 남아 모서리의 빛이 된다. */
+function embossText(text, x, y, deep, mid, lite, main) {
+  ctx.fillStyle = deep; ctx.fillText(text, x, y + 3);
+  ctx.fillStyle = mid;  ctx.fillText(text, x, y + 2);
+  ctx.fillStyle = lite; ctx.fillText(text, x, y - 2);
+  ctx.fillStyle = main; ctx.fillText(text, x, y);
+}
+
 function drawIntro() {
   menuScrim(.52);
   const t = Game.introT;
@@ -9288,10 +9304,23 @@ function drawIntro() {
     const u = (y - 14) / 38;
     return (38 + k) * Math.sqrt(Math.max(0, 1 - u * u));  // 아래로 좁아져 뾰족해진다
   };
-  const shield = (k, col) => {
+  /* 방패를 y 구간으로 채운다. 예전에는 통째로 한 색이었다 —
+     로비에서 가장 큰 그림인데 색이 셋(테두리·속·십자)뿐이라 종이를 오린 것 같았다.
+     구간을 나눌 수 있으면 위는 밝고 아래는 어두운 금속으로 세울 수 있다. */
+  const shield = (k, col, y0, y1) => {
     ctx.fillStyle = col; ctx.beginPath();
-    for (let y = -49; y <= 53 + k; y += PIX) {
+    for (let y = y0 === undefined ? -49 : y0; y <= (y1 === undefined ? 53 + k : y1); y += PIX) {
       const w = shieldW(y, k);
+      if (w < PIX * .5) continue;
+      pxR(cx - w, cy + bob + y, w * 2, PIX);
+    }
+    ctx.fill();
+  };
+  // 테두리 안쪽으로 한 칸 들어간 자리에만 칠한다 — 테두리를 덮지 않으면서 면을 만든다
+  const field = (col, y0, y1, inset) => {
+    ctx.fillStyle = col; ctx.beginPath();
+    for (let y = y0; y <= y1; y += PIX) {
+      const w = shieldW(y, 0) - (inset || 0);
       if (w < PIX * .5) continue;
       pxR(cx - w, cy + bob + y, w * 2, PIX);
     }
@@ -9302,18 +9331,58 @@ function drawIntro() {
   ctx.globalAlpha = .26 + Math.sin(t * 2) * .09;
   pxRing(cx, cy + bob + 2, 76, PIX * 2, pxPal("#ffd36e"));
   ctx.globalAlpha = 1;
-  shield(4, "#ffd36e");                           // 테두리
-  shield(0, "#2a2438");                           // 속
-  ctx.fillStyle = "#ffe9b8"; ctx.beginPath();     // 십자
+  ctx.globalAlpha = .3;                           // 방패가 떠 있지 않도록 그림자를 깐다
+  shield(4, "#000000", 46, 58);
+  ctx.globalAlpha = 1;
+
+  /* 금 테두리 네 단계. 게임의 금 램프(j·J·o·Z)와 같은 순서다 —
+     아래가 가장 어둡고 위 모서리가 가장 밝다. */
+  shield(5, "#6b4a10");                           // 테두리 바깥 그늘
+  shield(4, "#a8791f");
+  shield(4, "#e6b845", -49, 4);                   // 위쪽 테두리가 빛을 받는다
+  shield(4, "#ffe9a8", -49, -34);
+
+  // 방패 면 — 어두운 강철을 네 단으로. 위가 밝고 아래로 갈수록 식는다
+  field("#3a4155", -46, 50, 1);
+  field("#2f3446", -6, 50, 1);
+  field("#242938", 20, 50, 1);
+  field("#1b1f2c", 36, 50, 1);
+  field("#4a5568", -46, -22, 1);                  // 위쪽 면의 빛
+  field("#5c687d", -46, -34, 1);
+
+  /* 십자. 한 색으로 두면 스티커가 된다 — 왼쪽 위 모서리에 광, 오른쪽 아래에 그늘.
+     빛 방향은 스프라이트·지형·UI 와 같은 왼쪽 위다. */
+  ctx.fillStyle = "#8a6115"; ctx.beginPath();     // 십자 아래의 그늘
+  pxR(cx - PIX * 2 + PIX, cy + bob - 30 + PIX, PIX * 4, 60);
+  pxR(cx - 17 + PIX, cy + bob - 14 + PIX, 34, PIX * 4);
+  ctx.fill();
+  ctx.fillStyle = "#e6b845"; ctx.beginPath();     // 십자 몸통
   pxR(cx - PIX * 2, cy + bob - 30, PIX * 4, 60);
   pxR(cx - 17, cy + bob - 14, 34, PIX * 4);
+  ctx.fill();
+  ctx.fillStyle = "#ffe9a8"; ctx.beginPath();     // 왼쪽 위 모서리의 광
+  pxR(cx - PIX * 2, cy + bob - 30, PIX, 60);
+  pxR(cx - PIX * 2, cy + bob - 30, PIX * 4, PIX);
+  pxR(cx - 17, cy + bob - 14, 34, PIX);
+  ctx.fill();
+  ctx.fillStyle = "#fff8e0"; ctx.beginPath();     // 교차점의 한 점
+  pxR(cx - PIX, cy + bob - 13, PIX * 2, PIX * 2);
+  ctx.fill();
+
+  // 테두리에 박은 못 넷 — 액자와 같은 규칙이다
+  ctx.fillStyle = "#ffe9a8"; ctx.beginPath();
+  for (const [rx, ry] of [[-30, -40], [30, -40], [-34, 2], [34, 2]])
+    pxR(cx + rx - PIX, cy + bob + ry - PIX, PIX * 2, PIX * 2);
+  ctx.fill();
+  ctx.fillStyle = "#8a6115"; ctx.beginPath();
+  for (const [rx, ry] of [[-30, -40], [30, -40], [-34, 2], [34, 2]])
+    pxR(cx + rx, cy + bob + ry, PIX, PIX);
   ctx.fill();
   ctx.restore();
 
   // 제목 — 좁은 화면에서는 글꼴을 줄여 잘리지 않게
   fitFont("800", 66, "템플러 서바이버즈", W - 40);
-  ctx.fillStyle = "#ffd36e";
-  ctx.fillText("템플러 서바이버즈", cx, 262);
+  embossText("템플러 서바이버즈", cx, 262, "#4a3208", "#8a6115", "#fff3cc", "#ffd36e");
   ctx.font = "600 15px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.62)";
   ctx.fillText("중세 판타지 오토배틀 서바이벌", cx, 300);
@@ -9571,8 +9640,7 @@ function drawTitle() {
      좁으면 그 자리가 없다 — 부제를 빼고 제단 버튼을 가운데 아래로 내린다. */
   const big = W >= 800;
   fitFont("800", big ? 62 : 38, "템플러 서바이버즈", W - (big ? 480 : 40));
-  ctx.fillStyle = "#ffd36e";
-  ctx.fillText("템플러 서바이버즈", W / 2, big ? 96 : 40);
+  embossText("템플러 서바이버즈", W / 2, big ? 96 : 40, "#4a3208", "#8a6115", "#fff3cc", "#ffd36e");
   if (big) {
     ctx.font = "600 16px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
     ctx.fillText("중세 판타지 오토배틀 서바이벌 · 15분을 버텨라", W / 2, 134);
@@ -9660,13 +9728,28 @@ function drawTitle() {
       ctx.textAlign = "left"; ctx.font = "700 9.5px " + FONT;
       ctx.fillStyle = "rgba(255,255,255,.4)";
       ctx.fillText(a.name, x + 22, by);
+      /* 견줌 막대. 홈 하나에 채움 둘이던 것을 여섯 단계로 —
+         네 장을 나란히 놓고 비교하는 자리라 여기가 흐리면 고를 수가 없다. */
       const bx = x + 68, bw = cw - 92, pal = pxPal(a.color);
-      ctx.fillStyle = "rgba(255,255,255,.07)";
+      const fw = bw * classBars[i][a.key];
+      ctx.fillStyle = "rgba(0,0,0,.34)";            // 파인 홈
       ctx.beginPath(); pxR(bx, by - 4, bw, 8); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,.06)";      // 홈 아래의 빛받는 모서리
+      ctx.beginPath(); pxR(bx, by + 3, bw, 1); ctx.fill();
       ctx.fillStyle = pal[2];
-      ctx.beginPath(); pxR(bx, by - 4, bw * classBars[i][a.key], 8); ctx.fill();
+      ctx.beginPath(); pxR(bx, by - 4, fw, 8); ctx.fill();
       ctx.fillStyle = pal[1];                       // 윗면 — 위에서 빛이 온다
-      ctx.beginPath(); pxR(bx, by - 4, bw * classBars[i][a.key], 3); ctx.fill();
+      ctx.beginPath(); pxR(bx, by - 4, fw, 3); ctx.fill();
+      ctx.fillStyle = pal[0];                       // 그 위 한 줄의 광
+      ctx.beginPath(); pxR(bx, by - 4, fw, 1); ctx.fill();
+      ctx.globalAlpha = .34;
+      ctx.fillStyle = "#000";                       // 아래쪽 그늘
+      ctx.beginPath(); pxR(bx, by + 2, fw, 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      if (fw > 3) {                                 // 앞머리 — 어디까지 찼는지
+        ctx.fillStyle = pal[0];
+        ctx.beginPath(); pxR(bx + fw - 1, by - 4, 1, 8); ctx.fill();
+      }
       by += 14;
     }
 

@@ -20,21 +20,46 @@
 """
 import sys, os
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 
 def key_out(img, key_rgb, tol):
-    """배경색을 알파로 뺀다. 이미 알파가 있으면 그대로 둔다."""
+    """배경색을 알파로 뺀다. 이미 알파가 있으면 그대로 둔다.
+
+    마젠타는 색거리로 재면 안 된다. |RGB - ff00ff| 의 합으로 재면
+    밝은 강철(#eef2fa)이 264, 마젠타 반투명 가장자리가 220 이라 순서가 뒤집힌다 —
+    가장자리를 지우려고 문턱을 올리면 갑옷 하이라이트가 먼저 지워진다.
+
+    마젠타는 'R 과 B 가 둘 다 높고 G 만 낮은' 색이다. min(R,B) - G 로 재면
+    강철 -7, 금 -115, 핏빛 십자 +14, 순수 마젠타 +255 로 깔끔하게 갈린다.
+    반쯤 섞인 가장자리도 +125 라 같이 걸린다.
+
+    그리고 남은 한 겹을 침식으로 깎는다. 원본이 1254px 라 몇 px 잃어도
+    128px 로 줄이면 티가 안 나지만, 안 깎으면 윤곽에 분홍 점이 남는다."""
     rgba = np.array(img.convert("RGBA")).astype(np.int16)
     if (rgba[:, :, 3] < 250).mean() > 0.02:      # 이미 컷아웃된 그림
         return rgba.astype(np.uint8), "기존 알파 사용"
-    d = np.abs(rgba[:, :, :3] - np.array(key_rgb, dtype=np.int16)).sum(axis=2)
-    rgba[:, :, 3] = np.where(d <= tol, 0, 255)
-    return rgba.astype(np.uint8), "배경색 제거"
+    R, G, B = rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2]
+    if tuple(key_rgb) == (255, 0, 255):
+        bg = (np.minimum(R, B) - G) > 55
+    else:
+        bg = np.abs(rgba[:, :, :3] - np.array(key_rgb, dtype=np.int16)).sum(axis=2) <= tol
+    m = Image.fromarray((~bg).astype(np.uint8) * 255)
+    grow = max(2, int(min(img.size) * 0.004))    # 원본 크기에 비례해 깎는다
+    m = m.filter(ImageFilter.MinFilter(2 * grow + 1))
+    rgba[:, :, 3] = np.array(m)
+    return rgba.astype(np.uint8), f"배경 제거 (가장자리 {grow}px 침식)"
 
 
 def bbox(rgba):
-    ys, xs = np.nonzero(rgba[:, :, 3] > 8)
+    """알파 경계상자. 잡티에 속으면 안 된다 —
+    실제로 받은 프레임 두 장의 왼쪽 아래 구석에 1px 짜리 압축 잡티가 있었고,
+    그것 때문에 경계상자가 캔버스 바닥까지 끌려가 '발이 잘렸다'로 잘못 읽혔다.
+    그래서 열림 연산(침식 후 팽창)으로 고립된 점을 지우고 나서 잰다.
+    검 끝처럼 가느다란 것도 3px 이상이면 살아남는다."""
+    m = Image.fromarray((rgba[:, :, 3] > 8).astype(np.uint8) * 255)
+    m = m.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    ys, xs = np.nonzero(np.array(m) > 0)
     if len(ys) == 0:
         raise SystemExit("빈 그림이다 — 배경 제거가 과했는지 확인해라")
     return xs.min(), ys.min(), xs.max() + 1, ys.max() + 1     # x0,y0,x1,y1

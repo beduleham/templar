@@ -4140,14 +4140,23 @@ for (const [m, keys] of Object.entries({
   storm:  "stormhammer onestrike thousandarrow allknowing",
 })) for (const k of keys.split(" ")) ADV_MOTIF[k] = m;
 
+/* 전직 화면은 아직 고르지 않은 겹을 그려야 한다. 겹 그리는 함수들이
+   player.advance 를 직접 읽으면 그게 안 된다 — 목록을 한 겹 갈아 끼울 수 있게 둔다. */
+let advView = null;
+const advList = () => advView || player.advance;
+
 function advTint(i) {
-  const a = player.advance[i];
+  const a = advList()[i];
   return a ? a.color : (player.cls ? player.cls.color : "#c9243f");
 }
 function advMotif(i) {
-  const a = player.advance[i];
+  const a = advList()[i];
   return (a && ADV_MOTIF[a.key]) || "holy";
 }
+// 카드에 적을 이름 — 무엇이 생기는지 글자로도 한 번 말해 준다
+const MOTIF_KR = { holy: "신성", iron: "강철", blade: "칼날", flame: "불꽃", frost: "서리",
+                   blood: "피", shadow: "그림자", arcane: "룬", fang: "송곳니", storm: "번개" };
+const TIER_PART = ["망토", "머리", "궤도", "문양"];
 
 // 격자에 맞춘 타원 고리 한 겹 — 칸을 둘레에만 찍으므로 비용이 반지름에 비례한다
 function advRing(cx, cy, rx, ry, spin, dash, span) {
@@ -4163,9 +4172,10 @@ function advRing(cx, cy, rx, ry, spin, dash, span) {
 const advCell = (x, y, w, h) => pxR(x - PIX * .5, y - PIX * .5, w || PIX, h || PIX);
 
 /* ══════════ 4차 — 발밑 마법진 ══════════ */
-function drawAdvanceGround() {
-  if (player.advance.length < 4 || !player.cls) return;
-  const sx = player.sx, sy = player.sy + 13;
+function drawAdvanceGround(px, py) {
+  if (advList().length < 4 || !player.cls) return;
+  const sx = px === undefined ? player.sx : px;
+  const sy = (py === undefined ? player.sy : py) + 13;
   /* 4차 색은 전부 파스텔이다(#c9ffe0 · #fff4d0 …). pxPal 의 밝은 단계는 그걸
      흰색 쪽으로 더 밀어서, 알파를 먹이면 색이 아니라 회색으로 내려앉는다.
      그래서 가장 밝은 자리에는 원색을 그대로 쓴다. */
@@ -4297,6 +4307,30 @@ function advSigil(sx, sy, m, spin, raw, pal, pulse) {
   ctx.fill();
 }
 
+/* 전직 카드 안의 미리보기. 세 장이 같은 아이콘을 달고 있으면 카드가 셋 다
+   똑같아 보인다 — 실제로 달라지는 것을 그대로 그려서 보여 준다.
+   이미 두른 겹 위에 이 마디를 한 겹 얹은 모습이다. */
+function drawAdvancePreview(a, cx, cy, k) {
+  if (!player.cls) return;
+  advView = player.advance.concat([a]);
+  ctx.save();
+  if (k === 2) {
+    /* 배율은 2배만 쓴다. 1.5배로 늘리면 3px 칸이 4.5px 이 되어 이 그림만
+       가장자리가 흐려진다 — 화면의 다른 모든 칸은 3의 배수에 붙어 있다.
+       중심도 격자에 올려야 한다. 그래야 2배가 6px 로 딱 떨어진다. */
+    cx = Math.round(cx / PIX) * PIX; cy = Math.round(cy / PIX) * PIX;
+    ctx.translate(cx, cy); ctx.scale(2, 2); ctx.translate(-cx, -cy);
+  }
+  drawAdvanceGround(cx, cy);
+  drawShadow(cx, cy, player.r);
+  drawAdvanceBack(cx, cy);
+  Sprites.draw("hero_" + player.cls.key + "_idle", cx, cy - 3,
+               player.r / 14 * 1.15 * CHAR_SCALE, Game.time, false);
+  drawAdvanceFront(cx, cy);
+  ctx.restore();
+  advView = null;
+}
+
 /* ══════════ 1차 — 등 망토 ══════════ */
 
 /* 망토의 옆선. 주인공은 화면에서 세로 44px · 허리 30px 이라
@@ -4313,7 +4347,7 @@ function capeW(y, m) {
 
 /* 1차 망토 + 3차 궤도의 뒤 절반 — 스프라이트보다 먼저 그린다 */
 function drawAdvanceBack(sx, sy) {
-  const n = player.advance.length;
+  const n = advList().length;
   ctx.save();
   if (n >= 1) {
     const raw = advTint(0), m = advMotif(0);
@@ -4435,7 +4469,7 @@ function capeHem(sx, sy, m, w, off, pal) {
 
 /* 2차 후광 + 3차 궤도의 앞 절반 — 스프라이트보다 나중에 그린다 */
 function drawAdvanceFront(sx, sy) {
-  const n = player.advance.length;
+  const n = advList().length;
   ctx.save();
   if (n >= 3) advOrbit(sx, sy, 1);
   if (n >= 2) advHead(sx, sy, advMotif(1), pxPal(advTint(1)));
@@ -10635,9 +10669,15 @@ function drawAdvance() {
   const n = Game.choices.length;
   // 3차 각성 카드는 특성·지급무기가 없어 아래가 비므로 높이를 줄인다
   const hasExtra = Game.choices.some(a => (a.traits && a.traits.length) || a.grant);
+  /* 특성·지급무기가 없는 카드(3·4차)는 아래가 비므로 미리보기를 두 배로 키운다.
+     여기가 갈래가 가장 많이 갈리는 자리다 — 3차만 서른두 갈래다. */
+  /* 미리보기가 세로로 차지하는 높이: 머리 장식 꼭대기(sy-46)부터
+     발밑 오라 밑단(sy+34)까지 80px. 두 배면 160px 이라 150 짜리 칸에서는
+     머리가 위로 삐져나오고 문양이 이름 글자를 덮었다(실측). */
+  const big = !hasExtra, ph = big ? 172 : 112, dy = ph - 112;
   /* 레벨업 화면과 같은 문제 — 카드 셋이면 1,260px 이다. 좁으면 세로로 쌓고 한 번 줄인다. */
   const stack = narrow();
-  const cw = 400, ch = hasExtra ? 470 : 372, gap = stack ? 14 : 30;
+  const cw = 400, ch = (hasExtra ? 470 : 372) + dy, gap = stack ? 14 : 30;
   const total = n * cw + (n - 1) * gap;
   const x0 = (W - total) / 2, yTop = stack ? 116 : 150;
   const k = stack ? Math.min(1, (H - yTop - 46) / (n * ch + (n - 1) * gap)) : 1;
@@ -10657,22 +10697,30 @@ function drawAdvance() {
       hovered ? "rgba(32,28,50,.99)" : "rgba(13,13,22,.96)",
       hovered ? a.color : "rgba(255,255,255,.13)");
 
+    /* 미리보기. 원래 여기엔 자세 아이콘이 있었는데 석 장이 전부 같은 그림이라
+       고르는 데 아무 도움이 안 됐다. 고르면 어떤 모습이 되는지를 그린다. */
     ctx.textAlign = "center";
-    ctx.font = "60px " + FONT; ctx.fillStyle = "#fff";
-    drawMenuIcon("stance", x + cw / 2, y0 + 68 + oy, a.color, 8);
+    pxChip(x + 34, y0 + 14 + oy, cw - 68, ph,
+      hovered ? "rgba(255,255,255,.055)" : "rgba(255,255,255,.03)", null, 10);
+    drawAdvancePreview(a, x + cw / 2, y0 + 14 + ph / 2 + (big ? 12 : 7) + oy, big ? 2 : 1);
+    ctx.textAlign = "left";
+    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.42)";
+    ctx.fillText(TIER_PART[tier - 1] + " · " + (MOTIF_KR[ADV_MOTIF[a.key]] || ""),
+      x + 46, y0 + 28 + oy);
+    ctx.textAlign = "center";
     ctx.font = "800 34px " + FONT; ctx.fillStyle = a.color;
-    ctx.fillText(a.name, x + cw / 2, y0 + 132 + oy);
+    ctx.fillText(a.name, x + cw / 2, y0 + 132 + dy + oy);
     ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText(a.tagline, x + cw / 2, y0 + 158 + oy);
+    ctx.fillText(a.tagline, x + cw / 2, y0 + 158 + dy + oy);
 
     ctx.strokeStyle = "rgba(255,255,255,.1)"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x + 28, y0 + 178 + oy); ctx.lineTo(x + cw - 28, y0 + 178 + oy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 28, y0 + 178 + dy + oy); ctx.lineTo(x + cw - 28, y0 + 178 + dy + oy); ctx.stroke();
 
     ctx.font = "500 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.75)";
-    wrapText(a.desc, x + cw / 2, y0 + 204 + oy, cw - 52, 19);
+    wrapText(a.desc, x + cw / 2, y0 + 204 + dy + oy, cw - 52, 19);
 
     // 새 스킬
-    let sy = y0 + 288 + oy;
+    let sy = y0 + 288 + dy + oy;
     pxChip(x + 24, sy - 26, cw - 48, 58, "rgba(255,255,255,.05)", null, 10);
     ctx.textAlign = "left";
     ctx.font = "26px " + FONT; ctx.fillStyle = "#fff";
@@ -10686,7 +10734,7 @@ function drawAdvance() {
 
     // 새 특성 / 지급 무기
     ctx.textAlign = "center";
-    sy = y0 + 364 + oy;
+    sy = y0 + 364 + dy + oy;
     if (a.traits && a.traits.length) {
       ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
       ctx.fillText("새 특성", x + cw / 2, sy);

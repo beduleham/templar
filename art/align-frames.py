@@ -87,6 +87,22 @@ def main():
         print(f"  {os.path.basename(p):28} {rgba.shape[1]}x{rgba.shape[0]}  "
               f"인물 {b[2]-b[0]}x{b[3]-b[1]}  발밑 y={b[3]}  ({how})")
 
+    # QC — 검을 뺀 '몸높이'. 프레임마다 크기가 얼마나 흔들렸는지 여기서 드러난다.
+    #      투구 폭으로 재려다 실패했다: 자세에 따라 어깨나 치켜든 팔을 투구로 잡아
+    #      129~435px(편차 117%)가 나왔다. 위에서 내려오며 '전체 폭의 12%를 넘는
+    #      첫 줄'을 머리 꼭대기로 보는 쪽이 훨씬 안정적이다 — 칼날은 그보다 가늘다.
+    bodies = []
+    for rgba, b in zip(frames, boxes):
+        m = rgba[:, :, 3] > 8
+        wide = b[2] - b[0]
+        head = next((y for y in range(b[1], b[3]) if m[y].sum() > wide * .12), b[1])
+        bodies.append(b[3] - head)
+    lo, hi, mid = min(bodies), max(bodies), sorted(bodies)[len(bodies) // 2]
+    print(f"\n몸높이(검 제외) {lo}~{hi}, 중앙값 {mid} → 편차 {(hi - lo) / mid * 100:.1f}%")
+    for p, bh in zip(ins, bodies):
+        mark = "  ← 튄다" if abs(bh - mid) / mid > .08 else ""
+        print(f"    {os.path.basename(p):26} {bh:5d}{mark}")
+
     # 1) 발 밑선 정렬 — 가장 아래에 있는 프레임을 기준으로 나머지를 내린다
     base_foot = max(b[3] for b in boxes)
     shifts = [base_foot - b[3] for b in boxes]

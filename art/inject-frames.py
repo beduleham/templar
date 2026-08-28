@@ -70,14 +70,24 @@ def main():
     print(f"발 위치  기존 {fo:.4f} → 새 {fn:.4f}   oy = {oy}")
     print(f"셀 {cell}px, s = {s}  →  화면 {cell * s * SCALE_HERO:.1f}px (기존과 동일)")
 
+    # 이미 넣은 적이 있는 줄은 제자리에 덮어쓴다. 매번 아래에 새로 붙이면
+    # 다시 넣을 때마다 아틀라스가 계속 자란다 — 걷기를 나중에 받아 다시 돌리는
+    # 일이 당연히 생기므로 이건 한 번은 겪는다.
     y = AH
     for key, idxs in jobs:
-        for i, fi in enumerate(idxs):
-            new.paste(src[fi], (i * cell, y))
         f = frames[key]
-        f.update({"x": 0, "y": y, "w": cell, "h": cell, "n": len(idxs), "s": s, "oy": oy})
-        print(f"  {key:24} y={y:5d}  {len(idxs)}프레임  fps={f['fps']}")
-        y += cell
+        reuse = f.get("w") == cell and f.get("y", 0) + cell <= AH
+        ty = f["y"] if reuse else y
+        if reuse:                                   # 덮어쓰기 전에 그 줄을 비운다
+            new.paste(Image.new("RGBA", (new.size[0], cell), (0, 0, 0, 0)), (0, ty))
+        for i, fi in enumerate(idxs):
+            new.paste(src[fi], (i * cell, ty))
+        f.update({"x": 0, "y": ty, "w": cell, "h": cell, "n": len(idxs), "s": s, "oy": oy})
+        print(f"  {key:24} y={ty:5d}  {len(idxs)}프레임  fps={f['fps']}"
+              f"{'  (제자리 덮어쓰기)' if reuse else ''}")
+        if not reuse:
+            y += cell
+    new = new.crop((0, 0, new.size[0], max(y, AH)))
 
     new.save(ATLAS)
     html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]

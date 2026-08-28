@@ -115,7 +115,51 @@ const { chromium } = require('playwright');
   });
 
   console.log(JSON.stringify(out));
+
+  /* 전직 화면의 미리보기. 카드 석 장이 같은 아이콘을 달고 있으면 고르는 데
+     아무 도움이 안 된다 — 갈래마다 다른 그림이 나와야 하고, 미리보기를 그리려고
+     갈아 끼운 겹 목록이 실제 전직 상태를 건드리면 안 된다. */
+  const prev = await pg.evaluate(() => {
+    selectedClass = CLASSES.findIndex(c => c.key === 'mage');
+    Game.reset(); Game.state = 'playing';
+    let from = 'mage';
+    for (let t = 1; t <= 2; t++) {
+      const c = ADVANCES.filter(a => a.tier === t && a.from === from);
+      player.advance.push(c[0]); from = c[0].key;
+    }
+    const before = player.advance.length;
+    Game.choices = ADVANCES.filter(a => a.tier === 3 && a.from === from);
+    Game.state = 'advance';
+    Game.time = 3.0;
+    // 마우스를 화면 밖으로 뺀다. 한 장만 강조되면 그 밝기 차이로 통과해 버려서
+    // 미리보기가 실제로 다른지를 못 잰다.
+    mouse.x = -999; mouse.y = -999; mouse.clicked = false;
+    drawAdvance();
+
+    // 카드 좌표는 drawAdvance 와 같은 식으로 잡는다
+    const n = Game.choices.length, cw = 400, gap = 30;
+    const x0 = (W - (n * cw + (n - 1) * gap)) / 2, yTop = 150;
+    const hash = i => {
+      const d = ctx.getImageData(x0 + i * (cw + gap) + 34, yTop + 14, 332, 172).data;
+      let h = 0, on = 0;
+      for (let j = 0; j < d.length; j += 4) {
+        h = (h * 31 + d[j] * 65536 + d[j + 1] * 256 + d[j + 2]) >>> 0;
+        if (d[j] + d[j + 1] + d[j + 2] > 150) on++;
+      }
+      return { h, on };
+    };
+    const cards = Game.choices.map((_, i) => hash(i));
+    return { n, cards, leak: advView !== null, kept: player.advance.length === before };
+  });
+  console.log(JSON.stringify(prev));
   const fail = [];
+  if (prev.n < 2) fail.push(`전직 카드가 ${prev.n} 장뿐이라 미리보기를 견줄 수 없다`);
+  if (prev.leak) fail.push('미리보기용 겹 목록(advView)이 화면을 그린 뒤에도 남아 있다');
+  if (!prev.kept) fail.push('미리보기가 실제 전직 상태를 건드렸다');
+  if (new Set(prev.cards.map(c => c.h)).size !== prev.n)
+    fail.push('전직 카드들의 미리보기가 서로 똑같이 그려진다');
+  for (const c of prev.cards)
+    if (c.on < 400) fail.push(`미리보기가 거의 비어 있다 (밝은 칸 ${c.on}개)`);
   if (motif.miss.length) fail.push(`결이 없는 마디: ${motif.miss.join(', ')}`);
   for (const c of motif.clash) fail.push(`같은 화면에서 고르는 둘이 같은 결이다 — ${c}`);
   if (out.err) fail.push(out.err);

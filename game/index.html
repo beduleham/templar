@@ -35,7 +35,13 @@
    예전에는 1280×720 으로 고정하고 min 스케일로 맞췄는데, 세로로 든 폰(390×844)에서는
    390×219 짜리 띠가 됐다. 화면의 1/4 이다. */
 let W = 1280, H = 720;
-const VIEW_AREA = 1280 * 720;     // 가로 화면에서는 '보이는 넓이'를 지킨다 (넓게 보이면 그만큼 쉬워진다)
+/* 가로 화면에서는 '보이는 넓이'를 지킨다 — 넓게 보이면 그만큼 쉬워진다.
+   지면을 눕히고 나면 같은 캔버스에 세로로 1.5배 더 담긴다. 캔버스를 그만큼
+   줄여 넓이를 되돌려 봤는데, 21:9 에서 논리 높이가 510 까지 내려가
+   시작 화면 글자가 화면 밖으로 나갔다(tests/layout.js 가 잡았다).
+   그래서 캔버스는 그대로 두고, 화면이 커진 만큼은 몹 크기(CHAR_SCALE)와
+   난이도로 따로 조율한다. */
+const VIEW_AREA = 1280 * 720;
 const PORTRAIT_W = 520;           // 세로 화면의 가로 폭 — 글자가 읽히는 한계에서 잡았다
 // 좁은 화면에서는 메뉴를 다른 배치로 그린다
 const narrow = () => W < 900;
@@ -83,6 +89,7 @@ function resize() {
     W = PORTRAIT_W;
     H = Math.round(clamp(W / a, 700, 1240) / 2) * 2;
   }
+  HT = H / TILT;                       // 지면이 눕은 만큼 세로로 더 많이 보인다
   const scale = Math.min(vw / W, vh / H);
   canvas.style.width = Math.floor(W * scale) + "px";
   canvas.style.height = Math.floor(H * scale) + "px";
@@ -1606,6 +1613,27 @@ const cam = { x: 0, y: 0, shake: 0 };
    길이가 92든 520이든 눈에 보이는 픽셀 크기가 같다. */
 const PIX = 3;
 
+/* ---------- 쿼터뷰 ----------
+   지면을 눕힌다. 월드 좌표(x, y)는 손대지 않는다 — 사거리도 충돌도 AI 도
+   전부 원 그대로다. 바뀌는 건 '그릴 때'뿐이다: 세로를 TILT 배로 누른다.
+
+   2/3 을 고른 이유는 격자다. 이 게임의 모든 칸이 3px 인데 2/3 을 곱하면
+   정확히 2px 로 떨어진다. 0.62 나 0.7 을 쓰면 1.86px · 2.1px 이 되어
+   바닥에 놓인 모든 것이 저 혼자 흐려진다(전직 미리보기에서 이미 겪었다).
+
+   누르는 것은 '거리'지 '물건'이 아니다. 서 있는 것은 제 발밑을 축으로
+   세로를 되돌려 그대로 서 있게 한다. 그래서 주인공 키는 그대로인데
+   주인공과 몹 사이의 세로 간격만 줄어든다 — 그게 쿼터뷰다. */
+const TILT = 2 / 3;
+let HT = 0;             // 화면에 담기는 월드 세로 길이. resize() 가 다시 잡는다.
+
+/* 서 있는 것을 세운다. 반드시 ctx.restore() 와 짝을 이룬다.
+   sy 는 이 물건이 땅에 닿는 자리(월드 y - cam.y)다. */
+function standUp(sy) {
+  ctx.save();
+  ctx.translate(0, sy); ctx.scale(1, 1 / TILT); ctx.translate(0, -sy);
+}
+
 /* 격자 칸을 색 띠별로 모았다가 한 번에 칠한다.
    칸마다 ctx.fillStyle 을 갈아 끼우고 fillRect 를 부르면, 그것만으로
    최악의 프레임이 5.8 → 30ms 가 된다(실측). 칠할 색은 세 가지뿐이므로
@@ -2812,7 +2840,7 @@ const Game = {
     recomputeStats();
     player.hp = player.stats.maxHp;
     addWeapon(player.cls.start);
-    cam.x = player.x - W / 2; cam.y = player.y - H / 2; cam.shake = 0;
+    cam.x = player.x - W / 2; cam.y = player.y - HT / 2; cam.shake = 0;
     this.state = "playing";
   },
 
@@ -3012,8 +3040,15 @@ const Game = {
     let x, y;
     if (forceX !== undefined) { x = forceX; y = forceY; }
     else {
-      // 화면 바깥 링에서 스폰 (플레이어가 보는 곳에서 튀어나오지 않게)
-      const a = rnd(TAU), rad = rnd(720, 830);
+      /* 화면 바깥에서 스폰 — 플레이어가 보는 곳에서 튀어나오면 안 된다.
+         예전에는 반지름 하나(720~830)로 충분했다. 지면을 눕히고 나서
+         세로로 570 까지 보이게 되자 45도 방향의 스폰이 (509, 509) 라
+         화면 안에서 튀어나왔다(실측). 반지름을 통째로 키우면 가로 방향
+         적이 오는 데 걸리는 시간까지 늘어나 판의 박자가 바뀐다.
+         그래서 방향마다 '화면을 벗어나는 거리'를 구하고 거기에만 여유를 더한다. */
+      const a = rnd(TAU), c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a));
+      const edge = Math.min(c > 1e-3 ? (W / 2) / c : 1e9, sn > 1e-3 ? (HT / 2) / sn : 1e9);
+      const rad = edge + rnd(90, 210);
       x = player.x + Math.cos(a) * rad;
       y = player.y + Math.sin(a) * rad;
     }
@@ -3633,7 +3668,7 @@ function update(dt) {
 
   /* 10. 카메라 */
   cam.x = lerp(cam.x, player.x - W / 2, .16);
-  cam.y = lerp(cam.y, player.y - H / 2, .16);
+  cam.y = lerp(cam.y, player.y - HT / 2, .16);
   cam.shake *= .88;
   player.sx = player.x - cam.x; player.sy = player.y - cam.y;
 }
@@ -3788,7 +3823,7 @@ let floorTx = NaN, floorTy = NaN, floorW = 0, floorH = 0;
    스프라이트를 두 배로 올리고 나니 그 차이가 눈에 띄게 벌어졌다. */
 const FLOOR_K = 2;                   // 바닥 판의 밀도 배수 (타일 128px → 화면 64px)
 function paintFloorCache(tx0, ty0) {
-  const cols = Math.ceil(W / FLOOR_T) + 2, rows = Math.ceil(H / FLOOR_T) + 2;
+  const cols = Math.ceil(W / FLOOR_T) + 2, rows = Math.ceil(HT / FLOOR_T) + 2;
   const TW = FLOOR_T * FLOOR_K;
   if (floorCv.width !== cols * TW || floorCv.height !== rows * TW) {
     floorCv.width = cols * TW; floorCv.height = rows * TW;
@@ -3805,10 +3840,39 @@ function paintFloorCache(tx0, ty0) {
      겹치는 칸이 나와도 괜찮다. 오히려 그런 칸이 '오래된 자리'로 읽힌다. */
   for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
     const tx = tx0 + i - 1, ty = ty0 + j - 1;
-    if (hash2(tx * 7 + 3, ty * 11 + 5) >= .86)
+    if (hash2(tx * 7 + 3, ty * 11 + 5) >= .72)
       Sprites.drawTile("floordeco", i * TW, j * TW, Math.floor(hash2(tx + 41, ty + 17) * 4), TW, floorCtx);
-    if (hash2(tx * 13 + 29, ty * 5 + 61) >= .89)
+    if (hash2(tx * 13 + 29, ty * 5 + 61) >= .78)
       Sprites.drawTile("floordeco2", i * TW, j * TW, Math.floor(hash2(tx + 7, ty + 53) * 4), TW, floorCtx);
+  }
+
+  /* 판석의 두께. 지면을 눕히고 나서 바닥이 '벽돌 벽'처럼 보였다 —
+     타일 무늬가 세로로 눌리면서 줄눈이 벽돌 켜로 읽힌 것이다.
+
+     바닥이 바닥으로 보이려면 판석마다 '위 모서리는 빛을 받고 아래 모서리는
+     그늘진다'가 있어야 한다. 빛은 화면 위에서 온다 — 스프라이트·지형·UI 와 같은 방향.
+     칸마다 두 줄만 그으면 눌린 타일이 바닥에 누운 돌판이 된다. */
+  /* 판석의 두께. 처음엔 칸마다 빠짐없이 위 모서리와 아래 모서리를 그었더니
+     바닥이 아니라 '벽돌 벽'이 됐다 — 가로줄이 한 칸도 빠짐없이 규칙적으로
+     이어지면 눈은 그걸 벽돌 켜로 읽는다. 실제로 그렇게 보였다.
+
+     그래서 셋을 지킨다. 모서리는 **드문드문**(절반 조금 넘게), 길이도 칸마다
+     다르게 잘라 붙이고, 세로 줄눈은 자리를 흩는다. 규칙성이 깨지면
+     같은 그림이 벽이 아니라 바닥으로 넘어간다. */
+  const E = Math.max(2, Math.round(TW / 30));
+  for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+    const tx = tx0 + i - 1, ty = ty0 + j - 1;
+    const v = hash2(tx * 3 + 91, ty * 17 + 7);
+    if (v < .42) continue;                               // 이 칸은 모서리가 없다
+    const w = TW * (.45 + v * .55), ox = TW * (1 - w / TW) * hash2(tx + 5, ty + 71);
+    floorCtx.fillStyle = "rgba(158,168,198," + (.055 + v * .05).toFixed(3) + ")";
+    floorCtx.fillRect(i * TW + ox, j * TW, w, E);                 // 윗 모서리 — 빛
+    floorCtx.fillStyle = "rgba(0,0,0," + (.16 + v * .12).toFixed(3) + ")";
+    floorCtx.fillRect(i * TW + ox, (j + 1) * TW - E, w, E);       // 아랫 모서리 — 그늘
+    if (v > .74) {                                               // 세로 줄눈은 더 드물게
+      floorCtx.fillStyle = "rgba(0,0,0,.15)";
+      floorCtx.fillRect(i * TW + TW * hash2(tx + 33, ty + 9), j * TW, E, TW);
+    }
   }
 }
 
@@ -3818,7 +3882,7 @@ function drawBackground() {
     ctx.fillStyle = "#12121f"; ctx.fillRect(0, 0, W, H);
     const T = FLOOR_T;
     const x0 = Math.floor(cam.x / T) - 1, x1 = Math.floor((cam.x + W) / T) + 1;
-    const y0 = Math.floor(cam.y / T) - 1, y1 = Math.floor((cam.y + H) / T) + 1;
+    const y0 = Math.floor(cam.y / T) - 1, y1 = Math.floor((cam.y + HT) / T) + 1;
     for (let tx = x0; tx <= x1; tx++) for (let ty = y0; ty <= y1; ty++) {
       ctx.fillStyle = (tx + ty) % 2 === 0 ? "#15152400" : "#1a1a2b40";
       ctx.fillRect(tx * T - cam.x, ty * T - cam.y, T, T);
@@ -3847,25 +3911,44 @@ const GEM_COLOR = ["#4fd1ff", "#7cff8f", "#ffd34d"], GEM_R = [4.5, 6, 8];
 
    충돌 반경(r)은 건드리지 않는다. 이건 '보이는 크기'지 '맞는 크기'가 아니다 —
    그림이 판정보다 조금 큰 쪽은 관대한 방향이라 문제가 되지 않는다(그 반대가 문제다). */
-const CHAR_SCALE = 1.25;
+/* 쿼터뷰로 바꾸면서 세로로 1.5배 더 보이게 됐다. 같은 크기로 두면 캐릭터가
+   그만큼 작아 보인다 — 화면에 담기는 몹 수가 늘었으니 실제로도 작다. */
+const CHAR_SCALE = 1.45;
 
 function drawShadow(sx, sy, r) {
-  ctx.fillStyle = "rgba(0,0,0,.28)";
-  ctx.beginPath(); pxEllipse(sx, sy + r * .85, r * .8, r * .32); ctx.fill();
+  // 두 겹 — 속이 진하고 가장자리가 옅어야 바닥에 닿은 것으로 읽힌다
+  ctx.fillStyle = "rgba(0,0,0,.30)";
+  ctx.beginPath(); pxEllipse(sx, sy + r * .86, r * 1.04, r * .78); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.34)";
+  ctx.beginPath(); pxEllipse(sx, sy + r * .86, r * .68, r * .5); ctx.fill();
 }
 
+/* 몹은 서 있다. 발밑을 축으로 세로를 되돌린 채로 그린다 —
+   안쪽 코드는 예전 그대로여도 된다. */
 function drawEnemy(e) {
+  standUp(e.y - cam.y);
+  drawEnemyBody(e);
+  ctx.restore();
+}
+function drawEnemyBody(e) {
   const sx = e.x - cam.x, sy = e.y - cam.y;
-  if (sx < -70 || sx > W + 70 || sy < -70 || sy > H + 70) return;
+  if (sx < -70 || sx > W + 70 || sy < -70 || sy > HT + 70) return;
   const T = e.type, bob = Math.sin(e.wob) * (T.shape === "ghost" ? 4 : 2);
   // 아틀라스가 로드돼 있으면 스프라이트로, 아니면 아래 도형 렌더링으로 폴백
   if (Sprites.ready && Sprites.frames[T.sprite]) {
     /* 그림자 — 예전에는 주인공에게만 있었다. 없으면 몹이 바닥에 붙지 않고 떠 있다.
        나는 것(박쥐·유령)은 그림자가 작고 아래로 떨어져 있어야 '떠 있다'가 읽힌다. */
     const fly = T.shape === "bat" || T.shape === "ghost";
-    ctx.fillStyle = "rgba(0,0,0," + (fly ? .18 : .3) + ")";
+    /* 쿼터뷰에서 물건을 바닥에 붙이는 건 그림자다. 탑뷰일 때는 있으나 마나였지만
+       지금은 이게 없으면 몹이 벽에 붙은 스티커로 보인다 — 실제로 그렇게 보였다.
+       그래서 진하게, 그리고 두 겹으로(속은 진하고 가장자리는 옅게) 깐다. */
+    ctx.fillStyle = "rgba(0,0,0," + (fly ? .22 : .30) + ")";
     ctx.beginPath();
-    pxEllipse(sx, sy + e.r * (fly ? 1.15 : .8), e.r * (fly ? .5 : .8), e.r * (fly ? .2 : .3));
+    pxEllipse(sx, sy + e.r * (fly ? 1.15 : .82), e.r * (fly ? .62 : 1.02), e.r * (fly ? .46 : .76));
+    ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0," + (fly ? .2 : .32) + ")";
+    ctx.beginPath();
+    pxEllipse(sx, sy + e.r * (fly ? 1.15 : .82), e.r * (fly ? .4 : .66), e.r * (fly ? .3 : .48));
     ctx.fill();
   }
   if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14 * CHAR_SCALE, e.wob * .16, e.x > player.x)) {
@@ -4069,7 +4152,7 @@ function drawEnemyNames() {
     if (!e.active) continue;
     if (e.boss || e.sigilKey || (e.rank && e.rank.ring)) continue;   // 이미 라벨이 있다
     const sx = e.x - cam.x, sy = e.y - cam.y;
-    if (sx < 0 || sx > W || sy < 0 || sy > H) continue;
+    if (sx < 0 || sx > W || sy < 0 || sy > HT) continue;
     pick.push([dist2(e.x, e.y, player.x, player.y), e, sx, sy]);
   }
   pick.sort((a, b) => a[0] - b[0]);
@@ -4087,7 +4170,9 @@ function drawEnemyNames() {
       if (Math.abs(px[j] - sx) < 40 && Math.abs(py[j] - ly) < 13) { clash = true; break; }
     if (clash) continue;
     px.push(sx); py.push(ly);
+    standUp(sy);                                  // 글자는 눌리면 못 읽는다
     ctx.fillText(e.type.name || "", sx, ly);
+    ctx.restore();
     drawn++;
   }
   ctx.restore();
@@ -4185,12 +4270,12 @@ function drawAdvanceGround(px, py) {
   // 바깥 오라 고리 — 가장 크고 가장 옅다. 여기까지가 '내 땅'이다.
   ctx.globalAlpha = .22 + pulse * .16;
   ctx.fillStyle = pal[1];
-  ctx.beginPath(); advRing(sx, sy, 54, 19, -spin * .6, m === "shadow" ? 5 : 0); ctx.fill();
+  ctx.beginPath(); advRing(sx, sy, 54, 54, -spin * .6, m === "shadow" ? 5 : 0); ctx.fill();
 
   // 본 고리 하나. 갈래의 얼굴은 이 고리의 안과 밖에서 그린다.
   ctx.globalAlpha = .62 + pulse * .22;
   ctx.fillStyle = raw;
-  ctx.beginPath(); advRing(sx, sy, 40, 14, 0, m === "shadow" ? 4 : 0); ctx.fill();
+  ctx.beginPath(); advRing(sx, sy, 40, 40, 0, m === "shadow" ? 4 : 0); ctx.fill();
 
   // 갈래 도형은 고리보다 진하게 — 조명 판이 덮이면 얇은 선부터 회색으로 죽는다
   ctx.globalAlpha = .8 + pulse * .2;
@@ -4203,7 +4288,9 @@ function drawAdvanceGround(px, py) {
    거기엔 아무것도 들어가지 않는다(실측). 자리는 고리 **안쪽**과 **바깥쪽**에 있다.
    그래서 공통은 고리 하나만 두고, 갈래는 안에 도형을 놓거나 밖으로 뻗는다. */
 function advSigil(sx, sy, m, spin, raw, pal, pulse) {
-  const P = (a, r) => [sx + Math.cos(a) * r, sy + Math.sin(a) * r * .35];
+  /* 예전에는 여기서 * .35 를 곱해 바닥에 눕은 것처럼 보이게 했다.
+     이제 화면이 통째로 눕으므로 동그랗게 그린다 — 눌린 것을 또 누르면 납작해진다. */
+  const P = (a, r) => [sx + Math.cos(a) * r, sy + Math.sin(a) * r];
   const ray = (a, r0, r1, step, w) => {
     for (let t = 0; t <= 1.001; t += (step || .18)) {
       const p = P(a, r0 + (r1 - r0) * t);
@@ -4274,8 +4361,8 @@ function advSigil(sx, sy, m, spin, raw, pal, pulse) {
       ctx.fill(); ctx.beginPath();
       ctx.globalAlpha *= .55;
       ctx.fillStyle = pal[2];
-      for (let y = -7; y <= 7; y += PIX) {
-        const w = 24 * Math.sqrt(Math.max(0, 1 - (y / 8) * (y / 8)));
+      for (let y = -21; y <= 21; y += PIX) {
+        const w = 24 * Math.sqrt(Math.max(0, 1 - (y / 23) * (y / 23)));
         for (let x = -w; x < w; x += PIX * 2) pxR(sx + x + (y % 2 ? PIX : 0), sy + y, PIX, PIX);
       }
       ctx.fill(); ctx.beginPath();
@@ -4289,8 +4376,8 @@ function advSigil(sx, sy, m, spin, raw, pal, pulse) {
       break; }
     case "shadow":   // 살이 없다. 끊어진 고리 둘이 서로 반대로 돈다.
       ctx.fillStyle = pal[1];
-      advRing(sx, sy, 30, 10.5, spin * 2, 3);
-      advRing(sx, sy, 18, 6.3, -spin * 3, 2);
+      advRing(sx, sy, 30, 30, spin * 2, 3);
+      advRing(sx, sy, 18, 18, -spin * 3, 2);
       break;
     case "arcane":   // 육망성 — 삼각 둘이 서로 반대로 돈다
       for (let d = 0; d < 2; d++) {
@@ -4301,7 +4388,7 @@ function advSigil(sx, sy, m, spin, raw, pal, pulse) {
     default:         // holy — 안쪽 십자와 바깥 눈금 열둘
       for (let i = 0; i < 12; i++) ray(spin + i / 12 * TAU, 40, 48, .34);
       for (let i = 0; i < 4; i++) ray(i / 4 * TAU, 0, 30, .06);
-      advRing(sx, sy, 22, 7.7, 0, 0);
+      advRing(sx, sy, 22, 22, 0, 0);
   }
   ctx.fill();
 }
@@ -4320,7 +4407,13 @@ function drawAdvancePreview(a, cx, cy, k) {
     cx = Math.round(cx / PIX) * PIX; cy = Math.round(cy / PIX) * PIX;
     ctx.translate(cx, cy); ctx.scale(2, 2); ctx.translate(-cx, -cy);
   }
+  /* 발밑 문양은 지면에 있다. 게임 화면에서는 월드 전체가 눕으면서 눌리는데
+     카드는 그 바깥이라 안 눌린다 — 여기서만 따로 눕혀 준다.
+     안 하면 카드에서만 문양이 동그란 원으로 보인다. */
+  ctx.save();
+  ctx.translate(0, cy); ctx.scale(1, TILT); ctx.translate(0, -cy);
   drawAdvanceGround(cx, cy);
+  ctx.restore();
   drawShadow(cx, cy, player.r);
   drawAdvanceBack(cx, cy);
   Sprites.draw("hero_" + player.cls.key + "_idle", cx, cy - 3,
@@ -4657,6 +4750,11 @@ function advMote(x, y, a, m, pal, near) {
 }
 
 function drawPlayer() {
+  standUp(player.sy);
+  drawPlayerBody();
+  ctx.restore();
+}
+function drawPlayerBody() {
   const sx = player.sx, sy = player.sy;
   drawShadow(sx, sy, player.r);
   const blink = player.iframe > 0 && Math.floor(player.iframe * 20) % 2 === 0;
@@ -4804,6 +4902,17 @@ function drawStanceWorld() {
   }
 }
 
+/* 월드 한 판. 기울기는 여기 한 줄에서만 건다.
+   frame() 과 테스트가 같은 그림을 보게 하려고 함수로 묶었다 —
+   drawWorld() 를 맨손으로 부르면 기울기가 빠져서 다른 그림이 나온다. */
+function drawScene() {
+  ctx.save();
+  ctx.scale(1, TILT);            // ← 여기서 지면이 눕는다. 아래는 전부 월드 좌표계다.
+  drawBackground();
+  drawWorld();
+  ctx.restore();
+}
+
 function drawWorld() {
   // 보석 — 화면에 수백 개가 깔리므로 티어별로 한 패스에 몰아 그린다
   for (let tier = 0; tier < 3; tier++) {
@@ -4814,7 +4923,7 @@ function drawWorld() {
     for (const g of gems) {
       if (!g.active || g.tier !== tier) continue;
       const sx = g.x - cam.x, sy = g.y - cam.y;
-      if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
+      if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
       const r = br + Math.sin(g.bob) * .6;
       const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
       const rows = Math.max(1, Math.round(r / PIX));
@@ -4830,7 +4939,7 @@ function drawWorld() {
     for (const g of gems) {
       if (!g.active || g.tier !== tier) continue;
       const sx = g.x - cam.x, sy = g.y - cam.y;
-      if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
+      if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
       const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
       ctx.rect(gx - PIX, gy - PIX, PIX, PIX);
     }
@@ -4840,7 +4949,7 @@ function drawWorld() {
   for (const pk of pickups) {
     if (!pk.active) continue;
     const sx = pk.x - cam.x, sy = pk.y - cam.y + Math.sin(pk.bob) * 3;
-    ctx.save();
+    standUp(sy);
     const isItem = pk.kind.startsWith("item:");
     const C = isItem ? CONSUMABLES[pk.kind.slice(5)] : null;
     const glow = pk.kind === "heart" ? "#ff5b7a" : pk.kind === "sigil" ? "#ffd34d"
@@ -4895,12 +5004,298 @@ function drawWorld() {
     ctx.restore();
   }
 
-  // 지형 — 종류마다 실루엣이 다르다. 무엇이 막고 무엇이 튕기는지 한눈에 보여야 한다.
-  for (const o of obstacles) {
-    if (o.struct) continue;                    // 구조물은 따로 그린다
-    const sx = o.x - cam.x, sy = o.y - cam.y;
-    if (sx < -100 || sx > W + 100 || sy < -100 || sy > H + 100) continue;
+  drawAdvanceGround();   // 4차 마법진 — 적보다 아래에 깔아야 포위 상황이 안 가려진다
+
+  /* 예전에는 그림자를 여기서 한 패스로 모아 그렸다(적 360마리 × fill 을 1회로).
+     쿼터뷰로 오면서 뺐다 — drawEnemyBody 가 제 그림자를 '세운 좌표계'에서 그리는데,
+     여기서 그린 것은 눕은 좌표계라 같은 몹 아래에 납작한 그림자와 덜 납작한 그림자가
+     두 겹으로 깔렸다. 그림자는 몸을 그리는 쪽에서만 그린다. */
+
+  // 지속형 무기(오라)는 바닥에 깔린다 — 서 있는 것들보다 먼저
+  for (const w of player.weapons) {
+    const def = WEAPONS[w.key];
+    if (def.draw && w.key === "aura") def.draw(player, w);
+  }
+  drawStanceWorld();
+
+  drawDepth();                      // ← 서 있는 것 전부를 월드 y 순서로
+  if (!Attract.on) drawEnemyNames();
+
+  for (const w of player.weapons) {
+    const def = WEAPONS[w.key];
+    if (def.draw && w.key !== "aura") def.draw(player, w);
+  }
+
+  // 참격
+  for (const sl of slashes) {
+    if (!sl.active) continue;
+    const t = 1 - sl.life / sl.maxLife;
+    const sx = sl.x - cam.x, sy = sl.y - cam.y;
     ctx.save();
+    ctx.globalAlpha = (1 - t) * .95;
+    ctx.globalCompositeOperation = "lighter";
+    const cols = pxPal(ELEMENTS[sl.element] ? ELEMENTS[sl.element].color : "#ffe9b8");
+    if (sl.len > 300) {
+      // 긴 것은 '창'이다. 호로 그리면 부채꼴이 화면 1/3을 덮는다.
+      const reach = sl.len * (.55 + t * .45), from = 26;
+      pxLance(sx + Math.cos(sl.ang) * from, sy + Math.sin(sl.ang) * from,
+              sl.ang, reach - from, (10 + sl.len * .022) * (1 - t * .4), cols);
+    } else {
+      const R = sl.len * (.55 + t * .5), span = .55 + t * 1.5;
+      const th = (7 + sl.len * .05) * (1 - t * .55);
+      pxArc(sx, sy, R, sl.ang - span / 2, sl.ang + span / 2, th, cols);
+      /* 심지 — 벤 자국 안쪽에 얇고 밝은 선 하나. 레퍼런스 그림의 참격이 이렇다.
+         한 겹이면 색칠한 부채꼴이고, 두 겹이면 '지나간 길'이 된다. */
+      if (th > PIX * 1.6)
+        pxArc(sx, sy, R, sl.ang - span * .38, sl.ang + span * .38, Math.max(PIX, th * .3), PJ_WHITE);
+    }
+    ctx.restore();
+  }
+
+  // 바닥 장판 — 밟으면 아프다
+  for (const h of hazards) {
+    if (!h.active) continue;
+    const sx = h.x - cam.x, sy = h.y - cam.y;
+    if (sx < -160 || sx > W + 160 || sy < -160 || sy > HT + 160) continue;
+    const t = h.life / h.maxLife;
+    ctx.save();
+    pxHazard(sx, sy, h.r, pxPal(h.color), (h.x | 0) + (h.y | 0) * 7,
+      .16 + .16 * t, .38 + .28 * Math.abs(Math.sin(Game.time * 4)));
+    ctx.restore();
+  }
+
+  // 파동
+  for (const wv of waves) {
+    if (!wv.active) continue;
+    const t = 1 - wv.life / wv.maxLife;
+    const sx = wv.x - cam.x, sy = wv.y - cam.y;
+    if (sx < -wv.r - 60 || sx > W + wv.r + 60 || sy < -wv.r - 60 || sy > HT + wv.r + 60) continue;
+    ctx.save();
+    ctx.globalAlpha = (1 - t) * .18;
+    ctx.fillStyle = wv.color;
+    ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
+    ctx.globalCompositeOperation = "lighter";
+    // 뒤에 남는 흐린 테 — 파동이 '지나갔다'가 보인다
+    ctx.globalAlpha = (1 - t) * .3;
+    pxRing(sx, sy, wv.r * .82, 3 + (1 - t) * 4, pxPal(wv.color));
+    ctx.globalAlpha = (1 - t) * .75;
+    pxRing(sx, sy, wv.r, 4 + (1 - t) * 7, pxPal(wv.color));
+    // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다.
+    ctx.globalAlpha = (1 - t) * .85;
+    pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE);
+    ctx.restore();
+  }
+
+  /* 발사체 — 뿌연 광원 원을 걷어내고 평평한 면 + 격자 테두리로.
+     테두리 칸은 색이 같은 동안 모았다가 색이 바뀔 때만 칠한다.
+     탄 하나마다 칠하면 화면에 300발일 때 그만큼 path 를 여는 셈이다. */
+  let pjCols = null;
+  for (const p of projectiles) {
+    if (!p.active) continue;
+    const sx = p.x - cam.x, sy = p.y - cam.y;
+    if (sx < -40 || sx > W + 40 || sy < -40 || sy > HT + 40) continue;
+    if (p.kind === "dagger") {
+      // 회전이 필요한 것은 꼭짓점을 직접 돌린다. 회전된 좌표계에서 칸을 찍으면
+      // 격자가 화면과 어긋나 안티에일리어싱이 되돌아온다.
+      const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
+      const tip = p.r * 1.7, back = -p.r * .5, half = p.r * .45;
+      const rot = (x, y, o) => { pxOut[o] = sx + x * ca - y * sa; pxOut[o + 1] = sy + x * sa + y * ca; };
+      rot(tip, 0, 0); rot(back, -half, 2); rot(back, half, 4); rot(tip, 0, 6);
+      if (pjCols !== PJ_STEEL) { if (pjCols) pxFlush(pjCols); pjCols = PJ_STEEL; }
+      ctx.fillStyle = PJ_STEEL[2];
+      ctx.beginPath(); ctx.moveTo(pxOut[0], pxOut[1]);
+      ctx.lineTo(pxOut[2], pxOut[3]); ctx.lineTo(pxOut[4], pxOut[5]);
+      ctx.closePath(); ctx.fill();
+      pxEdge(pxOut, 8);
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.angle);
+      ctx.fillStyle = "#6d4c33"; ctx.fillRect(-p.r * 1.2, -p.r * .22, p.r * .8, p.r * .44);
+      ctx.fillStyle = "#e8c96a"; ctx.fillRect(-p.r * .62, -p.r * .6, p.r * .22, p.r * 1.2);
+      // 잔상 — 날아가는 것에는 자국이 남아야 속도가 읽힌다
+      ctx.globalAlpha = .32;
+      ctx.fillStyle = "#cfd6e6";
+      ctx.fillRect(-p.r * 3.4, -PIX / 2, p.r * 2.4, PIX);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    } else {
+      const flame = p.kind === "flame";
+      const cols = pxPal(flame ? "#ff8a3c" : p.color);
+      if (pjCols !== cols) { if (pjCols) pxFlush(pjCols); pjCols = cols; }
+      // 불꽃은 날아가면서 사그라든다
+      const t = clamp(p.life / p.maxLife, 0, 1);
+      /* 꼬리. 이력을 저장하면 탄 300발 × 프레임마다 배열이 커진다 —
+         속도 방향으로 뒤에 점점 작아지는 원을 몇 개 찍는 것으로 충분하다.
+         멈춰 있는 탄(속도 0)에는 꼬리가 안 붙어야 하므로 속도로 나눈다. */
+      const sp = Math.hypot(p.vx, p.vy);
+      if (sp > 40) {
+        /* 작아지기만 하고 흐려지지 않으면 꼬리가 아니라 구슬 목걸이가 된다 —
+           실제로 그렇게 나왔다. 뒤로 갈수록 흐려져야 하나의 자국으로 읽힌다. */
+        const ux = p.vx / sp, uy = p.vy / sp, step = p.r * .8;
+        for (let k = 3; k >= 1; k--) {
+          ctx.globalAlpha = .5 - k * .11;
+          pxDisc(sx - ux * step * k, sy - uy * step * k, p.r * (1 - k * .22), cols);
+        }
+        ctx.globalAlpha = 1;
+      }
+      pxDisc(sx, sy, flame ? p.r * (.75 + t * .45) : p.r, cols);
+    }
+  }
+  if (pjCols) pxFlush(pjCols);
+
+  // 번개
+  for (const b of bolts) {
+    if (!b.active) continue;
+    const sx = b.x - cam.x, sy = b.y - cam.y;
+    ctx.save();
+    ctx.globalAlpha = clamp(b.life / .3, 0, 1);
+    ctx.globalCompositeOperation = "lighter";
+    const bc = pxPal("#7fd2ff");
+    // 꺾인 점 사이를 격자 칸으로 채운다 — 선으로 그으면 안티에일리어싱이 남는다
+    let px0 = sx + (hash2(b.seed | 0, 7) - .5) * 60, py0 = sy - 400;
+    for (let i = 1; i <= 8; i++) {
+      const py1 = sy - 400 + (400 * i / 8);
+      const px1 = sx + (hash2((b.seed | 0) + i, i * 13) - .5) * 60 * (1 - i / 8);
+      const n = Math.ceil(Math.hypot(px1 - px0, py1 - py0) / PIX);
+      for (let j = 0; j <= n; j++) {
+        const u = j / n, cx2 = px0 + (px1 - px0) * u, cy2 = py0 + (py1 - py0) * u;
+        for (let k = -3; k <= 3; k += PIX) pxPush(pxBand(Math.abs(k), 4), cx2 + k, cy2);
+      }
+      px0 = px1; py0 = py1;
+    }
+    pxFlush(bc);
+    ctx.restore();
+  }
+
+  /* 적이 쏜 탄 — 아군 탄과 헷갈리면 안 된다.
+     아군 탄은 무기의 속성색, 적 탄은 무조건 붉은 테를 두른다. */
+  for (const p of eshots) {
+    if (!p.active) continue;
+    const sx = p.x - cam.x, sy = p.y - cam.y;
+    if (sx < -30 || sx > W + 30 || sy < -30 || sy > HT + 30) continue;
+    pxDisc(sx, sy, p.r + 2, ESHOT_RING);
+    pxDisc(sx, sy, p.r - 1, pxPal(p.color));
+  }
+
+  drawStructures();
+
+  // 첨탑의 빛줄기
+  for (const b of beams) {
+    if (!b.active) continue;
+    const x0 = b.x0 - cam.x, y0 = b.y0 - cam.y, x1 = b.x1 - cam.x, y1 = b.y1 - cam.y;
+    const t = b.life / .22;
+    ctx.save();
+    ctx.globalAlpha = t;
+    ctx.globalCompositeOperation = "lighter";
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    pxLance(x0, y0, Math.atan2(y1 - y0, x1 - x0), len, 5 + t * 5, pxPal(b.color));
+    ctx.restore();
+  }
+
+  /* 이펙트 — 가산 합성(lighter)이라 여러 발이 겹치면 흰빛으로 타오른다.
+     알파를 수명보다 빠르게 떨어뜨려 잔상이 남지 않게 한다. */
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const f of fxs) {
+    if (!f.active) continue;
+    const sx = f.x - cam.x, sy = f.y - cam.y;
+    if (sx < -90 || sx > W + 90 || sy < -90 || sy > HT + 90) continue;
+    ctx.globalAlpha = Math.min(1, f.life / f.maxLife * 1.7);
+    if (f.rot) {
+      ctx.save(); ctx.translate(sx, sy); ctx.rotate(f.rot);
+      Sprites.draw(f.key, 0, 0, f.scale, f.maxLife - f.life, false);
+      ctx.restore();
+    } else {
+      Sprites.draw(f.key, sx, sy, f.scale, f.maxLife - f.life, false);
+    }
+  }
+  ctx.restore();
+
+  /* 파티클. 수백 개라 색깔이 바뀔 때만 칠한다. 원 대신 격자 칸이라 가장자리가 또렷하다.
+
+     예전에는 전부 같은 크기의 네모였다. 두 가지를 더했다 —
+       ① 수명이 줄면 같이 줄어든다. 끝까지 같은 크기면 '꺼지는' 게 아니라 '사라지는' 것이다.
+       ② 빠른 것(streak)은 진행 방향으로 늘어난 자국을 남긴다. 불티와 피가 그렇다.
+     둘 다 알파를 함께 쓰므로 globalAlpha 가 바뀌는 지점에서 경로를 끊어야 한다 —
+     그래서 알파를 세 단계로 끊어 묶는다(안 그러면 파티클마다 fill 이 한 번씩 열린다). */
+  {
+    let pc = null, pa = -1;
+    for (const p of particles) {
+      if (!p.active) continue;
+      const t = clamp(p.life / p.maxLife, 0, 1);
+      const a = Math.ceil(t * 3) / 3;                 // 알파를 세 단계로 — 묶어 칠하려고
+      // 갓 튄 것은 밝고, 식으면 몸통색, 꺼질 때는 어둡다
+      const col = p.pal ? p.pal[t > .62 ? 0 : t > .3 ? 1 : 2] : p.color;
+      if (col !== pc || a !== pa) {
+        if (pc) ctx.fill();
+        pc = col; pa = a;
+        ctx.fillStyle = pc; ctx.globalAlpha = a; ctx.beginPath();
+      }
+      const s2 = Math.max(PIX, Math.round(p.r * (.35 + t * .65) / PIX) * PIX);
+      const gx = Math.round((p.x - cam.x) / PIX) * PIX, gy = Math.round((p.y - cam.y) / PIX) * PIX;
+      if (p.streak) {
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > 60) {
+          const L = Math.min(p.streak, sp * .035);
+          const ux = p.vx / sp, uy = p.vy / sp;
+          const n = Math.max(1, Math.round(L / PIX));
+          for (let k = 0; k <= n; k++)
+            ctx.rect(Math.round((gx - ux * k * PIX) / PIX) * PIX - s2 / 2,
+                     Math.round((gy - uy * k * PIX) / PIX) * PIX - s2 / 2, s2, s2);
+          continue;
+        }
+      }
+      ctx.rect(gx - s2 / 2, gy - s2 / 2, s2, s2);
+    }
+    if (pc) ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // 데미지 숫자 — 어트랙트 데모에서는 읽을 정보가 아니라 글자 노이즈다
+  if (Attract.on) { ctx.globalAlpha = 1; return; }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.75)";
+  for (const n of numbers) {
+    if (!n.active) continue;
+    const nx = n.x - cam.x, ny = n.y - cam.y;
+    if (nx < -40 || nx > W + 40 || ny < -30 || ny > HT + 30) continue;
+    ctx.globalAlpha = clamp(n.life / .7, 0, 1);
+    ctx.font = "700 " + n.size + "px " + FONT;
+    ctx.strokeText(n.text, nx, ny);
+    ctx.fillStyle = n.color;
+    ctx.fillText(n.text, nx, ny);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* 서 있는 것은 전부 여기서 그린다 — 지형 · 지형지물 · 몹 · 주인공.
+   탑뷰에서는 순서가 아무래도 괜찮았다. 위에서 내려다보면 겹칠 일이 없으니까.
+   쿼터뷰에서는 세로가 곧 깊이라, 아래에 있는 것이 위에 있는 것을 가려야 한다.
+   그 한 줄이 없으면 몹이 바위를 뚫고 나오고 주인공이 나무 앞뒤를 오간다.
+
+   한 프레임에 많아야 수백 개다. 배열 하나를 재활용해 쓰레기를 만들지 않는다. */
+const depthList = [];
+function drawDepth() {
+  depthList.length = 0;
+  for (const o of obstacles) if (!o.struct) depthList.push([o.y, 0, o]);
+  for (const lm of landmarks) depthList.push([lm.y, 1, lm]);
+  for (const e of enemies) if (e.active) depthList.push([e.y, 2, e]);
+  depthList.push([player.y, 3, null]);
+  depthList.sort((a, b) => a[0] - b[0]);
+  for (const d of depthList) {
+    if (d[1] === 0) drawObstacle(d[2]);
+    else if (d[1] === 1) drawLandmark(d[2]);
+    else if (d[1] === 2) drawEnemy(d[2]);
+    else drawPlayer();
+  }
+}
+
+/* 지형과 지형지물을 낱개로 그릴 수 있게 뽑아 둔다.
+   쿼터뷰에서는 '누가 누구 앞에 있나'를 월드 y 로 정해 그 순서대로 그려야 한다 —
+   한 덩어리 반복문 안에 있으면 그 줄에 끼워 넣을 수가 없다. */
+function drawObstacle(o) {
+    if (o.struct) return;                    // 구조물은 따로 그린다
+    const sx = o.x - cam.x, sy = o.y - cam.y;
+    if (sx < -100 || sx > W + 100 || sy < -100 || sy > HT + 100) return;
+    standUp(sy);
     // 늪은 바닥에 깔린 것이라 그림자를 지지 않는다
     if (o.kind !== "bog") {
       ctx.fillStyle = "rgba(0,0,0,.32)";
@@ -5353,16 +5748,14 @@ function drawWorld() {
              o.r * (.07 + rnd(i + 6) * .05));
     }
     ctx.restore();
-  }
+}
 
-  /* 지형지물 셋 — 상자 · 봉인된 제단 · 고대 비석.
-     예전에는 arc 와 stroke 로 그려 가장자리가 부드러웠다. 전부 격자로 옮긴다. */
-  for (const lm of landmarks) {
+function drawLandmark(lm) {
     const sx = lm.x - cam.x, sy = lm.y - cam.y;
-    if (sx < -80 || sx > W + 80 || sy < -80 || sy > H + 80) continue;
+    if (sx < -80 || sx > W + 80 || sy < -80 || sy > HT + 80) return;
     const pulse = .6 + Math.sin(Game.time * 2 + lm.x * .01) * .25;
     const R2 = (x, y, w, h) => pxR(sx + x, sy + y, w, h);
-    ctx.save();
+    standUp(sy);
     // 바닥 표식
     ctx.globalAlpha = .22 * pulse;
     ctx.fillStyle = lm.T.color;
@@ -5417,276 +5810,6 @@ function drawWorld() {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
-  }
-
-  drawAdvanceGround();   // 4차 마법진 — 적보다 아래에 깔아야 포위 상황이 안 가려진다
-
-  // 그림자는 색이 같으므로 한 번의 패스로 모아 그린다 (적 360마리 × fill 을 1회로)
-  ctx.fillStyle = "rgba(0,0,0,.28)";
-  ctx.beginPath();
-  for (const e of enemies) {
-    if (!e.active) continue;
-    const sx = e.x - cam.x, sy = e.y - cam.y;
-    if (sx < -70 || sx > W + 70 || sy < -70 || sy > H + 70) continue;
-    pxEllipse(sx, sy + e.r * .85, e.r * .8, e.r * .32);
-  }
-  ctx.fill();
-
-  for (const e of enemies) if (e.active) drawEnemy(e);
-  if (!Attract.on) drawEnemyNames();
-
-  // 지속형 무기(오라)는 플레이어 아래에 깔린다
-  for (const w of player.weapons) {
-    const def = WEAPONS[w.key];
-    if (def.draw && w.key === "aura") def.draw(player, w);
-  }
-
-  drawStanceWorld();
-  drawPlayer();
-
-  for (const w of player.weapons) {
-    const def = WEAPONS[w.key];
-    if (def.draw && w.key !== "aura") def.draw(player, w);
-  }
-
-  // 참격
-  for (const sl of slashes) {
-    if (!sl.active) continue;
-    const t = 1 - sl.life / sl.maxLife;
-    const sx = sl.x - cam.x, sy = sl.y - cam.y;
-    ctx.save();
-    ctx.globalAlpha = (1 - t) * .95;
-    ctx.globalCompositeOperation = "lighter";
-    const cols = pxPal(ELEMENTS[sl.element] ? ELEMENTS[sl.element].color : "#ffe9b8");
-    if (sl.len > 300) {
-      // 긴 것은 '창'이다. 호로 그리면 부채꼴이 화면 1/3을 덮는다.
-      const reach = sl.len * (.55 + t * .45), from = 26;
-      pxLance(sx + Math.cos(sl.ang) * from, sy + Math.sin(sl.ang) * from,
-              sl.ang, reach - from, (10 + sl.len * .022) * (1 - t * .4), cols);
-    } else {
-      const R = sl.len * (.55 + t * .5), span = .55 + t * 1.5;
-      const th = (7 + sl.len * .05) * (1 - t * .55);
-      pxArc(sx, sy, R, sl.ang - span / 2, sl.ang + span / 2, th, cols);
-      /* 심지 — 벤 자국 안쪽에 얇고 밝은 선 하나. 레퍼런스 그림의 참격이 이렇다.
-         한 겹이면 색칠한 부채꼴이고, 두 겹이면 '지나간 길'이 된다. */
-      if (th > PIX * 1.6)
-        pxArc(sx, sy, R, sl.ang - span * .38, sl.ang + span * .38, Math.max(PIX, th * .3), PJ_WHITE);
-    }
-    ctx.restore();
-  }
-
-  // 바닥 장판 — 밟으면 아프다
-  for (const h of hazards) {
-    if (!h.active) continue;
-    const sx = h.x - cam.x, sy = h.y - cam.y;
-    if (sx < -160 || sx > W + 160 || sy < -160 || sy > H + 160) continue;
-    const t = h.life / h.maxLife;
-    ctx.save();
-    pxHazard(sx, sy, h.r, pxPal(h.color), (h.x | 0) + (h.y | 0) * 7,
-      .16 + .16 * t, .38 + .28 * Math.abs(Math.sin(Game.time * 4)));
-    ctx.restore();
-  }
-
-  // 파동
-  for (const wv of waves) {
-    if (!wv.active) continue;
-    const t = 1 - wv.life / wv.maxLife;
-    const sx = wv.x - cam.x, sy = wv.y - cam.y;
-    if (sx < -wv.r - 60 || sx > W + wv.r + 60 || sy < -wv.r - 60 || sy > H + wv.r + 60) continue;
-    ctx.save();
-    ctx.globalAlpha = (1 - t) * .18;
-    ctx.fillStyle = wv.color;
-    ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
-    ctx.globalCompositeOperation = "lighter";
-    // 뒤에 남는 흐린 테 — 파동이 '지나갔다'가 보인다
-    ctx.globalAlpha = (1 - t) * .3;
-    pxRing(sx, sy, wv.r * .82, 3 + (1 - t) * 4, pxPal(wv.color));
-    ctx.globalAlpha = (1 - t) * .75;
-    pxRing(sx, sy, wv.r, 4 + (1 - t) * 7, pxPal(wv.color));
-    // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다.
-    ctx.globalAlpha = (1 - t) * .85;
-    pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE);
-    ctx.restore();
-  }
-
-  /* 발사체 — 뿌연 광원 원을 걷어내고 평평한 면 + 격자 테두리로.
-     테두리 칸은 색이 같은 동안 모았다가 색이 바뀔 때만 칠한다.
-     탄 하나마다 칠하면 화면에 300발일 때 그만큼 path 를 여는 셈이다. */
-  let pjCols = null;
-  for (const p of projectiles) {
-    if (!p.active) continue;
-    const sx = p.x - cam.x, sy = p.y - cam.y;
-    if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
-    if (p.kind === "dagger") {
-      // 회전이 필요한 것은 꼭짓점을 직접 돌린다. 회전된 좌표계에서 칸을 찍으면
-      // 격자가 화면과 어긋나 안티에일리어싱이 되돌아온다.
-      const ca = Math.cos(p.angle), sa = Math.sin(p.angle);
-      const tip = p.r * 1.7, back = -p.r * .5, half = p.r * .45;
-      const rot = (x, y, o) => { pxOut[o] = sx + x * ca - y * sa; pxOut[o + 1] = sy + x * sa + y * ca; };
-      rot(tip, 0, 0); rot(back, -half, 2); rot(back, half, 4); rot(tip, 0, 6);
-      if (pjCols !== PJ_STEEL) { if (pjCols) pxFlush(pjCols); pjCols = PJ_STEEL; }
-      ctx.fillStyle = PJ_STEEL[2];
-      ctx.beginPath(); ctx.moveTo(pxOut[0], pxOut[1]);
-      ctx.lineTo(pxOut[2], pxOut[3]); ctx.lineTo(pxOut[4], pxOut[5]);
-      ctx.closePath(); ctx.fill();
-      pxEdge(pxOut, 8);
-      ctx.save(); ctx.translate(sx, sy); ctx.rotate(p.angle);
-      ctx.fillStyle = "#6d4c33"; ctx.fillRect(-p.r * 1.2, -p.r * .22, p.r * .8, p.r * .44);
-      ctx.fillStyle = "#e8c96a"; ctx.fillRect(-p.r * .62, -p.r * .6, p.r * .22, p.r * 1.2);
-      // 잔상 — 날아가는 것에는 자국이 남아야 속도가 읽힌다
-      ctx.globalAlpha = .32;
-      ctx.fillStyle = "#cfd6e6";
-      ctx.fillRect(-p.r * 3.4, -PIX / 2, p.r * 2.4, PIX);
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    } else {
-      const flame = p.kind === "flame";
-      const cols = pxPal(flame ? "#ff8a3c" : p.color);
-      if (pjCols !== cols) { if (pjCols) pxFlush(pjCols); pjCols = cols; }
-      // 불꽃은 날아가면서 사그라든다
-      const t = clamp(p.life / p.maxLife, 0, 1);
-      /* 꼬리. 이력을 저장하면 탄 300발 × 프레임마다 배열이 커진다 —
-         속도 방향으로 뒤에 점점 작아지는 원을 몇 개 찍는 것으로 충분하다.
-         멈춰 있는 탄(속도 0)에는 꼬리가 안 붙어야 하므로 속도로 나눈다. */
-      const sp = Math.hypot(p.vx, p.vy);
-      if (sp > 40) {
-        /* 작아지기만 하고 흐려지지 않으면 꼬리가 아니라 구슬 목걸이가 된다 —
-           실제로 그렇게 나왔다. 뒤로 갈수록 흐려져야 하나의 자국으로 읽힌다. */
-        const ux = p.vx / sp, uy = p.vy / sp, step = p.r * .8;
-        for (let k = 3; k >= 1; k--) {
-          ctx.globalAlpha = .5 - k * .11;
-          pxDisc(sx - ux * step * k, sy - uy * step * k, p.r * (1 - k * .22), cols);
-        }
-        ctx.globalAlpha = 1;
-      }
-      pxDisc(sx, sy, flame ? p.r * (.75 + t * .45) : p.r, cols);
-    }
-  }
-  if (pjCols) pxFlush(pjCols);
-
-  // 번개
-  for (const b of bolts) {
-    if (!b.active) continue;
-    const sx = b.x - cam.x, sy = b.y - cam.y;
-    ctx.save();
-    ctx.globalAlpha = clamp(b.life / .3, 0, 1);
-    ctx.globalCompositeOperation = "lighter";
-    const bc = pxPal("#7fd2ff");
-    // 꺾인 점 사이를 격자 칸으로 채운다 — 선으로 그으면 안티에일리어싱이 남는다
-    let px0 = sx + (hash2(b.seed | 0, 7) - .5) * 60, py0 = sy - 400;
-    for (let i = 1; i <= 8; i++) {
-      const py1 = sy - 400 + (400 * i / 8);
-      const px1 = sx + (hash2((b.seed | 0) + i, i * 13) - .5) * 60 * (1 - i / 8);
-      const n = Math.ceil(Math.hypot(px1 - px0, py1 - py0) / PIX);
-      for (let j = 0; j <= n; j++) {
-        const u = j / n, cx2 = px0 + (px1 - px0) * u, cy2 = py0 + (py1 - py0) * u;
-        for (let k = -3; k <= 3; k += PIX) pxPush(pxBand(Math.abs(k), 4), cx2 + k, cy2);
-      }
-      px0 = px1; py0 = py1;
-    }
-    pxFlush(bc);
-    ctx.restore();
-  }
-
-  /* 적이 쏜 탄 — 아군 탄과 헷갈리면 안 된다.
-     아군 탄은 무기의 속성색, 적 탄은 무조건 붉은 테를 두른다. */
-  for (const p of eshots) {
-    if (!p.active) continue;
-    const sx = p.x - cam.x, sy = p.y - cam.y;
-    if (sx < -30 || sx > W + 30 || sy < -30 || sy > H + 30) continue;
-    pxDisc(sx, sy, p.r + 2, ESHOT_RING);
-    pxDisc(sx, sy, p.r - 1, pxPal(p.color));
-  }
-
-  drawStructures();
-
-  // 첨탑의 빛줄기
-  for (const b of beams) {
-    if (!b.active) continue;
-    const x0 = b.x0 - cam.x, y0 = b.y0 - cam.y, x1 = b.x1 - cam.x, y1 = b.y1 - cam.y;
-    const t = b.life / .22;
-    ctx.save();
-    ctx.globalAlpha = t;
-    ctx.globalCompositeOperation = "lighter";
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    pxLance(x0, y0, Math.atan2(y1 - y0, x1 - x0), len, 5 + t * 5, pxPal(b.color));
-    ctx.restore();
-  }
-
-  /* 이펙트 — 가산 합성(lighter)이라 여러 발이 겹치면 흰빛으로 타오른다.
-     알파를 수명보다 빠르게 떨어뜨려 잔상이 남지 않게 한다. */
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  for (const f of fxs) {
-    if (!f.active) continue;
-    const sx = f.x - cam.x, sy = f.y - cam.y;
-    if (sx < -90 || sx > W + 90 || sy < -90 || sy > H + 90) continue;
-    ctx.globalAlpha = Math.min(1, f.life / f.maxLife * 1.7);
-    if (f.rot) {
-      ctx.save(); ctx.translate(sx, sy); ctx.rotate(f.rot);
-      Sprites.draw(f.key, 0, 0, f.scale, f.maxLife - f.life, false);
-      ctx.restore();
-    } else {
-      Sprites.draw(f.key, sx, sy, f.scale, f.maxLife - f.life, false);
-    }
-  }
-  ctx.restore();
-
-  /* 파티클. 수백 개라 색깔이 바뀔 때만 칠한다. 원 대신 격자 칸이라 가장자리가 또렷하다.
-
-     예전에는 전부 같은 크기의 네모였다. 두 가지를 더했다 —
-       ① 수명이 줄면 같이 줄어든다. 끝까지 같은 크기면 '꺼지는' 게 아니라 '사라지는' 것이다.
-       ② 빠른 것(streak)은 진행 방향으로 늘어난 자국을 남긴다. 불티와 피가 그렇다.
-     둘 다 알파를 함께 쓰므로 globalAlpha 가 바뀌는 지점에서 경로를 끊어야 한다 —
-     그래서 알파를 세 단계로 끊어 묶는다(안 그러면 파티클마다 fill 이 한 번씩 열린다). */
-  {
-    let pc = null, pa = -1;
-    for (const p of particles) {
-      if (!p.active) continue;
-      const t = clamp(p.life / p.maxLife, 0, 1);
-      const a = Math.ceil(t * 3) / 3;                 // 알파를 세 단계로 — 묶어 칠하려고
-      // 갓 튄 것은 밝고, 식으면 몸통색, 꺼질 때는 어둡다
-      const col = p.pal ? p.pal[t > .62 ? 0 : t > .3 ? 1 : 2] : p.color;
-      if (col !== pc || a !== pa) {
-        if (pc) ctx.fill();
-        pc = col; pa = a;
-        ctx.fillStyle = pc; ctx.globalAlpha = a; ctx.beginPath();
-      }
-      const s2 = Math.max(PIX, Math.round(p.r * (.35 + t * .65) / PIX) * PIX);
-      const gx = Math.round((p.x - cam.x) / PIX) * PIX, gy = Math.round((p.y - cam.y) / PIX) * PIX;
-      if (p.streak) {
-        const sp = Math.hypot(p.vx, p.vy);
-        if (sp > 60) {
-          const L = Math.min(p.streak, sp * .035);
-          const ux = p.vx / sp, uy = p.vy / sp;
-          const n = Math.max(1, Math.round(L / PIX));
-          for (let k = 0; k <= n; k++)
-            ctx.rect(Math.round((gx - ux * k * PIX) / PIX) * PIX - s2 / 2,
-                     Math.round((gy - uy * k * PIX) / PIX) * PIX - s2 / 2, s2, s2);
-          continue;
-        }
-      }
-      ctx.rect(gx - s2 / 2, gy - s2 / 2, s2, s2);
-    }
-    if (pc) ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  // 데미지 숫자 — 어트랙트 데모에서는 읽을 정보가 아니라 글자 노이즈다
-  if (Attract.on) { ctx.globalAlpha = 1; return; }
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.75)";
-  for (const n of numbers) {
-    if (!n.active) continue;
-    const nx = n.x - cam.x, ny = n.y - cam.y;
-    if (nx < -40 || nx > W + 40 || ny < -30 || ny > H + 30) continue;
-    ctx.globalAlpha = clamp(n.life / .7, 0, 1);
-    ctx.font = "700 " + n.size + "px " + FONT;
-    ctx.strokeText(n.text, nx, ny);
-    ctx.fillStyle = n.color;
-    ctx.fillText(n.text, nx, ny);
-  }
-  ctx.globalAlpha = 1;
 }
 
 /* 대형 구조물 그리기.
@@ -5700,7 +5823,7 @@ function drawStructures() {
   for (const s of structures) {
     const sx = s.x - cam.x, sy = s.y - cam.y;
     const R = s.r;
-    if (sx < -R - 120 || sx > W + R + 120 || sy < -R - 160 || sy > H + R + 160) continue;
+    if (sx < -R - 120 || sx > W + R + 120 || sy < -R - 160 || sy > HT + R + 160) continue;
     const K = s.K, st = s.st, on = !!st;
     const cols = pxPal(K.color);
     // 종류마다 꼭대기가 다르다. 한 값으로 붙이면 첨탑에서는 글자가 건물을 가린다.
@@ -5711,7 +5834,7 @@ function drawStructures() {
     const box = (x0, y0, x1, y1) => ctx.rect(q(sx + x0), q(sy + y0), q(x1 - x0), q(y1 - y0));
 
     // 바닥 그림자 — 큰 것일수록 깊게
-    ctx.save();
+    standUp(sy);   // 건물은 서 있다
     ctx.globalAlpha = .34;
     ctx.fillStyle = "#000";
     ctx.beginPath(); pxEllipse(sx, sy + R * .3, R * .62, R * .24); ctx.fill();
@@ -7088,7 +7211,8 @@ function drawLighting() {
 
   g2.globalCompositeOperation = "destination-out";
   const punch = (wx, wy, r, core) => {
-    const cx = (wx - cam.x) / LIGHT_K, cy = (wy - cam.y) / LIGHT_K, rr = r / LIGHT_K;
+    // 광원은 월드에 있고 조명 판은 화면에 있다 — 여기서 한 번 눕혀 준다
+    const cx = (wx - cam.x) / LIGHT_K, cy = (wy - cam.y) * TILT / LIGHT_K, rr = r / LIGHT_K;
     if (cx < -rr || cx > lw + rr || cy < -rr || cy > lh + rr) return;
     /* 정거리 감쇠(0→.5→1)는 가장자리에 동그란 테를 남긴다.
        실제 빛처럼 안쪽은 완만하고 바깥으로 갈수록 빨리 죽게 단계를 더 준다. */
@@ -7145,7 +7269,8 @@ function drawLighting() {
   g2.clearRect(0, 0, lw, lh);
   let warm = false;
   const glow = (wx, wy, r, col, a) => {
-    const cx = (wx - cam.x) / LIGHT_K, cy = (wy - cam.y) / LIGHT_K, rr = r / LIGHT_K;
+    // 광원은 월드에 있고 조명 판은 화면에 있다 — 여기서 한 번 눕혀 준다
+    const cx = (wx - cam.x) / LIGHT_K, cy = (wy - cam.y) * TILT / LIGHT_K, rr = r / LIGHT_K;
     if (cx < -rr || cx > lw + rr || cy < -rr || cy > lh + rr) return;
     const c = hexRGB(col);
     const gr = g2.createRadialGradient(cx, cy, 0, cx, cy, rr);
@@ -11152,9 +11277,8 @@ function frame(now) {
   const shy = sk ? rnd(-sk, sk) : 0;
   ctx.save();
   ctx.translate(shx, shy);
-  drawBackground();
   // 메뉴에서도 월드를 그린다 — 그 위를 각 메뉴가 반투명하게 덮는다
-  drawWorld();
+  drawScene();
   ctx.restore();
 
   drawLighting();

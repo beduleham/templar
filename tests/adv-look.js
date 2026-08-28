@@ -57,7 +57,7 @@ const { chromium } = require('playwright');
     const R = 46, box = { x: 640 - R, y: 380 - R, w: R * 2, h: R * 2 };
     const shot = () => {
       Game.time = 3.0;                          // 흔들림·회전을 같은 위상에 세운다
-      drawWorld();
+      drawScene();
       const d = ctx.getImageData(box.x, box.y, box.w, box.h).data;
       let sum = 0, on = 0;
       for (let i = 0; i < d.length; i += 4) {
@@ -82,7 +82,7 @@ const { chromium } = require('playwright');
       const e = Game.spawnEnemy('slime', player.x + Math.cos(a) * r, player.y + Math.sin(a) * r);
       if (e) { e.spd = 0; e.hp = e.maxHp = 1e9; }
     }
-    drawWorld();
+    drawScene();
     // 적 픽셀이 몇 칸이나 보이는지 — 슬라임 초록만 센다
     const d = ctx.getImageData(box.x, box.y, box.w, box.h).data;
     let green = 0;
@@ -107,7 +107,7 @@ const { chromium } = require('playwright');
     player.advance.length = 0;
     for (let i = 0; i < 4; i++) player.advance.push(chain[i]);
     const t0 = performance.now();
-    for (let f = 0; f < 60; f++) drawWorld();
+    for (let f = 0; f < 60; f++) drawScene();
     const ms = (performance.now() - t0) / 60;
 
     return { hashes: seen.map(s => s.h), lit: seen.map(s => s.on), clear, green, sib,

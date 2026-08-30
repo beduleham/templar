@@ -36,11 +36,19 @@ def feet_frac(cell_img):
 
 
 def main():
-    if len(sys.argv) < 4:
+    argv = sys.argv[1:]
+    # --body <화면상 목표 몸높이 px> --r <몹 반지름> : 몹을 넣을 때 상대 크기를 잡는다
+    target, radius = None, None
+    for flag in ("--body", "--r"):
+        if flag in argv:
+            i = argv.index(flag); v = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
+            if flag == "--body": target = v
+            else: radius = v
+    if len(argv) < 3:
         raise SystemExit(__doc__)
-    strip_path, cell = sys.argv[1], int(sys.argv[2])
+    strip_path, cell = argv[0], int(argv[1])
     jobs = []
-    for spec in sys.argv[3:]:
+    for spec in argv[2:]:
         key, idxs = spec.split(":")
         jobs.append((key, [int(v) for v in idxs.split(",")]))
 
@@ -65,10 +73,27 @@ def main():
     old_cell = atlas.crop((of["x"], of["y"], of["x"] + of["w"], of["y"] + of["h"]))
     fo = feet_frac(old_cell)
     fn = feet_frac(src[jobs[0][1][0]])
-    oy = round((fo - fn) * cell)
-    s = round(53.4 / (cell * SCALE_HERO), 6)
-    print(f"발 위치  기존 {fo:.4f} → 새 {fn:.4f}   oy = {oy}")
-    print(f"셀 {cell}px, s = {s}  →  화면 {cell * s * SCALE_HERO:.1f}px (기존과 동일)")
+
+    """상대 크기. 정렬 도구는 인물에 딱 맞게 크롭하므로, 어떤 몹을 넣든
+       셀을 꽉 채워서 나온다 — 그대로 두면 슬라임이 기사만 해진다.
+       그래서 '화면에서 몇 px 이어야 하는가'(--body)를 받아 s 를 거꾸로 푼다.
+         화면 몸높이 = 셀 × s × (반지름/14 × CHAR_SCALE) × 셀_안_몸비율
+       --body 를 안 주면 예전처럼 주인공 기준으로 계산한다."""
+    if target is not None:
+        mob = (radius if radius else 14) / 14 * 1.45
+        # 새 그림이 셀 안에서 차지하는 세로 비율을 실측한다
+        col = np.array(src[jobs[0][1][0]])[:, :, 3] > 8
+        ys, _ = np.nonzero(col)
+        frac = (ys.max() - ys.min() + 1) / cell
+        s = round(target / (cell * mob * frac), 6)
+        oy = round((fo - fn) * cell)
+        print(f"목표 몸높이 {target}px, 반지름 {radius}  셀 안 몸비율 {frac * 100:.0f}%")
+        print(f"셀 {cell}px, s = {s}  →  화면 몸높이 {cell * s * mob * frac:.1f}px")
+    else:
+        oy = round((fo - fn) * cell)
+        s = round(53.4 / (cell * SCALE_HERO), 6)
+        print(f"발 위치  기존 {fo:.4f} → 새 {fn:.4f}   oy = {oy}")
+        print(f"셀 {cell}px, s = {s}  →  화면 {cell * s * SCALE_HERO:.1f}px (기존과 동일)")
 
     # 이미 넣은 적이 있는 줄은 제자리에 덮어쓴다. 매번 아래에 새로 붙이면
     # 다시 넣을 때마다 아틀라스가 계속 자란다 — 걷기를 나중에 받아 다시 돌리는

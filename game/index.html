@@ -972,13 +972,13 @@ function rollRank(t) {
 }
 
 const ENEMY_TYPES = {
-  bat:    { name: "박쥐", dropMul: .8, r: 11, hp: 12,  speed: 88, dmg: 8,  xp: .85,  color: "#a37bff", shape: "bat", sprite: "bat" },
-  slime:  { name: "슬라임", dropMul: .8, r: 15, hp: 29,  speed: 54, dmg: 10,  xp: .85,  color: "#57c96a", shape: "blob", sprite: "slime" },
-  ghost:  { name: "유령", r: 13, hp: 38,  speed: 74, dmg: 12, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
-  zombie: { name: "좀비", r: 16, hp: 62,  speed: 48, dmg: 15, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
-  brute:  { name: "괴수", r: 23, hp: 138, speed: 40, dmg: 22, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
-  reaper: { name: "사신", r: 18, hp: 210, speed: 62, dmg: 26, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
-  hound:  { name: "사냥개", r: 13, hp: 84,  speed: 248, dmg: 15, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
+  bat:    { name: "박쥐", dropMul: .8, r: 11, hp: 12,  speed: 88, anim: 1.6, dmg: 8,  xp: .85,  color: "#a37bff", shape: "bat", sprite: "bat" },
+  slime:  { name: "슬라임", dropMul: .8, r: 15, hp: 29,  speed: 46, dmg: 10,  xp: .85,  color: "#57c96a", shape: "blob", sprite: "slime" },
+  ghost:  { name: "유령", r: 13, hp: 38,  speed: 74, anim: .6, dmg: 12, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
+  zombie: { name: "좀비", r: 16, hp: 62,  speed: 38, dmg: 15, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
+  brute:  { name: "괴수", r: 23, hp: 138, speed: 34, dmg: 22, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
+  reaper: { name: "사신", r: 18, hp: 210, speed: 62, anim: .55, dmg: 26, xp: 10, color: "#d94fd0", shape: "ghost", sprite: "reaper" },
+  hound:  { name: "사냥개", r: 13, hp: 84,  speed: 248, anim: .7, dmg: 15, xp: 3,  color: "#ff9f6b", shape: "hound", sprite: "hound" },
 
   // ── 행동이 다른 것들 — 스탯이 아니라 대응 방법이 달라야 다양한 것이다
   archer: { name: "사수", r: 14, hp: 48,  speed: 44, dmg: 12, xp: 4,  color: "#7ad0b0", shape: "humanoid", sprite: "archer",
@@ -1577,7 +1577,7 @@ function allocEvict(pool, keep) {
   return far;
 }
 
-const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0, dying: false }));
+const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, anim: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0, dying: false }));
 // 적이 쏘는 탄 — 원거리 몬스터와 보스 패턴에 쓰인다
 const eshots     = makePool(220, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 7, dmg: 0, life: 0, color: "#fff" }));
 // 바닥 장판 — 독 웅덩이, 폭발 흔적
@@ -3069,7 +3069,7 @@ const Game = {
     e.introDone = false; e.rageDone = false;      // 보스 1회성 연출
     e.telT = 0; e.telX = 0; e.telY = 0; e.telR = 0;   // 예고 범위기
     e.shieldMax = e.shieldHp = T.shieldHp ? T.shieldHp * rank.hp * d.hp : 0;
-    e.flash = 0; e.wob = rnd(TAU); e.slow = 0; e.burn = 0; e.burnDps = 0; e.sigilKey = null;
+    e.flash = 0; e.wob = rnd(TAU); e.anim = rnd(0, 4); e.slow = 0; e.burn = 0; e.burnDps = 0; e.sigilKey = null;
     e.dying = false;
     return e;
   },
@@ -3446,6 +3446,23 @@ function update(dt) {
     }
 
     e.wob += dt * 6;
+    /* 걸음 재생 속도는 실제 이동 속도를 따라가야 한다.
+
+       예전에는 모든 몹이 wob 하나로 같은 박자를 썼다 — 48px/s 짜리 좀비와
+       248px/s 짜리 사냥개가 똑같이 초당 1.92 번 다리를 놀렸다. 좀비가
+       제자리에서 허둥대 보인 이유다. 개념상 느린 놈을 느리게 보이려면
+       이동 속도만 줄여서는 안 되고 재생 속도가 그걸 따라와야 한다.
+
+       60 으로 나누는 이유: 4프레임 8fps 니까 재생 속도 1 이 초당 두 바퀴다.
+       속도 spd 에서 한 바퀴가 옮기는 거리(보폭)는 spd / (2 * spd/60) = 30px 로
+       속도와 무관하게 일정해진다. 좀비 그림의 실제 보폭이 28.1px 이니 거의 맞다.
+       난이도 배수로 속도가 올라가도 보폭이 늘어나 발이 미끄러지는 일이 없다.
+
+       위 2.2 는 사냥개(248px/s)를 위한 상한이다 — 그대로 두면 초당 여덟 바퀴라
+       다리가 뭉개진다. 아래 .35 는 하한 — 멈춰 선 놈이 통째로 얼어붙으면
+       고장 난 것처럼 보인다. */
+    const spd = (e.slow > 0 ? e.spd * SLOW_MUL : e.spd) * (e.hasteT > 0 ? 1.45 : 1);
+    e.anim += dt * clamp(spd / 60, .35, 2.2) * (e.type.anim || 1);
     if (e.hasteT > 0) e.hasteT -= dt;
     // 고유 행동 — false 를 돌려주면 이번 프레임은 스스로 움직인다
     if (e.type.think && e.type.think(e, dt, d) === false) {
@@ -3459,7 +3476,6 @@ function update(dt) {
       if (Math.random() < dt * 7) spawnParticles(e.x, e.y, 1, "#ff8a3c", 70, .3, 2);
       if (e.hp <= 0) { killEnemy(e, "fire"); continue; }
     }
-    const spd = (e.slow > 0 ? e.spd * SLOW_MUL : e.spd) * (e.hasteT > 0 ? 1.45 : 1);
     /* 넉백이 살아 있는 동안에는 추격을 그만큼 눌러 준다.
 
        예전에는 추격 속도를 그대로 두고 넉백을 더하기만 했다. 밀린 만큼 곧바로
@@ -3951,7 +3967,7 @@ function drawEnemyBody(e) {
     pxEllipse(sx, sy + e.r * (fly ? 1.15 : .82), e.r * (fly ? .4 : .66), e.r * (fly ? .3 : .48));
     ctx.fill();
   }
-  if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14 * CHAR_SCALE, e.wob * .16, e.x > player.x)) {
+  if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14 * CHAR_SCALE, e.anim, e.x > player.x)) {
     if (!Attract.on && (e.boss || e.sigilKey || (e.rank && e.rank.ring))) drawEnemyHpBar(e, sx, sy);
     return;
   }

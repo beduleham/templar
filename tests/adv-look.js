@@ -82,15 +82,31 @@ const { chromium } = require('playwright');
       const e = Game.spawnEnemy('slime', player.x + Math.cos(a) * r, player.y + Math.sin(a) * r);
       if (e) { e.spd = 0; e.hp = e.maxHp = 1e9; }
     }
+    /* 적이 몇 칸이나 보이는지. 예전에는 '밝은 초록'을 셌는데, 슬라임 그림을
+       어두운 늪색 손그림으로 갈아 끼우자 한 칸도 안 잡혀서 테스트가 깨졌다 —
+       계측기가 그림 색에 묶여 있었다.
+       색에 기대지 말고 '적을 지웠을 때 달라지는 칸'을 센다. 어떤 그림으로
+       바뀌어도 성립하고, 재려던 것(문양이 적을 가리는가)에 정확히 답한다. */
     drawScene();
-    // 적 픽셀이 몇 칸이나 보이는지 — 슬라임 초록만 센다
-    const d = ctx.getImageData(box.x, box.y, box.w, box.h).data;
+    const withMobs = ctx.getImageData(box.x, box.y, box.w, box.h).data;
+    const keep = [];
+    for (const e of enemies) if (e.active) { keep.push(e); e.active = false; }
+    drawScene();
+    const without = ctx.getImageData(box.x, box.y, box.w, box.h).data;
+    for (const e of keep) e.active = true;
     let green = 0;
-    for (let i = 0; i < d.length; i += 4)
-      if (d[i + 1] > 110 && d[i + 1] > d[i] * 1.35 && d[i + 1] > d[i + 2] * 1.35) green++;
+    for (let i = 0; i < withMobs.length; i += 4)
+      if (Math.abs(withMobs[i] - without[i]) + Math.abs(withMobs[i + 1] - without[i + 1])
+        + Math.abs(withMobs[i + 2] - without[i + 2]) > 24) green++;
 
     /* 계급뿐 아니라 갈래도 화면에서 달라야 한다. 같은 부모의 형제 둘을
-       같은 자리에 세워 놓고 픽셀을 견준다 — 색만 같아도 결이 다르면 그림이 달라야 한다. */
+       같은 자리에 세워 놓고 픽셀을 견준다 — 색만 같아도 결이 다르면 그림이 달라야 한다.
+
+       적은 반드시 치워야 한다. 앞 단계에서 마흔 마리를 불러 뒀는데, 슬라임 그림이
+       넓어지자 주인공 위를 덮어서 형제 둘이 '똑같이 그려진다'고 나왔다. 재려는 것은
+       겹의 차이지 몹에 가려지는지가 아니다. */
+    const hidden = [];
+    for (const e of enemies) if (e.active) { hidden.push(e); e.active = false; }
     const sib = [];
     for (const t of [1, 2, 3]) {
       const par = t === 1 ? 'mage' : chain[t - 2].key;
@@ -103,6 +119,8 @@ const { chromium } = require('playwright');
       });
       sib.push({ t, same: shots[0].h === shots[1].h, keys: kids.map(k => k.key) });
     }
+
+    for (const e of hidden) e.active = true;
 
     player.advance.length = 0;
     for (let i = 0; i < 4; i++) player.advance.push(chain[i]);
@@ -172,7 +190,7 @@ const { chromium } = require('playwright');
     for (const s of out.sib || [])
       if (s.same) fail.push(`${s.t}차 형제 ${s.keys.join(' / ')} 가 화면에서 똑같이 그려진다`);
     if (out.green < out.total * .08)
-      fail.push(`적에 둘러싸였는데 적 픽셀이 ${out.green} 칸뿐이다 — 문양이 난전을 덮고 있다`);
+      fail.push(`적에 둘러싸였는데 적이 보이는 칸이 ${out.green}개뿐이다 — 문양이 난전을 덮고 있다`);
     if (out.ms > 22) fail.push(`네 겹을 두르면 한 프레임이 ${out.ms}ms 다`);
   }
   if (errs.length) fail.push('페이지 오류: ' + errs[0]);

@@ -38,7 +38,9 @@ def feet_frac(cell_img):
 def main():
     argv = sys.argv[1:]
     # --body <화면상 목표 몸높이 px> --r <몹 반지름> : 몹을 넣을 때 상대 크기를 잡는다
-    target, radius = None, None
+    target, radius, tw = None, None, None
+    if "--width" in argv:
+        i = argv.index("--width"); tw = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
     for flag in ("--body", "--r"):
         if flag in argv:
             i = argv.index(flag); v = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
@@ -79,16 +81,26 @@ def main():
        그래서 '화면에서 몇 px 이어야 하는가'(--body)를 받아 s 를 거꾸로 푼다.
          화면 몸높이 = 셀 × s × (반지름/14 × CHAR_SCALE) × 셀_안_몸비율
        --body 를 안 주면 예전처럼 주인공 기준으로 계산한다."""
-    if target is not None:
+    if target is not None or tw is not None:
         mob = (radius if radius else 14) / 14 * 1.45
         # 새 그림이 셀 안에서 차지하는 세로 비율을 실측한다
         col = np.array(src[jobs[0][1][0]])[:, :, 3] > 8
-        ys, _ = np.nonzero(col)
+        ys, xs = np.nonzero(col)
         frac = (ys.max() - ys.min() + 1) / cell
-        s = round(target / (cell * mob * frac), 6)
+        wfrac = (xs.max() - xs.min() + 1) / cell
+        """넓적한 몹은 높이가 아니라 폭으로 앉혀야 한다. 판정은 반지름 하나짜리
+           원이라 화면 폭이 곧 '맞을 것 같은 크기'다 — 그림이 판정보다 훨씬 넓으면
+           맞은 줄 알았는데 안 맞는다. 슬라임을 높이로 맞췄더니 폭이 51.5px 이 되어
+           판정 폭 30px 의 1.7배가 됐다(실측)."""
+        if tw is not None:
+            s = round(tw / (cell * mob * wfrac), 6)
+            print(f"목표 폭 {tw}px, 반지름 {radius}  셀 안 폭비율 {wfrac * 100:.0f}%")
+        else:
+            s = round(target / (cell * mob * frac), 6)
+            print(f"목표 몸높이 {target}px, 반지름 {radius}  셀 안 몸비율 {frac * 100:.0f}%")
         oy = round((fo - fn) * cell)
-        print(f"목표 몸높이 {target}px, 반지름 {radius}  셀 안 몸비율 {frac * 100:.0f}%")
-        print(f"셀 {cell}px, s = {s}  →  화면 몸높이 {cell * s * mob * frac:.1f}px")
+        print(f"셀 {cell}px, s = {s}  →  화면 폭 {cell * s * mob * wfrac:.1f}px "
+              f"· 높이 {cell * s * mob * frac:.1f}px")
     else:
         oy = round((fo - fn) * cell)
         s = round(53.4 / (cell * SCALE_HERO), 6)

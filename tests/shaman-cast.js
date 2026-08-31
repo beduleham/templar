@@ -34,7 +34,7 @@ const { chromium } = require('playwright');
     const sh = Game.spawnEnemy('shaman', player.x + 700, player.y, RANKS.common);
     player.base.maxHp = 1e7; recomputeStats(); player.hp = 1e7;
     const idx = e => Math.floor(e.anim * 8) % 4;
-    const out = { count: [0, 0, 0, 0], atCast: {}, casts: 0, frames: 0, died: false };
+    const out = { count: [0, 0, 0, 0], atCast: {}, at: [], frames: 0, died: false };
     for (let i = 0; i < 60 * 20; i++) {
       if (Game.state !== 'playing') Game.state = 'playing';
       player.hp = 1e7; sh.hp = sh.maxHp;
@@ -42,7 +42,10 @@ const { chromium } = require('playwright');
       update(1 / 60);
       if (!sh.active || sh.dying) { out.died = true; break; }
       out.frames++; out.count[idx(sh)]++;
-      if (sh.t1 > t0) { const k = idx(sh); out.atCast[k] = (out.atCast[k] || 0) + 1; out.casts++; }
+      if (sh.t1 > t0) {
+        const k = idx(sh); out.atCast[k] = (out.atCast[k] || 0) + 1;
+        out.at.push(out.frames);            // 몇 번째 프레임에 터졌는지 그대로 담는다
+      }
     }
     return out;
   });
@@ -52,15 +55,22 @@ const { chromium } = require('playwright');
   const pct = r.count.map(n => n / r.frames * 100);
   console.log(`${r.frames}프레임(${(r.frames / 60).toFixed(1)}초) 관측, 도중사망=${r.died}`);
   console.log("프레임 노출  " + pct.map((p, i) => `${i} ${name[i]} ${p.toFixed(1)}%`).join(" · "));
-  console.log(`시전 ${r.casts}회, 평균 간격 ${(r.frames / 60 / r.casts).toFixed(2)}초`);
+  /* 간격은 '전체 시간 / 시전 횟수' 로 재면 안 된다. 첫 시전은 스폰 때
+     t1 = rnd(.4, 1.6) 에서 출발하므로 3.2초를 안 기다린다. 20초에 6번 터질
+     때와 7번 터질 때가 둘 다 정상인데, 그 나눗셈은 3.33초와 2.86초를 내놓는다
+     (실제로 이 테스트가 그 이유로 한 번 거짓 실패했다). 연속한 두 시전
+     사이만 재야 한다. */
+  const gaps = r.at.slice(1).map((v, i) => (v - r.at[i]) / 60);
+  const gLo = Math.min(...gaps), gHi = Math.max(...gaps);
+  console.log(`시전 ${r.at.length}회, 연속 간격 ${gLo.toFixed(2)}~${gHi.toFixed(2)}초`);
   console.log("시전이 터진 순간의 프레임: " + JSON.stringify(r.atCast));
 
   const bad = [];
   if (errs.length) bad.push("예외: " + errs.join(" / "));
   if (r.died) bad.push("주술사가 도중에 죽어 관측이 끊겼다");
   pct.forEach((p, i) => { if (p < 18 || p > 32) bad.push(`${i}번(${name[i]}) 노출 ${p.toFixed(1)}% — 25% 에서 너무 벗어났다`); });
-  const gap = r.frames / 60 / r.casts;
-  if (r.casts < 5 || gap < 3.0 || gap > 3.6) bad.push(`시전 간격 ${gap.toFixed(2)}초 (3.2초여야 한다)`);
+  if (gaps.length < 4) bad.push(`시전이 ${r.at.length}회뿐이라 간격을 못 잰다`);
+  else if (gLo < 3.1 || gHi > 3.3) bad.push(`시전 간격 ${gLo.toFixed(2)}~${gHi.toFixed(2)}초 (3.2초여야 한다)`);
   /* 시전은 마지막 장이 끝나는 순간에 일어나므로, 그 프레임에 이미 anim 은 0 으로
      되돌아가 있다 — 즉 관측되는 인덱스는 0 이다. 다른 값이 섞이면 램프가 어긋난 것이다. */
   const keys = Object.keys(r.atCast);

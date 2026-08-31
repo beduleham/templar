@@ -62,7 +62,7 @@ const { chromium } = require('playwright');
        그래서 화면 중심이 아니라 몸이 커지는 축(발밑 = sy + HERO_FOOT)을 기준으로
        예전 반경 46 을 그대로 HERO_GROW 배 늘린다. 앞으로 주인공 크기를 또 바꿔도
        상자가 따라온다. */
-    const cx = 640, cy = 380, y0 = cy + HERO_FOOT, R = 46 * HERO_GROW;
+    const cx = 640, cy = 380, y0 = cy + HERO_FOOT, R = Math.round(46 * HERO_GROW);
     const top = Math.round(y0 + (cy - 46 - y0) * HERO_GROW);
     const bot = Math.round(y0 + (cy + 46 - y0) * HERO_GROW);
     const box = { x: cx - R, y: top, w: R * 2, h: bot - top };

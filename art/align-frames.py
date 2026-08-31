@@ -8,15 +8,21 @@
 
 그래서 두 가지를 기계적으로 맞춘다.
 
-  1. 발 밑선 정렬 — 프레임마다 알파 경계상자의 '바닥'을 같은 높이로 민다.
+  1. 밑선 정렬 — 프레임마다 알파 경계상자의 '바닥'을 같은 높이로 민다.
      사람이 서 있는 그림이므로 바닥이 곧 접지면이다.
+
+     떠 있는 것(유령)은 접지면이 없다. 바닥이 옷자락 끝이라 거기에 맞추면
+     **머리가 위아래로 뛴다** — 눈이 쫓는 건 빛나는 얼굴인데 그게 흔들린다.
+     그런 그림은 `--anchor head` 로 머리 꼭대기를 기준선으로 잡는다.
+     그러면 길이가 변하는 꼬리 쪽으로 오차가 몰린다 — 어차피 움직여야 할 부분이다.
   2. 공통 크롭 창 — 정렬한 뒤 모든 프레임의 경계상자를 합집합으로 묶고,
      그 하나의 창으로 전부 자른다. 절대 프레임마다 그림에 맞춰 자르지 않는다.
      그게 크기 튐의 원인이다. 무기를 치켜든 프레임의 여유는 나머지 프레임에서
      빈 공간으로 남는 게 정답이다.
 
 사용:
-  python3 art/align-frames.py OUT.png IN1.png IN2.png ...  [--cell 128] [--key ff00ff]
+  python3 art/align-frames.py OUT.png IN1.png IN2.png ...
+      [--cell 128] [--key ff00ff] [--anchor foot|head]
 """
 import sys, os
 import numpy as np
@@ -67,13 +73,16 @@ def bbox(rgba):
 
 def main():
     args = [a for a in sys.argv[1:]]
-    cell, key = 128, "ff00ff"
-    for flag, cast in (("--cell", int), ("--key", str)):
+    cell, key, anchor = 128, "ff00ff", "foot"
+    for flag, cast in (("--cell", int), ("--key", str), ("--anchor", str)):
         if flag in args:
             i = args.index(flag)
             v = cast(args[i + 1]); args = args[:i] + args[i + 2:]
             if flag == "--cell": cell = v
-            else: key = v
+            elif flag == "--key": key = v
+            else: anchor = v
+    if anchor not in ("foot", "head"):
+        raise SystemExit("--anchor 는 foot 또는 head")
     if len(args) < 2:
         raise SystemExit(__doc__)
     out_path, ins = args[0], args[1:]
@@ -91,11 +100,12 @@ def main():
     #      투구 폭으로 재려다 실패했다: 자세에 따라 어깨나 치켜든 팔을 투구로 잡아
     #      129~435px(편차 117%)가 나왔다. 위에서 내려오며 '전체 폭의 12%를 넘는
     #      첫 줄'을 머리 꼭대기로 보는 쪽이 훨씬 안정적이다 — 칼날은 그보다 가늘다.
-    bodies = []
+    bodies, heads = [], []
     for rgba, b in zip(frames, boxes):
         m = rgba[:, :, 3] > 8
         wide = b[2] - b[0]
         head = next((y for y in range(b[1], b[3]) if m[y].sum() > wide * .12), b[1])
+        heads.append(head)
         bodies.append(b[3] - head)
     lo, hi, mid = min(bodies), max(bodies), sorted(bodies)[len(bodies) // 2]
     print(f"\n몸높이(검 제외) {lo}~{hi}, 중앙값 {mid} → 편차 {(hi - lo) / mid * 100:.1f}%")
@@ -103,10 +113,16 @@ def main():
         mark = "  ← 튄다" if abs(bh - mid) / mid > .08 else ""
         print(f"    {os.path.basename(p):26} {bh:5d}{mark}")
 
-    # 1) 발 밑선 정렬 — 가장 아래에 있는 프레임을 기준으로 나머지를 내린다
-    base_foot = max(b[3] for b in boxes)
-    shifts = [base_foot - b[3] for b in boxes]
-    print(f"\n발 밑선 어긋남: {min(shifts)} ~ {max(shifts)}px "
+    # 1) 기준선 정렬 — 가장 아래에 있는 프레임에 나머지를 맞춰 내린다
+    if anchor == "head":
+        line = heads                      # 머리 꼭대기를 맞춘다 (떠 있는 것)
+        label = "머리 윗선"
+    else:
+        line = [b[3] for b in boxes]      # 발끝을 맞춘다 (서 있는 것)
+        label = "발 밑선"
+    base = max(line)
+    shifts = [base - v for v in line]
+    print(f"\n{label} 어긋남: {min(shifts)} ~ {max(shifts)}px "
           f"(캔버스의 {max(shifts) / frames[0].shape[0] * 100:.1f}%)")
 
     H = max(f.shape[0] for f in frames) + max(shifts)

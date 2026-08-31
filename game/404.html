@@ -2114,6 +2114,9 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   if (e.burn > 0) mul *= 1 + advVal("poisonBonus", 0);
   if (e.slow > 0 && (advVal("deepFreeze", false) || traitLv("chronos")))
     mul *= 1 + .18 * traitLv("chronos") + (advVal("deepFreeze", false) ? .2 : 0);
+  // 추적자 사냥감 — 상처 입은 적일수록 깊이 벤다
+  const qy = traitLv("quarry");
+  if (qy) mul *= 1 + .12 * qy * (1 - clamp(e.hp / e.maxHp, 0, 1));
   // 조합: 학살 — 처치 누적 버프
   if (C && C.has("carnage") && player.carnage > 0) { mul *= 1 + player.carnage; procCombo("carnage", e.x, e.y); }
   // 직업 자세(진영의 접전 스택 / 영창 단계)는 매 프레임 변하므로 여기서 곱한다
@@ -2226,7 +2229,9 @@ function killEnemy(e, elem) {
   }
   player.onKill(e);
   // 전직: 피의 갈증 — 처치할 때마다 회복
-  const kh = .006 * traitLv("bloodlust") + advVal("killHeal", 0);
+  const sw = traitLv("secondWind");
+  const kh = .006 * traitLv("bloodlust") + advVal("killHeal", 0)
+    + (sw && player.hp < player.stats.maxHp * .4 ? .012 * sw : 0);
   if (kh) player.hp = Math.min(player.stats.maxHp, player.hp + player.stats.maxHp * kh);
   // 3차 각성: 처치할 때마다 폭발이 번진다
   if (advVal("deathExplode", false))
@@ -2424,7 +2429,8 @@ const RES_MAX = 100;
 
 player.onKill = function (e) {
   const R = player.cls && player.cls.resource;
-  if (R && R.onKill) player.res = clamp(player.res + R.onKill * advVal("rageGain", 1) * (e.boss ? 10 : 1), 0, RES_MAX);
+  if (R && R.onKill) player.res = clamp(player.res + R.onKill * advVal("rageGain", 1)
+    * (1 + .3 * traitLv("bloodOath")) * (e.boss ? 10 : 1), 0, RES_MAX);
   if (player.combos.has("carnage")) {
     const cp = comboPower("carnage");
     player.carnage = Math.min(.35 * cp, player.carnage + .014 * cp);
@@ -2437,7 +2443,8 @@ player.onHurt = function () {
   player.noHit = 0;
   if (!R) return;
   if (R.onHurt) player.res = clamp(player.res + R.onHurt, 0, RES_MAX);
-  if (R.resetOnHurt) player.res = 0;
+  // 잔상 — 0 으로 떨구지 않고 일부를 남긴다
+  if (R.resetOnHurt) player.res *= .25 * traitLv("afterimage");
 };
 
 function updateResource(dt) {
@@ -2446,7 +2453,7 @@ function updateResource(dt) {
   player.noHit += dt;
   let d = 0;
   if (R.perSec) d += R.perSec;
-  if (R.decay) d -= R.decay;
+  if (R.decay) d -= R.decay * (1 - .25 * traitLv("bloodOath"));
   if (R.noHitPerSec && player.noHit > 1.6) d += R.noHitPerSec;
   if (d > 0) d *= player.stRes;                 // 마나 샘 — 차는 쪽만 배로, 빠지는 쪽은 그대로
   if (d) player.res = clamp(player.res + d * dt, 0, RES_MAX);
@@ -2595,6 +2602,7 @@ function recomputeStats() {
     if (m.xpGain)   s.xpGain *= 1 + m.xpGain * k;
     if (m.gemChance) s.gemChance += m.gemChance * k;
   }
+  s.area *= 1 + .09 * traitLv("cleave");            // 전사 휩쓸기
   for (const p of player.passives) PASSIVES[p.key].apply(s, p.level);
   // 고대 비석 — 이번 판 동안만 남는 보정
   const M = player.monolith;
@@ -2625,6 +2633,26 @@ function addTrait(key) {
   const t = player.traits.find(t => t.key === key);
   if (t) t.level++;
   else player.traits.push({ key, level: 1 });
+  /* 특성이 stats 에 손대는 경우(휩쓸기의 범위)가 생겼으므로 여기서 다시 계산한다.
+     안 하면 다음 레벨업 전까지 고른 특성이 아무 일도 하지 않는다 —
+     실제로 휩쓸기를 넣고 재 봤을 때 범위가 1.15 그대로였다. */
+  recomputeStats();
+}
+
+/* 직업 기본 특성 중 매 프레임 도는 것. applyAdvanceEffects 와 나눠 둔 이유는
+   저쪽이 `player.advance.length` 로 걸려 있기 때문이다 — 기본 특성은 3레벨부터
+   붙는데 전직은 한참 뒤라, 저기 넣으면 전직 전까지 아무 일도 하지 않는다. */
+function applyClassTraits(p, moving) {
+  const rf = p.res / RES_MAX;
+  // 전사 광란 — 분노를 속도로 바꾼다
+  const fz = traitLv("frenzy");
+  if (fz) p.dynCd *= 1 - (.10 + .05 * fz) * rf;
+  // 추적자 급소 — 안 맞은 시간을 치명타로 바꾼다
+  const pp = traitLv("pinpoint");
+  if (pp) p.dynCrit += .07 * pp * rf;
+  // 추적자 경신 — 멈추지 않는 직업이다
+  const sf = traitLv("swiftfoot");
+  if (sf && moving) p.dynCd *= 1 - .09 * sf;
 }
 
 /* 자세가 없는 직업(전사·추적자)과, 자세 밖에서 도는 전직 효과를 여기서 처리한다.
@@ -3299,6 +3327,7 @@ function update(dt) {
     player.press = Math.min(14, n);
   }
   if (player.cls && player.cls.stance) player.cls.stance.update(player, dt, moving);
+  applyClassTraits(player, moving);
   if (player.advance.length) applyAdvanceEffects(player, dt, moving);
   if (player.buffFury > 0) player.dynCd *= .4;      // 광란의 물약
   if (player.buffWard > 0) player.dynArmor *= .4;   // 수호의 부적
@@ -6099,6 +6128,42 @@ const TRAITS = {
       desc: "체력이 바닥일수록 단단해지고 빨라진다.",
       detail: l => "HP 40% 이하: 피해 -" + (22 * l) + "% · 이동 +" + (14 * l) + "%" },
   ],
+  /* 전사·추적자는 자세가 없다. 그러니 특성이 곧 그 직업의 규칙이다 —
+     전사는 분노를 태워 몰아치고, 추적자는 안 맞은 시간을 칼로 바꾼다. */
+  warrior: [
+    { key: "frenzy", name: "광란", icon: "🔥", max: 3,
+      desc: "분노가 찰수록 공격이 빨라진다. 몰아칠수록 더 몰아친다.",
+      detail: l => "분노 가득: 재사용 -" + Math.round((.10 + .05 * l) * 100) + "%" },
+    { key: "bloodOath", name: "피의 맹세", icon: "🩸", max: 2,
+      desc: "처치로 얻는 분노가 늘고, 빠지는 속도가 느려진다.",
+      detail: l => "획득 +" + (30 * l) + "% · 감소 -" + (25 * l) + "%" },
+    { key: "warpath", name: "진격", icon: "🏇", max: 3,
+      desc: "돌진이 더 멀리 뻗고, 무적이 더 오래 간다.",
+      detail: l => "거리 " + Math.round(160 * (1 + .28 * l)) + "px · 무적 " + (.55 + .18 * l).toFixed(2) + "초" },
+    { key: "cleave", name: "휩쓸기", icon: "🌊", max: 3,
+      desc: "휘두르는 범위가 넓어진다.",
+      detail: l => "범위 +" + (9 * l) + "%" },
+    { key: "secondWind", name: "재기", icon: "🫀", max: 2,
+      desc: "체력이 바닥일 때 적을 처치하면 숨을 돌린다.",
+      detail: l => "HP 40% 이하 · 처치마다 최대체력 " + (1.2 * l).toFixed(1) + "% 회복" },
+  ],
+  rogue: [
+    { key: "pinpoint", name: "급소", icon: "🎯", max: 3,
+      desc: "집중이 찰수록 치명타가 자주 터진다.",
+      detail: l => "집중 가득: 치명 +" + Math.round(7 * l) + "%" },
+    { key: "afterimage", name: "잔상", icon: "👥", max: 2,
+      desc: "맞아도 집중이 전부 날아가지는 않는다.",
+      detail: l => "피격 시 집중 " + (25 * l) + "% 유지" },
+    { key: "flurry", name: "단검 난무", icon: "🌪️", max: 3,
+      desc: "그림자 도약이 뿌리는 단검이 늘어난다.",
+      detail: l => "지점마다 " + (8 + 2 * l) + "발 (기본 8발)" },
+    { key: "swiftfoot", name: "경신", icon: "💨", max: 2,
+      desc: "달리는 동안에는 손이 더 빨라진다. 멈추지 않는 직업이다.",
+      detail: l => "이동 중 재사용 -" + (9 * l) + "%" },
+    { key: "quarry", name: "사냥감", icon: "🩹", max: 3,
+      desc: "상처 입은 적일수록 더 깊이 벤다.",
+      detail: l => "빈사에 가까울수록 최대 +" + (12 * l) + "%" },
+  ],
   mage: [
     { key: "focus", name: "집중 영창", icon: "🎯", max: 3,
       desc: "영창 단계가 더 빨리 오른다.",
@@ -6117,6 +6182,21 @@ const TRAITS = {
       detail: l => (1.8 - .3 * l).toFixed(1) + "초마다 폭발" },
   ],
 };
+
+/* 특성이 키우는 '축'의 이름. 성기사·마법사는 자세(진영·영창)지만 전사·추적자는
+   자세가 없다 — 그쪽은 자원(분노·집중)이 그 자리다. 예전에는 stanceName 만 읽어서
+   두 직업에 특성이 생기자마자 화면에 「undefined」가 찍혔다. */
+function trackName() {
+  const C = player.cls;
+  if (!C) return "";
+  return C.stanceName || (C.resource && C.resource.name) || C.name;
+}
+/* 「진영」을 · 「분노」를 — 받침이 있으면 '을'. 한글 음절은 (코드-0xAC00)%28 이
+   0 이 아니면 받침이 있다. */
+function eul(w) {
+  const c = w.charCodeAt(w.length - 1) - 0xac00;
+  return (c >= 0 && c < 11172 && c % 28 !== 0) ? "을" : "를";
+}
 
 function traitLv(key) {
   const t = player.traits.find(t => t.key === key);
@@ -6417,10 +6497,12 @@ const CLASSES = [
       name: "광전사의 돌진", icon: "💢", cost: 50,
       desc: "바라보는 방향으로 돌진해 경로의 적을 부순다.",
       use(p) {
-        p.dash = .17; p.dashX = p.faceX; p.dashY = p.faceY;   // 940px/s × .17 = 160px (예전 320)
+        const wp = traitLv("warpath");                        // 진격 — 더 멀리, 더 오래 무적
+        p.dash = .17 * (1 + .28 * wp);                        // 940px/s × .17 = 160px (예전 320)
+        p.dashX = p.faceX; p.dashY = p.faceY;
         p.dashDmg = 100 * p.stats.damage + p.level * 12;
         p.dashHit.clear();
-        p.iframe = Math.max(p.iframe, .55);
+        p.iframe = Math.max(p.iframe, .55 + .18 * wp);
         cam.shake = 8;
         Sfx.play(190, .3, "sawtooth", .85, 320);
       },
@@ -6444,8 +6526,9 @@ const CLASSES = [
         p.iframe = Math.max(p.iframe, .9);
         for (const [bx, by] of [[ox, oy], [p.x, p.y]]) {
           spawnParticles(bx, by, 22, "#8ef0b0", 280, .6, 4);
-          for (let i = 0; i < 8; i++) {
-            const a = i / 8 * TAU, sp = 540 * p.stats.projSpeed;
+          const nd = 8 + 2 * traitLv("flurry");               // 단검 난무
+          for (let i = 0; i < nd; i++) {
+            const a = i / nd * TAU, sp = 540 * p.stats.projSpeed;
             spawnProjectile({
               x: bx, y: by, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
               r: 8 * p.stats.area, dmg: 60 * p.stats.damage + p.level * 8,
@@ -11024,7 +11107,8 @@ function drawLevelUp() {
   fitFont("800", 42, ttl, W - 40);
   ctx.fillStyle = tp ? advColor() : "#ffd34d";
   ctx.fillText(ttl, W / 2, narrow() ? 92 : 108);
-  const sub = tp ? "레벨 " + player.level + " · 「" + player.cls.stanceName + "」을 어떻게 키울지 고르세요"
+  const trk = tp ? trackName() : "";
+  const sub = tp ? "레벨 " + player.level + " · 「" + trk + "」" + eul(trk) + " 어떻게 키울지 고르세요"
                  : "레벨 " + player.level + " · 하나를 선택하세요";
   fitFont("600", 15, sub, W - 32);
   ctx.fillStyle = "rgba(255,255,255,.6)";
@@ -11086,10 +11170,11 @@ function drawLevelUp() {
     // 직업 특성은 자세 이름을 배지로 — 이 카드가 왜 이 직업의 것인지 보이게
     if (isT && player.cls) {
       ctx.font = "700 11px " + FONT;
-      const tw = ctx.measureText(player.cls.stanceName).width + 34;
+      const tn = trackName();
+      const tw = ctx.measureText(tn).width + 34;
       pxChip(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, "rgba(255,255,255,.07)", null, 6);
       ctx.fillStyle = tint;
-      iconText("stance", player.cls.stanceName, x + cw / 2, y0 + 188 + oy, tint, 2);
+      iconText("stance", tn, x + cw / 2, y0 + 188 + oy, tint, 2);
     }
     // 무기는 속성과 '이걸 들면 열리는 조합'을 함께 보여준다.
     // 조합이 있다는 걸 아는 것과, 지금 이 카드가 조합을 연다는 걸 아는 건 다르다.

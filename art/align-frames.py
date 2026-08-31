@@ -105,8 +105,17 @@ def main():
         m = rgba[:, :, 3] > 8
         wide = b[2] - b[0]
         head = next((y for y in range(b[1], b[3]) if m[y].sum() > wide * .12), b[1])
-        heads.append(head)
         bodies.append(b[3] - head)
+        # 머리 기준선은 따로 잰다. 위 검출("행의 픽셀 수가 전체 폭의 12%를 넘는
+        # 첫 줄")은 서 있는 인물에는 맞지만 날개 달린 것에는 날개를 잡는다 —
+        # 박쥐는 날개를 세운 프레임에서 149px 이나 어긋났다(실측 귀 위치는
+        # 42.9~43.3% 로 같은데도).
+        #
+        # 머리·귀·두건은 언제나 가운데에 있고 날개·팔은 거기서 바깥으로 뻗는다.
+        # 그래서 경계상자 가운데 20% 안에서 픽셀이 처음 나오는 줄을 쓴다.
+        cmid, half = (b[0] + b[2]) // 2, max(2, wide // 10)
+        band = m[:, cmid - half:cmid + half]
+        heads.append(next((y for y in range(b[1], b[3]) if band[y].any()), b[1]))
     lo, hi, mid = min(bodies), max(bodies), sorted(bodies)[len(bodies) // 2]
     print(f"\n몸높이(검 제외) {lo}~{hi}, 중앙값 {mid} → 편차 {(hi - lo) / mid * 100:.1f}%")
     for p, bh in zip(ins, bodies):

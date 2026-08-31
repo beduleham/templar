@@ -25,7 +25,8 @@ align-frames.py 는 배경을 지우고 인물에 맞춰 크롭하는데, 타일
 경계를 못 찾는다. 받은 그림은 자연값의 3.7~4.0 배였다.
 
 사용:
-  python3 art/make-tiles.py <아틀라스키> <타일1.png> ... [--alpha] [--cell 128]
+  python3 art/make-tiles.py <아틀라스키> <타일1.png> ...
+      [--alpha] [--key-black] [--grow 2.2] [--lum 45] [--cap 70] [--cell 128]
   예) python3 art/make-tiles.py floor art/src/floor_1.png ...
       python3 art/make-tiles.py floordeco2 art/src/floordeco2_1.png ... --alpha
 """
@@ -81,19 +82,60 @@ def wrap_blend(t, band):
     return o
 
 
-def key_out(t, thresh=55):
-    """마젠타를 알파로 뺀다. 자리는 그대로 두고 배경만 지운다.
+def key_out(t, thresh=55, kind="magenta"):
+    """배경을 알파로 뺀다. 자리는 그대로 두고 배경만 지운다.
 
     문턱의 뜻과 침식이 필요한 이유는 align-frames.py 의 같은 함수에 적어 뒀다.
-    여기서 다른 점은 크롭을 안 한다는 것 하나다."""
-    R, G, B = t[:, :, 0], t[:, :, 1], t[:, :, 2]
-    bg = (np.minimum(R, B) - G) > thresh
+    여기서 다른 점은 크롭을 안 한다는 것 하나다.
+
+    `kind="black"` 은 배경이 순수 검정으로 온 그림용이다. 마젠타를 요구했는데
+    검정이 오면 마젠타 키잉은 아무것도 안 지워서 화면에 검은 사각형이 깔린다.
+    다행히 검정 배경은 마젠타보다 오히려 깔끔하다 — 실측하니 문턱을 2 에서 8
+    까지 올려도 남는 픽셀 수가 한 개도 안 변했다. 경계에 그라데이션이 아예
+    없다는 뜻이라, 반쯤 섞인 가장자리를 걱정할 필요가 없다."""
+    if kind == "black":
+        bg = t.mean(axis=2) <= 6
+    else:
+        R, G, B = t[:, :, 0], t[:, :, 1], t[:, :, 2]
+        bg = (np.minimum(R, B) - G) > thresh
     m = Image.fromarray((~bg).astype(np.uint8) * 255)
     g = max(2, int(t.shape[0] * 0.004))
-    m = np.asarray(m.filter(ImageFilter.MinFilter(2 * g + 1)))
+    if kind != "black":                            # 검정은 경계가 칼같아 깎을 것이 없다
+        m = m.filter(ImageFilter.MinFilter(2 * g + 1))
+    m = np.asarray(m)
     out = np.dstack([t, m.astype(float)])
     out[:, :, :3][m == 0] = 0                      # 지운 자리는 색까지 비운다
     return out
+
+
+def grow(t, k):
+    """물건을 제 중심을 축으로 키운다.
+
+    이 겹이 저지른 두 번째 잘못이다 — 물건이 너무 작게 왔다. 덮는 넓이가
+    0.37~0.68% 로, 이미 잘 쓰고 있는 판석 겹(2.0~5.5%)의 5분의 1이라 화면에서
+    티끌로 보인다. 원본이 1254px 이라 물건 자체는 90px 을 넘으므로, 키워서
+    128px 로 줄여도 화질에는 손해가 없다.
+
+    중심을 축으로 키우는 이유는 **자리가 카드의 요구사항**이기 때문이다.
+    이 넉 장은 네 변의 한가운데에 하나씩 앉아 판석 겹의 네 모퉁이와 엇갈리게
+    돼 있다. 캔버스 중심으로 키우면 그 배치가 무너진다.
+
+    키운 상자가 캔버스를 벗어나면 중심을 안쪽으로 밀어 넣는다."""
+    m = t[:, :, 3] > 16
+    if not m.any():
+        return t
+    h, w = m.shape
+    ys, xs = np.nonzero(m)
+    cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
+    bw, bh = (xs.max() - xs.min() + 1) * k / 2, (ys.max() - ys.min() + 1) * k / 2
+    cx = min(max(cx, bw), w - bw)                  # 벗어나면 안쪽으로
+    cy = min(max(cy, bh), h - bh)
+    big = Image.fromarray(t.astype(np.uint8), "RGBA").resize(
+        (int(w * k), int(h * k)), Image.LANCZOS)
+    ox, oy = int(cx - cx * k), int(cy - cy * k)    # 중심이 제자리에 오도록 민다
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.paste(big, (ox, oy))
+    return np.asarray(out).astype(float)
 
 
 def tone(t, target, cap):
@@ -143,14 +185,17 @@ def main():
     cell, sigma, band = 128, 40, 8
     alpha = "--alpha" in argv
     if alpha: argv.remove("--alpha")
-    target, cap = 45.0, 70.0
-    for flag in ("--cell", "--sigma", "--band", "--lum", "--cap"):
+    target, cap, gk = 45.0, 70.0, 1.0
+    kind = "black" if "--key-black" in argv else "magenta"
+    if kind == "black": argv.remove("--key-black")
+    for flag in ("--cell", "--sigma", "--band", "--lum", "--cap", "--grow"):
         if flag in argv:
             i = argv.index(flag); v = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
             if flag == "--cell": cell = int(v)
             elif flag == "--sigma": sigma = int(v)
             elif flag == "--lum": target = v
             elif flag == "--cap": cap = v
+            elif flag == "--grow": gk = v
             else: band = int(v)
     if len(argv) < 2:
         raise SystemExit(__doc__)
@@ -161,8 +206,10 @@ def main():
         if alpha:
             # 원본 크기에서 먼저 지우고 줄인다. 순서를 바꾸면 가장자리의
             # 마젠타가 물감처럼 섞여 들어가 분홍 테가 남는다.
-            big = np.asarray(Image.open(p).convert("RGB")).astype(float)
-            im = Image.fromarray(key_out(big).astype(np.uint8), "RGBA")
+            src = np.asarray(Image.open(p).convert("RGB")).astype(float)
+            k = key_out(src, kind=kind)
+            if gk != 1.0: k = grow(k, gk)
+            im = Image.fromarray(k.astype(np.uint8), "RGBA")
             T.append(np.asarray(im.resize((cell, cell), Image.LANCZOS)).astype(float))
         else:
             im = Image.open(p).convert("RGB").resize((cell, cell), Image.LANCZOS)

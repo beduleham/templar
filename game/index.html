@@ -2383,10 +2383,21 @@ function giveSigil(x, y) {
 /* ---------- 플레이어 ---------- */
 /* 동작 한 바퀴가 정확히 한 번만 돌게 잡은 값 — 프레임 4장 ÷ 초당 프레임 수 */
 const ACT_DUR = 4 / 14, CAST_DUR = 4 / 12;
+/* 휘두른 뒤 최소 이만큼은 걷거나 서 있는다.
+
+   예전에는 무기가 발사될 때마다 actT 를 ACT_DUR 로 되채웠다. 무기 하나면
+   쿨다운이 길어 자연히 띄엄띄엄 나왔지만(측정 35%), 여섯 개가 되면 앞 동작이
+   끝나기 전에 다음이 덮어써서 **화면의 90% 가 공격 자세**였다(실측).
+   주인공이 걷는 걸 아무도 못 본 셈이다.
+
+   .58 은 한 바퀴 .286 초와 합쳐 .866 초 주기를 만든다 — 공격이 33% 다.
+   무기가 하나뿐일 때는 어차피 쿨다운이 더 기니 이 문은 걸리지 않는다.
+   즉 무기 수와 무관하게 공격이 3분의 1 을 넘지 않는다. */
+const ACT_GAP = .58;
 const player = {
   x: 0, y: 0, r: 14, sx: W / 2, sy: H / 2,
   hp: 100, level: 1, xp: 0, xpNext: 5,
-  faceX: 1, faceY: 0, iframe: 0, hurtFlash: 0, walk: 0,
+  faceX: 1, faceY: 0, iframe: 0, hurtFlash: 0, walk: 0, swingCd: 0,
   cls: null,     // 선택한 직업
   weapons: [],   // { key, level, timer, ... }
   passives: [],  // { key, level }
@@ -2820,7 +2831,7 @@ const Game = {
     this.time = 0; this.kills = 0; this.dmgDealt = 0; this.spawnAcc = 0; this.bossIdx = 0;
     player.x = 0; player.y = 0; player.level = 1; player.xp = 0; player.xpNext = 5;
     player.iframe = 0; player.hurtFlash = 0; player.faceX = 1; player.faceY = 0;
-    player.actT = 0; player.castT = 0; player.moving = false; player.flip = false;
+    player.actT = 0; player.swingCd = 0; player.castT = 0; player.moving = false; player.flip = false;
     player.weapons.length = 0; player.passives.length = 0;
     player.res = clamp(25 * Meta.lv("zeal"), 0, RES_MAX);
     player.noHit = 0; player.combos = new Set(); player.mastered = new Set();
@@ -3153,6 +3164,7 @@ function update(dt) {
   player.iframe = Math.max(0, player.iframe - dt);
   player.hurtFlash = Math.max(0, player.hurtFlash - dt);
   player.actT = Math.max(0, player.actT - dt);
+  player.swingCd = Math.max(0, player.swingCd - dt);
   player.castT = Math.max(0, player.castT - dt);
   player.moving = moving;
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
@@ -3278,9 +3290,11 @@ function update(dt) {
     w.timer -= dt;
     if (w.timer <= 0) {
       w.timer += Math.max(.06, def.cd[w.level - 1] * s.cooldown * player.dynCd);
-      if (player.actT <= 0)
+      if (player.swingCd <= 0) {
         spawnFx(fxKey("cast", def.element), player.x + player.faceX * 15, player.y - 4, 30, 0);
-      player.actT = ACT_DUR;
+        player.actT = ACT_DUR;
+        player.swingCd = ACT_DUR + ACT_GAP;
+      }
       def.fire(player, w);
     }
   }
@@ -4771,9 +4785,35 @@ function drawPlayer() {
   drawPlayerBody();
   ctx.restore();
 }
+/* 주인공만 두 배로 키운다. 몹(CHAR_SCALE)은 그대로다 — 둘 다 키우면
+   아무것도 커지지 않은 것과 같다. 전직 미리보기 카드는 칸이 정해져 있어서
+   여기를 쓰지 않는다.
+
+   축이 중요하다. 스프라이트는 셀 한가운데를 기준으로 찍히므로 그냥 두 배로
+   키우면 발끝이 24.6px 에서 49.2px 로 내려가 **그림자에서 25px 떨어져
+   공중에 뜬다**. 그래서 발밑을 축으로 키운다.
+
+   HERO_FOOT 은 sy 에서 발끝까지의 거리다 — 네 직업이 19.5 ~ 21.6 이라
+   20 하나로 묶었다. 최대 오차는 두 배로 키워도 1.6px 이다(성기사). */
+const HERO_GROW = 2;
+const HERO_FOOT = 20;
+
 function drawPlayerBody() {
+  /* 그림자는 몸이 아니라 판정(player.r = 화면 폭 28px)을 그린다. 같이 키우면
+     '이만큼이 맞는 범위'라고 거짓말을 하게 되므로 예전 크기 그대로 둔다.
+     몸이 60px 인데 그림자가 28px 이라 크기가 어긋나 보이는 건 사실이지만,
+     그 어긋남이 곧 그림과 판정의 실제 차이다. */
+  drawShadow(player.sx, player.sy, player.r);
+  const y0 = player.sy + HERO_FOOT;
+  ctx.save();
+  ctx.translate(player.sx, y0);
+  ctx.scale(HERO_GROW, HERO_GROW);
+  ctx.translate(-player.sx, -y0);
+  drawPlayerArt();
+  ctx.restore();
+}
+function drawPlayerArt() {
   const sx = player.sx, sy = player.sy;
-  drawShadow(sx, sy, player.r);
   const blink = player.iframe > 0 && Math.floor(player.iframe * 20) % 2 === 0;
   const tier = player.advance.length;
   const tint = tier ? advColor() : "#c9243f";

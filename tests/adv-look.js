@@ -54,7 +54,18 @@ const { chromium } = require('playwright');
       chain.push(c[0]); from = c[0].key;
     }
 
-    const R = 46, box = { x: 640 - R, y: 380 - R, w: R * 2, h: R * 2 };
+    /* 상자는 주인공을 다 담아야 한다. 주인공을 두 배로 키웠더니(HERO_GROW)
+       2차 계급의 후광이 sy-34 에서 sy-88 로 올라가 상자(sy±46) 밖으로 나갔고,
+       '형제 둘이 똑같이 그려진다'는 오탐이 났다. 재려는 것은 겹의 차이지
+       상자 크기가 아니다.
+
+       그래서 화면 중심이 아니라 몸이 커지는 축(발밑 = sy + HERO_FOOT)을 기준으로
+       예전 반경 46 을 그대로 HERO_GROW 배 늘린다. 앞으로 주인공 크기를 또 바꿔도
+       상자가 따라온다. */
+    const cx = 640, cy = 380, y0 = cy + HERO_FOOT, R = 46 * HERO_GROW;
+    const top = Math.round(y0 + (cy - 46 - y0) * HERO_GROW);
+    const bot = Math.round(y0 + (cy + 46 - y0) * HERO_GROW);
+    const box = { x: cx - R, y: top, w: R * 2, h: bot - top };
     const shot = () => {
       Game.time = 3.0;                          // 흔들림·회전을 같은 위상에 세운다
       drawScene();

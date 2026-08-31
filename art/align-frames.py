@@ -22,14 +22,14 @@
 
 사용:
   python3 art/align-frames.py OUT.png IN1.png IN2.png ...
-      [--cell 128] [--key ff00ff] [--anchor foot|head]
+      [--cell 128] [--key ff00ff] [--anchor foot|head] [--key-thresh 55]
 """
 import sys, os
 import numpy as np
 from PIL import Image, ImageFilter
 
 
-def key_out(img, key_rgb, tol):
+def key_out(img, key_rgb, tol, thresh=55):
     """배경색을 알파로 뺀다. 이미 알파가 있으면 그대로 둔다.
 
     마젠타는 색거리로 재면 안 된다. |RGB - ff00ff| 의 합으로 재면
@@ -40,6 +40,19 @@ def key_out(img, key_rgb, tol):
     강철 -7, 금 -115, 핏빛 십자 +14, 순수 마젠타 +255 로 깔끔하게 갈린다.
     반쯤 섞인 가장자리도 +125 라 같이 걸린다.
 
+    기본 문턱 55 는 강철과 금과 살빛에 맞춘 값이다. 그림 자체가 보랏빛이면
+    이걸로는 몸이 뚫린다 — 제단의 파수꾼은 가슴 고리(+61)와 투구 속(+65)이
+    통째로 지워졌다. 그런 그림은 --key-thresh 로 올린다. 올려도 되는지는
+    그림마다 재서 정해야 한다. 파수꾼의 경우:
+
+        갇힌 픽셀    55~80: 10,910~22,558개 (살려야 할 보랏빛)
+                    80~180: 12~433개        (아무것도 없는 골짜기)
+                     180~ : 7,921~8,110개   (팔과 몸통 사이 진짜 빈틈)
+        바깥 배경    최솟값 188
+
+    골짜기 한가운데인 130 을 쓰면 셋이 전부 옳게 갈린다. 이렇게 양쪽 분포를
+    보고 고르는 것이지, 안 지워진다고 무작정 올리면 배경이 남는다.
+
     그리고 남은 한 겹을 침식으로 깎는다. 원본이 1254px 라 몇 px 잃어도
     128px 로 줄이면 티가 안 나지만, 안 깎으면 윤곽에 분홍 점이 남는다."""
     rgba = np.array(img.convert("RGBA")).astype(np.int16)
@@ -47,14 +60,14 @@ def key_out(img, key_rgb, tol):
         return rgba.astype(np.uint8), "기존 알파 사용"
     R, G, B = rgba[:, :, 0], rgba[:, :, 1], rgba[:, :, 2]
     if tuple(key_rgb) == (255, 0, 255):
-        bg = (np.minimum(R, B) - G) > 55
+        bg = (np.minimum(R, B) - G) > thresh
     else:
         bg = np.abs(rgba[:, :, :3] - np.array(key_rgb, dtype=np.int16)).sum(axis=2) <= tol
     m = Image.fromarray((~bg).astype(np.uint8) * 255)
     grow = max(2, int(min(img.size) * 0.004))    # 원본 크기에 비례해 깎는다
     m = m.filter(ImageFilter.MinFilter(2 * grow + 1))
     rgba[:, :, 3] = np.array(m)
-    return rgba.astype(np.uint8), f"배경 제거 (가장자리 {grow}px 침식)"
+    return rgba.astype(np.uint8), f"배경 제거 (문턱 {thresh}, 가장자리 {grow}px 침식)"
 
 
 def bbox(rgba):
@@ -73,13 +86,14 @@ def bbox(rgba):
 
 def main():
     args = [a for a in sys.argv[1:]]
-    cell, key, anchor = 128, "ff00ff", "foot"
-    for flag, cast in (("--cell", int), ("--key", str), ("--anchor", str)):
+    cell, key, anchor, thresh = 128, "ff00ff", "foot", 55
+    for flag, cast in (("--cell", int), ("--key", str), ("--anchor", str), ("--key-thresh", int)):
         if flag in args:
             i = args.index(flag)
             v = cast(args[i + 1]); args = args[:i] + args[i + 2:]
             if flag == "--cell": cell = v
             elif flag == "--key": key = v
+            elif flag == "--key-thresh": thresh = v
             else: anchor = v
     if anchor not in ("foot", "head"):
         raise SystemExit("--anchor 는 foot 또는 head")
@@ -90,7 +104,7 @@ def main():
 
     frames, boxes = [], []
     for p in ins:
-        rgba, how = key_out(Image.open(p), key_rgb, 90)
+        rgba, how = key_out(Image.open(p), key_rgb, 90, thresh)
         b = bbox(rgba)
         frames.append(rgba); boxes.append(b)
         print(f"  {os.path.basename(p):28} {rgba.shape[1]}x{rgba.shape[0]}  "

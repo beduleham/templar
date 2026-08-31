@@ -2983,15 +2983,46 @@ const Game = {
     }
     const take = arr => arr.length ? arr.splice(Math.floor(rnd(arr.length)), 1)[0] : null;
 
+    /* 3레벨마다 오는 특성 판에서 세 칸을 전부 특성으로 채웠더니 "직업 스킬 세 개가
+       늘 한꺼번에 나온다"가 됐다. 화면이 단조롭고, 무엇보다 **고르는 게 아니라
+       셋 중 하나를 집는 것**이 된다 — 대안이 없으면 선택이 아니다.
+
+       그렇다고 특성을 일반 카드와 같은 슬롯에 섞으면 위 주석의 문제로 돌아간다.
+       그래서 **두 장은 특성, 한 장은 무기·능력**으로 둔다. 특성 획득 속도는
+       3레벨에 한 번 그대로고(두 장 중 하나를 고르면 된다), 대신 화력이 급하면
+       무기를 집을 길이 열린다. */
     if (player.level % 3 === 0 && traitPool.length) {
       this.traitPick = true;
       const out = [];
-      while (out.length < 3 && traitPool.length) out.push(take(traitPool));
+      while (out.length < 2 && traitPool.length) out.push(take(traitPool));
+      out.push(this.rollOne() || { type: "heal" });
       while (out.length < 3) out.push({ type: "heal" });
       return out;
     }
     this.traitPick = false;
 
+    const { weaponPool, passivePool } = this.itemPools();
+    const out = [];
+    // 화력이 고사하지 않도록 무기를 최소 1개 보장
+    if (weaponPool.length) out.push(take(weaponPool));
+    const rest = weaponPool.concat(passivePool);
+    while (out.length < 3 && rest.length) {
+      const c = take(rest);
+      if (c && !out.includes(c)) out.push(c);
+    }
+    while (out.length < 3) out.push({ type: "heal" });
+    return out;
+  },
+
+  /* 특성 판에 끼울 카드 한 장. 무기를 먼저 보는 이유는 위와 같다 — 화력이
+     고사하면 특성이 아무리 좋아도 못 쓴다. */
+  rollOne() {
+    const { weaponPool, passivePool } = this.itemPools();
+    const pool = weaponPool.length ? weaponPool : passivePool;
+    return pool.length ? pool[Math.floor(rnd(pool.length))] : null;
+  },
+
+  itemPools() {
     const weaponPool = [], passivePool = [];
     for (const key in WEAPONS) {
       const owned = player.weapons.find(w => w.key === key);
@@ -3003,17 +3034,7 @@ const Game = {
       if (owned) { if (owned.level < MAX_LEVEL) passivePool.push({ type: "passive", key, level: owned.level + 1 }); }
       else if (player.passives.length < MAX_PASSIVES) passivePool.push({ type: "passive", key, level: 1, isNew: true });
     }
-
-    const out = [];
-    // 화력이 고사하지 않도록 무기를 최소 1개 보장
-    if (weaponPool.length) out.push(take(weaponPool));
-    const rest = weaponPool.concat(passivePool);
-    while (out.length < 3 && rest.length) {
-      const c = take(rest);
-      if (c && !out.includes(c)) out.push(c);
-    }
-    while (out.length < 3) out.push({ type: "heal" });
-    return out;
+    return { weaponPool, passivePool };
   },
 
   applyChoice(c) {
@@ -4445,11 +4466,15 @@ function drawAdvancePreview(a, cx, cy, k) {
   ctx.translate(0, cy); ctx.scale(1, TILT); ctx.translate(0, -cy);
   drawAdvanceGround(cx, cy);
   ctx.restore();
+  /* 카드는 칸이 정해져 있어 주인공을 예전 크기(1.15)로 그린다. 겹도 같은 기준에
+     맞춰야 하므로 AL 을 잠깐 1 로 내린다 — 안 그러면 카드 안에서만 망토가 커진다. */
+  const keepAL = AL; AL = 1;
   drawShadow(cx, cy, player.r);
   drawAdvanceBack(cx, cy);
   Sprites.draw("hero_" + player.cls.key + "_idle", cx, cy - 3,
                player.r / 14 * 1.15 * CHAR_SCALE, Game.time, false);
   drawAdvanceFront(cx, cy);
+  AL = keepAL;
   ctx.restore();
   advView = null;
 }
@@ -4479,16 +4504,21 @@ function drawAdvanceBack(sx, sy) {
        망토는 몸 뒤에 있는 천이다. 어둡게 깔고 테만 원색으로 세운다. */
     const pal = [raw, mixHex(raw, "#000000", .36), mixHex(raw, "#000000", .58)];
     // 걸음과 시간이 함께 흔든다. 서 있어도 완전히 멈추지는 않는다.
+    /* 좌표는 AL 배, 칸은 PIX 그대로. 줄 간격이 3px 로 남으므로 망토가 커진 만큼
+       줄 수가 늘어난다 — 캔버스를 늘렸을 때처럼 같은 줄이 굵어지지 않는다. */
+    const A = v => v * AL;
     const sway = (Math.sin(player.walk * .5) * 3.2 + Math.sin(Game.time * 1.7) * 1.4)
-               * (player.flip ? -1 : 1);
-    const OFF = y => sway * Math.pow(Math.max(0, (y + 4) / 20), 2);
+               * AL * (player.flip ? -1 : 1);
+    const OFF = y => sway * Math.pow(Math.max(0, (y / AL + 4) / 20), 2);
+    const W = y => capeW(y / AL, m) * AL;          // y 는 늘어난 단위로 들어온다
+    const Y0 = A(-19), Y1 = A(16);
     // 안쪽은 어둡게 — 몸 뒤에 있는 천이다
     for (let b = 1; b <= 2; b++) {
       ctx.fillStyle = pal[b];
       ctx.beginPath();
-      for (let y = -19; y <= 16; y += PIX) {
-        if ((y < -4 ? 1 : 2) !== b) continue;
-        const w = capeW(y, m), o = OFF(y);
+      for (let y = Y0; y <= Y1; y += PIX) {
+        if ((y < A(-4) ? 1 : 2) !== b) continue;
+        const w = W(y), o = OFF(y);
         pxR(sx - w + o, sy + y, w * 2, PIX);
       }
       ctx.fill();
@@ -4497,15 +4527,15 @@ function drawAdvanceBack(sx, sy) {
        안쪽을 아무리 칠해도 몸에 가려지고, 밖으로 나온 두 칸만 보인다. */
     ctx.fillStyle = pal[0];
     ctx.beginPath();
-    for (let y = -19; y <= 16; y += PIX) {
-      const w = capeW(y, m), o = OFF(y);
+    for (let y = Y0; y <= Y1; y += PIX) {
+      const w = W(y), o = OFF(y);
       pxR(sx - w + o, sy + y, PIX, PIX);
       pxR(sx + w + o - PIX, sy + y, PIX, PIX);
     }
-    const cw = capeW(-19, m);
-    pxR(sx - cw, sy - 19, cw * 2, PIX);              // 깃 윗선
+    const cw = W(Y0);
+    pxR(sx - cw, sy + Y0, cw * 2, PIX);              // 깃 윗선
     ctx.fill();
-    capeHem(sx, sy, m, capeW(16, m), OFF(16), pal);
+    capeHem(sx, sy, m, W(Y1), OFF(Y1), pal);
   }
   if (n >= 3) advOrbit(sx, sy, -1);
   ctx.restore();
@@ -4516,14 +4546,15 @@ function drawAdvanceBack(sx, sy) {
 function capeHem(sx, sy, m, w, off, pal) {
   // 밑단 장식은 세 칸(9px)을 넘기지 않는다. 처음엔 불꽃을 다섯 칸까지 늘렸다가
   // 발밑으로 늘어져서 다리가 하나 더 달린 것처럼 보였다.
-  const y0 = sy + 17, L = sx - w + off, R = sx + w + off;
+  const A = v => v * AL;                            // w · off 는 이미 늘어난 값이다
+  const y0 = sy + A(17), L = sx - w + off, R = sx + w + off;
   const tab = (x, h, wid) => { for (let j = 0; j < h; j++) pxR(x, y0 + j * PIX, wid || PIX, PIX); };
   ctx.fillStyle = pal[0];
   ctx.beginPath();
   switch (m) {
     case "iron":     // 판금 테 한 줄 + 못 셋
       pxR(L, y0, w * 2, PIX);
-      for (let i = -1; i <= 1; i++) pxR(sx + i * 9 + off - PIX * .5, y0 + PIX, PIX, PIX);
+      for (let i = -1; i <= 1; i++) pxR(sx + A(i * 9) + off - PIX * .5, y0 + PIX, PIX, PIX);
       break;
     case "blade":    // 제비꼬리 — 양 끝이 아래로 뾰족하다
       for (let i = 0; i < 3; i++) {
@@ -4546,7 +4577,7 @@ function capeHem(sx, sy, m, w, off, pal) {
       }
       for (let i = 0; i < 2; i++) {
         const t = (Game.time * 1.4 + i * .5) % 1;
-        pxR(sx + (i ? 7 : -8) + off, y0 + PIX * 4 + t * 9, PIX, PIX * 2);
+        pxR(sx + A(i ? 7 : -8) + off, y0 + PIX * 4 + t * A(9), PIX, PIX * 2);
       }
       break;
     case "shadow":   // 아래로 갈수록 흩어진다 — 천이 그림자로 풀린다
@@ -4564,7 +4595,7 @@ function capeHem(sx, sy, m, w, off, pal) {
       pxR(L, y0, w * 2, PIX);
       for (let i = -1; i <= 1; i++) {
         const b = .5 + Math.sin(Game.time * 3 + i * 2.2) * .5;
-        if (b > .35) pxR(sx + i * 8 + off - PIX * .5, sy + 2 + i * 4, PIX, PIX);
+        if (b > .35) pxR(sx + A(i * 8) + off - PIX * .5, sy + A(2 + i * 4), PIX, PIX);
       }
       break;
     case "frost":    // 결정 톱니 넷
@@ -4607,59 +4638,62 @@ function drawAdvanceFront(sx, sy) {
    나란히 놓고 보니 구분이 안 갔다. 셋을 갈라놓는 건 장식이 아니라 윤곽이다 —
    강철은 낮고 각지게, 칼날은 높고 가늘게, 불꽃은 넓고 휘어지게. */
 function advHead(sx, sy, m, pal) {
-  const bob = Math.sin(Game.time * 1.9) * 1.5;
-  const yb = sy - 29 + bob * .4, hy = sy - 34 + bob;
+  /* 좌표만 AL 배로 늘린다(칸은 PIX 그대로). 왕관 띠는 넓어지는데 톱니는 3px 로
+     남으므로, 예전에 셋이 이어 붙어 덩어리가 됐던 문제가 오히려 나아진다. */
+  const A = v => v * AL;
+  const bob = Math.sin(Game.time * 1.9) * A(1.5);
+  const yb = sy - A(29) + bob * .4, hy = sy - A(34) + bob;
   const R = (dx, dy, w, h) => pxR(sx + dx - PIX * .5, yb + dy, w || PIX, h || PIX);
   ctx.globalAlpha = .95;
   ctx.fillStyle = pal[0];
   ctx.beginPath();
   switch (m) {
     case "iron":     // 왕관 — 낮고 각지다. 띠가 두껍고 성곽이 네모나다.
-      R(-11, 0, 22, PIX * 2);
+      R(A(-11), 0, A(22), PIX * 2);
       // 성곽은 띠보다 좁아야 한다. 처음엔 폭 9로 그렸다가 셋이 이어 붙어 덩어리가 됐다.
-      for (const dx of [-9, 0, 9]) R(dx, -PIX);
+      for (const dx of [-9, 0, 9]) R(A(dx), -PIX);
       R(0, -PIX * 2);
       ctx.fill(); ctx.beginPath();
       ctx.fillStyle = pal[2];                       // 띠 아래 그늘 — 얹혀 있다는 표시
-      R(-11, PIX * 2, 22, PIX);
+      R(A(-11), PIX * 2, A(22), PIX);
       ctx.fill(); ctx.beginPath();
       ctx.fillStyle = pal[0];
       break;
     case "blade":    // 칼날 관 — 높고 가늘다. 띠 대신 받침 한 줄, 세 날이 곧게 솟는다.
       for (const [dx, h] of [[-9, 3], [0, 6], [9, 3]])
-        for (let j = 0; j < h; j++) R(dx, -j * PIX, PIX * (j < h - 2 ? 2 : 1));
-      R(-10, PIX, 20, PIX);
+        for (let j = 0; j < h; j++) R(A(dx), -j * PIX, PIX * (j < h - 2 ? 2 : 1));
+      R(A(-10), PIX, A(20), PIX);
       break;
     case "flame":    // 불꽃 관 — 넓고 휘어진다. 갈래마다 옆으로 기운다.
       for (let i = -1; i <= 1; i++) {
         const h = 3 + Math.floor((Math.sin(Game.time * 6 + i * 2.3) * .5 + .5) * 3);
         for (let j = 0; j < h; j++) {
           const lean = i * j * 1.1 + Math.sin(Game.time * 4 + j) * (j * .5);
-          R(i * 9 + lean, -j * PIX, PIX * (j < h - 2 ? 3 : j < h - 1 ? 2 : 1));
+          R(A(i * 9 + lean), -j * PIX, PIX * (j < h - 2 ? 3 : j < h - 1 ? 2 : 1));
         }
       }
       break;
     case "frost":    // 서리 결정 — 곧게 위로, 가지가 갈라진다
       for (const [dx, h] of [[-8, 3], [0, 5], [8, 3]]) {
-        for (let j = 0; j < h; j++) R(dx, -j * PIX);
-        R(dx - PIX, -(h - 2) * PIX); R(dx + PIX, -(h - 2) * PIX);
+        for (let j = 0; j < h; j++) R(A(dx), -j * PIX);
+        R(A(dx) - PIX, -(h - 2) * PIX); R(A(dx) + PIX, -(h - 2) * PIX);
       }
       break;
     case "blood": {  // 뿔 둘 — 밑동이 굵고 바깥으로 휘며 가늘어진다
       const bw = [PIX * 2, PIX * 2, PIX * 2, PIX, PIX];
       for (const s of [-1, 1])
         for (let j = 0; j < 5; j++)
-          R(s * (3 + j * j * .55) - (s < 0 ? bw[j] - PIX : 0), -j * PIX, bw[j]);
+          R(A(s * (3 + j * j * .55)) - (s < 0 ? bw[j] - PIX : 0), -j * PIX, bw[j]);
       break; }
     case "fang":     // 짐승 귀 둘 — 길쭉하고 바깥으로 눕는다
       for (const s of [-1, 1]) {
         // 폭이 줄 때 왼쪽에 붙여 두면 삼각이 아니라 빗금이 된다. 가운데를 맞춘다.
         const wid = [PIX * 3, PIX * 3, PIX * 2, PIX];
         for (let j = 0; j < 4; j++)
-          R(s * (10 + j * 1.2) - (wid[j] - PIX) * .5, -j * PIX, wid[j]);
+          R(A(s * (10 + j * 1.2)) - (wid[j] - PIX) * .5, -j * PIX, wid[j]);
         ctx.fill(); ctx.beginPath();
         ctx.fillStyle = pal[2];
-        for (let j = 0; j < 2; j++) R(s * (10 + j * 2), -j * PIX);   // 귀 안쪽 그늘
+        for (let j = 0; j < 2; j++) R(A(s * (10 + j * 2)), -j * PIX);   // 귀 안쪽 그늘
         ctx.fill(); ctx.beginPath();
         ctx.fillStyle = pal[0];
       }
@@ -4667,12 +4701,12 @@ function advHead(sx, sy, m, pal) {
     case "storm": {  // 번개 하나가 머리 위에 서 있다 — 밝기만 튄다
       ctx.globalAlpha = .55 + (Math.sin(Game.time * 13) * .5 + .5) * .45;
       const z = [[2, 0], [0, -1], [3, -2], [1, -3], [4, -4], [2, -5]];
-      for (const [dx, dy] of z) R(dx * 2.4 - 4, dy * PIX, PIX * 2);
+      for (const [dx, dy] of z) R(A(dx * 2.4 - 4), dy * PIX, PIX * 2);
       break; }
     case "arcane":   // 룬 셋이 머리 위를 돈다 — 속이 빈 사각이라 글자처럼 읽힌다
       for (let i = 0; i < 3; i++) {
         const a = Game.time * .9 + i / 3 * TAU;
-        const x = sx + Math.cos(a) * 11, y = hy + Math.sin(a) * 3.5;
+        const x = sx + Math.cos(a) * A(11), y = hy + Math.sin(a) * A(3.5);
         ctx.fill(); ctx.beginPath();
         ctx.fillStyle = Math.sin(a) < 0 ? pal[0] : pal[1];
         pxR(x - PIX * 1.5, y - PIX * 1.5, PIX * 3, PIX);
@@ -4686,16 +4720,16 @@ function advHead(sx, sy, m, pal) {
     case "shadow":   /* 일식 — 검은 원반에 코로나. 처음엔 납작한 타원을 어둡게 깔고
                         위쪽만 밝혔더니 그냥 얼룩이었다. 둥근 원반이라야 '가려진 빛'이 된다. */
       ctx.fillStyle = pal[2];
-      pxEllipse(sx, hy - 2, 9, 9);
+      pxEllipse(sx, hy - A(2), A(9), A(9));
       ctx.fill(); ctx.beginPath();
       ctx.fillStyle = pal[0];
-      advRing(sx, hy - 2, 10.5, 10.5, 0, 0);
+      advRing(sx, hy - A(2), A(10.5), A(10.5), 0, 0);
       break;
     default: {       /* holy — 3px 격자에서 반지름 9짜리 타원 고리를 매개변수로 찍으면
                         고리가 아니라 사각 덩어리가 나온다. 세로가 세 줄뿐이라
                         |sin|<.5 인 각이 전부 가운데 줄로 몰린다(실측).
                         그래서 여덟 칸을 손으로 놓는다. */
-      const hw = 9;
+      const hw = A(9);
       pxR(sx - hw + PIX, hy - PIX, (hw - PIX) * 2, PIX);   // 뒤쪽 — 머리 너머라 밝다
       pxR(sx - hw, hy, PIX, PIX);
       pxR(sx + hw - PIX, hy, PIX, PIX);
@@ -4721,20 +4755,21 @@ const ORBIT_SPEC = {
   flame: [3, 1.5], shadow: [3, .95],
 };
 function advOrbit(sx, sy, half) {
-  const pal = pxPal(advTint(2)), m = advMotif(2), cy = sy - 6;
+  const pal = pxPal(advTint(2)), m = advMotif(2), cy = sy - 6 * AL;
+  const RX = 26 * AL, RY = 9 * AL;
   const spec = ORBIT_SPEC[m] || [3, 1.15];
   const base = Game.time * spec[1];
   ctx.globalAlpha = 1;
   for (let i = 0; i < spec[0]; i++) {
     const a = base + i / spec[0] * TAU, s = Math.sin(a);
     if ((s < 0 ? -1 : 1) !== half) continue;
-    const x = sx + Math.cos(a) * 26, y = cy + s * 9;
+    const x = sx + Math.cos(a) * RX, y = cy + s * RY;
     // 꼬리 — 세 칸이 뒤로 흐려진다. 이게 있어야 '도는 중'으로 읽힌다.
     ctx.fillStyle = pal[2];
     ctx.beginPath();
     for (let t = 1; t <= 3; t++) {
       const b = a - t * .17 * Math.sign(spec[1]);
-      advCell(sx + Math.cos(b) * 26, cy + Math.sin(b) * 9);
+      advCell(sx + Math.cos(b) * RX, cy + Math.sin(b) * RY);
     }
     ctx.fill();
     advMote(x, y, a, m, pal, s > 0);   // 앞에 온 것이 크다 — 궤도가 평면이 아니라 띠가 된다
@@ -4795,8 +4830,19 @@ function drawPlayer() {
 
    HERO_FOOT 은 sy 에서 발끝까지의 거리다 — 네 직업이 19.5 ~ 21.6 이라
    20 하나로 묶었다. 최대 오차는 두 배로 키워도 1.6px 이다(성기사). */
-const HERO_GROW = 2;
+const HERO_GROW = 1.4;
 const HERO_FOOT = 20;
+
+/* 전직 겹의 좌표 배수. 캔버스를 늘리는 대신 **좌표만** 늘린다.
+
+   캔버스를 늘리면 PIX 격자까지 같이 늘어난다 — 두 배로 걸었더니 3px 칸이 6px 이
+   되어 왕관 톱니가 슬래브로, 망토가 덩어리로 뭉개졌다. 좌표만 늘리면 칸은 3px
+   그대로라 **같은 모양이 더 잘게** 그려진다. 망토는 줄 수가 늘고, 왕관 톱니는
+   띠가 넓어지는데 톱니 자체는 3px 로 남는다.
+
+   그래서 겹은 ctx.scale 바깥에서 그린다. 미리보기 카드는 주인공을 예전 크기로
+   그리므로 거기서만 1 로 내린다. */
+let AL = HERO_GROW;
 
 function drawPlayerBody() {
   /* 그림자는 몸이 아니라 판정(player.r = 화면 폭 28px)을 그린다. 같이 키우면
@@ -4804,30 +4850,32 @@ function drawPlayerBody() {
      몸이 60px 인데 그림자가 28px 이라 크기가 어긋나 보이는 건 사실이지만,
      그 어긋남이 곧 그림과 판정의 실제 차이다. */
   drawShadow(player.sx, player.sy, player.r);
-  const y0 = player.sy + HERO_FOOT;
+  const sx = player.sx, sy = player.sy, tier = player.advance.length;
+  /* 겹은 몸과 달리 배율을 태우지 않는다(AL 설명 참고). 앞뒤 순서는 그대로 —
+     망토와 궤도 뒤 절반은 몸보다 먼저, 후광과 궤도 앞 절반은 나중에. */
+  if (tier) {
+    ctx.save();
+    const pulse = .5 + Math.sin(Game.time * (2 + tier)) * .5;
+    ctx.globalAlpha = (.05 + tier * .02) * (.6 + pulse * .4);
+    ctx.fillStyle = advColor();
+    ctx.beginPath(); ctx.arc(sx, sy, (22 + tier * 3) * AL, 0, TAU); ctx.fill();
+    ctx.restore();
+    drawAdvanceBack(sx, sy);
+  }
+  const y0 = sy + HERO_FOOT;
   ctx.save();
-  ctx.translate(player.sx, y0);
+  ctx.translate(sx, y0);
   ctx.scale(HERO_GROW, HERO_GROW);
-  ctx.translate(-player.sx, -y0);
+  ctx.translate(-sx, -y0);
   drawPlayerArt();
   ctx.restore();
+  if (tier) drawAdvanceFront(sx, sy);
 }
 function drawPlayerArt() {
   const sx = player.sx, sy = player.sy;
   const blink = player.iframe > 0 && Math.floor(player.iframe * 20) % 2 === 0;
   const tier = player.advance.length;
   const tint = tier ? advColor() : "#c9243f";
-  // 전직할수록 몸에서 빛이 난다 — 지금 내가 무엇인지가 화면에 보여야 한다.
-  // 은은한 바닥빛만 여기서 깔고, 계급의 형태는 네 겹 레이어가 맡는다.
-  if (tier) {
-    ctx.save();
-    const pulse = .5 + Math.sin(Game.time * (2 + tier)) * .5;
-    ctx.globalAlpha = (.05 + tier * .02) * (.6 + pulse * .4);
-    ctx.fillStyle = tint;
-    ctx.beginPath(); ctx.arc(sx, sy, 22 + tier * 3, 0, TAU); ctx.fill();
-    ctx.restore();
-    drawAdvanceBack(sx, sy);
-  }
   /* 스프라이트 — 직업 4종 × 동작 4종(대기·이동·공격·영창).
      아틀라스가 없으면 예전 도형 그리기로 그대로 떨어진다. */
   const st = player.castT > 0 ? "cast"
@@ -4848,7 +4896,6 @@ function drawPlayerArt() {
       ctx.beginPath(); ctx.arc(sx, sy - 2, player.r + 4, 0, TAU); ctx.stroke();
     }
     ctx.restore();
-    if (tier) drawAdvanceFront(sx, sy);
     return;
   }
   ctx.translate(sx, sy);
@@ -4875,7 +4922,6 @@ function drawPlayerArt() {
   ctx.beginPath(); ctx.arc(-2.6 + fx, -12.5 + bob, 1.2, 0, TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(2.6 + fx, -12.5 + bob, 1.2, 0, TAU); ctx.fill();
   ctx.restore();
-  if (tier) drawAdvanceFront(sx, sy);
 }
 
 /* 자세를 눈에 보이게 만든다 — 규칙이 아무리 좋아도 화면에서 안 보이면 없는 것이다 */
@@ -6338,12 +6384,13 @@ const CLASSES = [
       desc: "바라보는 방향으로 빛의 창을 내지른다. 잠시 무적이 된다.",
       // 사방 폭발이면 방향을 고를 이유가 없어 '어디를 보고 있는가'가 무의미해진다.
       // 성기사는 방패를 앞세워 밀고 들어가는 직업이므로, 넓이 대신 길이를 준다.
-      // 발밑 반경 300 원형 → 전방으로 뻗는 좁고 긴 빛(사거리 520).
+      // 발밑 반경 300 원형 → 전방으로 뻗는 좁고 긴 빛.
+      // 사거리는 520 이었는데 화면 가로의 40% 를 덮어 조준할 이유가 없었다 — 260 으로 줄인다.
       use(p) {
         const base = Math.atan2(p.faceY, p.faceX);
         const dmg = 150 * p.stats.damage + p.level * 18;
         for (let i = -1; i <= 1; i++)
-          spawnSlash(p, base + i * .19, dmg, 520 * p.stats.area, 1.8, "holy");
+          spawnSlash(p, base + i * .19, dmg, 260 * p.stats.area, 1.8, "holy");
         // 발밑은 밀어내는 정도만 남긴다
         spawnWave({ x: p.x, y: p.y, maxR: 120 * p.stats.area,
           dmg: dmg * .4, life: .35, color: "#ffd9a0", element: "holy" });
@@ -6370,7 +6417,7 @@ const CLASSES = [
       name: "광전사의 돌진", icon: "💢", cost: 50,
       desc: "바라보는 방향으로 돌진해 경로의 적을 부순다.",
       use(p) {
-        p.dash = .34; p.dashX = p.faceX; p.dashY = p.faceY;
+        p.dash = .17; p.dashX = p.faceX; p.dashY = p.faceY;   // 940px/s × .17 = 160px (예전 320)
         p.dashDmg = 100 * p.stats.damage + p.level * 12;
         p.dashHit.clear();
         p.iframe = Math.max(p.iframe, .55);
@@ -6393,7 +6440,7 @@ const CLASSES = [
       desc: "순간이동하며 출발·도착 지점에 단검을 흩뿌린다.",
       use(p) {
         const ox = p.x, oy = p.y;
-        p.x += p.faceX * 330; p.y += p.faceY * 330;
+        p.x += p.faceX * 165; p.y += p.faceY * 165;           // 예전 330
         p.iframe = Math.max(p.iframe, .9);
         for (const [bx, by] of [[ox, oy], [p.x, p.y]]) {
           spawnParticles(bx, by, 22, "#8ef0b0", 280, .6, 4);
@@ -6513,7 +6560,7 @@ const CLASSES = [
       use(p) {
         const n = clamp(6 + Math.floor(p.level / 4), 6, 16);
         const pierce = p.level >= 20 ? 2 : 1;
-        const targets = nearestEnemies(p.x, p.y, 900, n);
+        const targets = nearestEnemies(p.x, p.y, 450, n);     // 예전 900 — 화면 밖까지 닿았다
         for (let i = 0; i < n; i++) {
           const t = targets[i % Math.max(1, targets.length)];
           const a = t ? Math.atan2(t.y - p.y, t.x - p.x) + rnd(-.2, .2) : rnd(TAU);

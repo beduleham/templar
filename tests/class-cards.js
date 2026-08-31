@@ -79,7 +79,17 @@ const { chromium } = require('playwright');
     const bars = CLASS_AXES.map(a => ({
       name: a.name, v: classBars.map(b => +b[a.key].toFixed(2)),
     }));
-    return { out, leak, bars };
+    /* 직업마다 특성 갈래가 실제로 있는가. 전사·추적자는 TRAITS 에 항목이 없어서
+       3레벨 특성 판 자체가 오지 않았고, 화면에는 「undefined」가 찍혔다
+       (자세가 없는 직업이라 stanceName 을 읽을 수 없었다). 둘 다 눈에 안 띄는
+       빈자리라 여기서 못 박아 둔다. */
+    const traits = CLASSES.map(c => {
+      selectedClass = CLASSES.indexOf(c); Game.reset();
+      const list = TRAITS[c.key] || [];
+      return { cls: c.key, n: list.length, track: trackName(),
+               bad: list.filter(t => typeof t.detail(1) !== 'string' || !t.detail(1)).length };
+    });
+    return { out, leak, bars, traits };
   });
 
   // 직업마다 '이건 반드시 나와야 한다'는 것이 다르다
@@ -109,8 +119,18 @@ const { chromium } = require('playwright');
   }
   console.log(`막대가 직업마다 갈림 ${barsOk ? 'O' : 'X'}`);
 
+  let traitOk = true;
+  console.log('');
+  for (const t of res.traits) {
+    const good = t.n >= 3 && !!t.track && t.bad === 0;
+    if (!good) traitOk = false;
+    console.log(`  ${t.cls.padEnd(8)} 특성 ${t.n}종 · 축 「${t.track}」`
+      + (t.bad ? ` · 설명 깨짐 ${t.bad}` : '') + ` ${good ? 'O' : 'X'}`);
+  }
+  console.log(`직업마다 특성 갈래가 있음 ${traitOk ? 'O' : 'X'}`);
+
   console.log(errs.length ? errs.slice(0, 5).join('\n') : 'no errors');
-  const pass = ok && leakOk && barsOk && !errs.length;
+  const pass = ok && leakOk && barsOk && traitOk && !errs.length;
   console.log(pass ? 'PASS' : 'FAIL');
   await b.close();
   process.exit(pass ? 0 : 1);

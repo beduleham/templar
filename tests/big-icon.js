@@ -6,7 +6,17 @@
 
    그렇다고 전부 갈면 안 된다. **같은 표가 HUD·슬롯·배지에서는 16px 로 찍힌다.**
    128px 손그림을 그 크기로 내려 깔면 죽는다(§77) — 크기마다 맞는 도구가 다르다.
-   그래서 '몇 px 로 찍히는지'를 보고 갈아 끼우고, 이 테스트가 그 경계를 지킨다.
+
+   ── 크기만으로는 모자랐다
+
+   처음엔 '몇 px 로 찍히는지'만 보고 갈아 끼웠다. 그것으로 부족했던 까닭은
+   **표 하나를 뜻이 다른 둘이 나눠 쓰기 때문**이다 — `orb` 는 레벨업 카드에서
+   「마법 화살」이지만 영혼의 제단에서는 「영혼 구슬」이고, 제단 구슬도 64px 로
+   찍힌다. 크기만 보니 제단 위에 얼음 화살이 얹혔다(tests/emblem.js 가 잡았다:
+   구슬이 곳간을 따라 자라는 비율이 1.83배 → 1.24배로 떨어졌다).
+
+   그래서 크기가 아니라 **부르는 자리**가 정한다. 이 테스트는 그 둘을 다 본다 —
+   레벨업 카드는 손그림을 쓰고, 같은 키·같은 크기라도 제단은 표를 쓴다.
 
    양쪽을 다 걸어야 뜻이 있다. 큰 자리만 걸면 전부 손그림으로 바꿔도 통과하고,
    작은 자리만 걸면 손그림을 아예 안 써도 통과한다.
@@ -59,19 +69,20 @@ const { chromium } = require('playwright');
       Sprites.draw = _s;
       return Object.keys(used).filter(x => x.startsWith('icon_')).length;
     };
-    // 종류별로 따로 본다
-    for (const cell of [2, 3, 8]) {
+    // 크기별 · 자리별로 따로 본다. big 을 켠 자리에서만 손그림이어야 한다.
+    for (const [tag, cell, wantBig] of [['배지 16px', 2, false], ['슬롯 16px', 3, false],
+                                        ['카드 64px', 8, true], ['제단 64px(같은 크기, big 꺼짐)', 8, false]]) {
       const res = {};
       for (const k of out.keys) {
         let hit = 0;
         const _s = Sprites.draw;
         Sprites.draw = function (key) { if (String(key).startsWith('icon_')) hit++; return _s.apply(this, arguments); };
-        ctx.save(); drawMenuIcon(k, 100, 100, '#ffffff', cell); ctx.restore();
+        ctx.save(); drawMenuIcon(k, 100, 100, '#ffffff', cell, wantBig); ctx.restore();
         Sprites.draw = _s;
         const p = iconPick(k, cell);
-        res[k] = { px: p ? p.k * p.rows[0].length : 0, sprite: hit > 0 };
+        res[k] = { px: p ? p.k * p.rows[0].length : 0, sprite: hit > 0, want: wantBig };
       }
-      out.path['cell' + cell] = res;
+      out.path[tag] = res;
     }
 
     // 3. 그림이 아직 없을 때는 표로 떨어지는가
@@ -83,7 +94,7 @@ const { chromium } = require('playwright');
       let hit = 0;
       const _s = Sprites.draw;
       Sprites.draw = function (key) { if (String(key).startsWith('icon_')) hit++; return _s.apply(this, arguments); };
-      const ok = drawMenuIcon(out.keys[0], 100, 100, '#ffffff', 8);
+      const ok = drawMenuIcon(out.keys[0], 100, 100, '#ffffff', 8, true);
       Sprites.draw = _s;
       f.y = keepY;
       out.fallback = { drewSprite: hit > 0, returned: !!ok };
@@ -103,13 +114,14 @@ const { chromium } = require('playwright');
   }
   if (new Set(sigs).size !== sigs.length) { console.log('!! 같은 그림이 두 번 들어갔다'); bad++; }
 
-  console.log('\n찍히는 크기별로 어느 길을 쓰는가');
-  for (const [cell, res] of Object.entries(r.path)) {
-    const line = Object.entries(res).map(([k, v]) => `${k} ${v.px}px→${v.sprite ? '손그림' : '표'}`).join(' · ');
-    console.log(`  ${cell}: ${line}`);
+  console.log('\n자리마다 어느 길을 쓰는가');
+  for (const [tag, res] of Object.entries(r.path)) {
+    const n = Object.values(res).filter(v => v.sprite).length;
+    console.log(`  ${tag.padEnd(28)} 손그림 ${n} / ${Object.keys(res).length}종`);
     for (const [k, v] of Object.entries(res)) {
-      if (v.px >= r.min && !v.sprite) { console.log(`!! ${k} 이 ${v.px}px 인데 표를 쓴다 — 손그림이 안 걸렸다`); bad++; }
-      if (v.px < r.min && v.sprite) { console.log(`!! ${k} 이 ${v.px}px 인데 손그림을 쓴다 — 그 크기에서는 죽는다`); bad++; }
+      const want = v.want && v.px >= r.min;               // 켠 자리이고 충분히 클 때만
+      if (want && !v.sprite) { console.log(`!! ${tag} — ${k} 이 ${v.px}px 인데 표를 쓴다`); bad++; }
+      if (!want && v.sprite) { console.log(`!! ${tag} — ${k} 이 손그림을 쓴다 (여기서는 다른 뜻이거나 너무 작다)`); bad++; }
     }
   }
 

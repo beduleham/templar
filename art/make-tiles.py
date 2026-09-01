@@ -188,6 +188,26 @@ def foot_align(T, frac):
     return out
 
 
+def desat(t, keep):
+    """색을 밝기 쪽으로 당겨 채도를 낮춘다. keep=1 이면 그대로, 0 이면 회색.
+
+    장식 겹에서 반복되는 잘못이다. 물건이 하나만 있으면 따뜻한 흙빛이 예쁘지만
+    **한 화면에 마흔 개가 깔리면 노란 얼룩 무더기**가 된다. §74 에서 자연 겹의
+    초록이 형광처럼 떴던 것과 같은 자리다.
+
+    채도는 밝기와 마찬가지로 기계로 고칠 수 있다 — 밝기 쪽으로 당기는 것은
+    색조를 바꾸지 않고 세기만 줄이므로 그림이 무너지지 않는다. 다만 0 까지
+    내리지는 않는다. 구운 흙과 돌은 재질이 다르고, 그 차이는 남는 편이 낫다.
+
+    잣대는 이미 넣은 것이다 — 부서진 기둥이 채도 4.1~9.1 이므로 장식 겹의
+    자연스러운 폭은 그 언저리다."""
+    a = t[:, :, 3:] if t.shape[2] == 4 else None
+    rgb = t[:, :, :3]
+    lum = rgb.mean(axis=2, keepdims=True)
+    out = lum + (rgb - lum) * keep
+    return np.dstack([out, a]) if a is not None else out
+
+
 def alpha_stats(T, cell, floor_lum=39.7):
     """장식 겹은 '바닥보다 얼마나 튀는가'가 전부다."""
     print(f"\n{'':4}{'덮는 넓이':>10}{'밝기 평균':>10}{'밝기 최대':>10}{'상자 넓이':>11}{'중심':>16}")
@@ -198,8 +218,10 @@ def alpha_stats(T, cell, floor_lum=39.7):
         lum = t[:, :, :3][m].mean(axis=1)
         ys, xs = np.nonzero(m)
         box = (xs.max() - xs.min() + 1) * (ys.max() - ys.min() + 1)
+        px = t[:, :, :3][m]
+        sat = (px.max(axis=1) - px.min(axis=1)).mean()
         print(f"{i+1}번 {m.mean()*100:9.1f}%{lum.mean():10.1f}{lum.max():10.1f}"
-              f"{box/cell/cell*100:10.1f}%   x {xs.mean()/cell*100:3.0f}% · y {ys.mean()/cell*100:3.0f}%")
+              f"{box/cell/cell*100:10.1f}%  채도{sat:5.1f}   x {xs.mean()/cell*100:3.0f}% · y {ys.mean()/cell*100:3.0f}%")
     allm = np.concatenate([t[:, :, :3][t[:, :, 3] > 16].mean(axis=1) for t in T])
     print(f"     바닥 바탕 {floor_lum:.1f} 대비 장식 평균 {allm.mean():.1f} "
           f"({allm.mean() - floor_lum:+.1f})   75 넘는 픽셀 {int((allm > 75).sum())}개")
@@ -210,11 +232,11 @@ def main():
     cell, sigma, band = 128, 40, 8
     alpha = "--alpha" in argv
     if alpha: argv.remove("--alpha")
-    target, cap, gk, foot, sval, oyval = 45.0, 70.0, 1.0, 0.0, None, None
+    target, cap, gk, foot, sval, oyval, keep = 45.0, 70.0, 1.0, 0.0, None, None, 1.0
     kind = "black" if "--key-black" in argv else "magenta"
     if kind == "black": argv.remove("--key-black")
     for flag in ("--cell", "--sigma", "--band", "--lum", "--cap", "--grow",
-                 "--foot", "--s", "--oy"):
+                 "--foot", "--s", "--oy", "--sat"):
         if flag in argv:
             i = argv.index(flag); v = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
             if flag == "--cell": cell = int(v)
@@ -225,6 +247,7 @@ def main():
             elif flag == "--foot": foot = v
             elif flag == "--s": sval = v
             elif flag == "--oy": oyval = v
+            elif flag == "--sat": keep = v
             else: band = int(v)
     if len(argv) < 2:
         raise SystemExit(__doc__)
@@ -251,6 +274,7 @@ def main():
            같은 회색으로 뭉개진다."""
         alpha_stats(T, cell)
         if foot: T = foot_align(T, foot)
+        if keep != 1.0: T = [desat(t, keep) for t in T]
         T = [tone(t, target, cap) for t in T]
         print(f"\n밝기를 {target:.0f} 로 끌어내리고 {cap:.0f} 를 넘는 낱 픽셀을 눌렀다")
         alpha_stats(T, cell)

@@ -128,6 +128,12 @@ const CAPTURE = `(() => {
     await pg.goto('file:///home/user/templar/game/index.html');
     await pg.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
     const r = await pg.evaluate(async ({ CAP, BIG }) => {
+      /* 씨앗을 박는다. 붐비는 장면 쪽만 박아 두었더니 이 띠 검사가 실행마다
+         11줄과 12줄 사이를 오갔고, 드물게 「보스 표지 ↔ 미션」 한 쌍이 났다.
+         표지는 지난 프레임의 HUD 자리를 보고 비키므로, 장면이 흔들리면 비키는
+         자리도 흔들린다. 계측기가 흔들리면 그 위의 판정도 못 믿는다. */
+      let seed = 4242;
+      Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
       const step = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
       selectedClass = 0; Game.reset(); Game.state = 'playing';
       player.base.maxHp = 1e9; recomputeStats(); player.hp = 1e9; Game.time = 430;

@@ -1807,7 +1807,8 @@ const pickups    = makePool(72,  () => ({ x: 0, y: 0, kind: "heart", bob: 0 }));
    예전에는 둘 다 없어서 모든 파티클이 같은 크기의 네모로 사방에 퍼졌다가
    제자리에서 사라졌다 — 타격감이 아니라 색종이 조각이었다. */
 const particles  = makePool(500, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, r: 3, color: "#fff", pal: null, drag: .92, g: 0, streak: 0 }));
-const numbers    = makePool(120, () => ({ x: 0, y: 0, vy: 0, life: 0, text: "", color: "#fff", size: 14 }));
+const numbers    = makePool(120, () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, text: "",
+                                          val: 0, eid: -1, pop: 0, color: "#fff", size: 14 }));
 const bolts      = makePool(24,  () => ({ x: 0, y: 0, life: 0, seed: 0 }));
 // 첨탑이 쏘는 빛줄기 — 즉시 맞히고 자취만 잠깐 남는다
 const beams      = makePool(32,  () => ({ x0: 0, y0: 0, x1: 0, y1: 0, life: 0, color: "#fff" }));
@@ -2239,10 +2240,40 @@ function spawnParticles(x, y, n, color, speed = 120, life = .5, r = 3, opt) {
     p.drag = drag; p.g = g; p.streak = streak;
   }
 }
-function spawnNumber(x, y, text, color, size = 14) {
+/* 피해 숫자.
+
+   재보니 한 프레임의 겹친 글자 253쌍 중 233쌍(92%)이 숫자끼리였다. 까닭은 둘이다 —
+   타격마다 같은 자리에 새로 띄웠고(`rnd(-6,6)` 은 글자 폭보다 좁다),
+   전부 같은 속도로 곧게 올라가 한 번 겹치면 영원히 안 갈라졌다.
+   다타 무기가 300마리에 닿는 후반에는 발밑이 글자 죽이 된다.
+
+   1. **같은 적에게 연달아 들어간 피해는 한 숫자에 더한다.** 이것이 본줄기다 —
+      다타 무기가 만드는 숫자는 애초에 '여러 사건'이 아니라 '한 사건'이다.
+      더한 값이 보이는 편이 낱개 12·12·12 보다 읽기도 낫다.
+      창은 0.36초로 둔다. 더 길면 긴 싸움에서 숫자 하나가 끝없이 자란다.
+
+   2. 그래도 남는 것(서로 다른 적)은 옆으로도 흩는다. 올라가는 속도까지
+      흔들어야 두 숫자가 나란히 붙어 올라가지 않는다. */
+function spawnNumber(x, y, val, color, size = 14, eid) {
+  if (eid !== undefined) {
+    for (const n of numbers) {
+      if (!n.active || n.eid !== eid || n.life <= .34) continue;
+      n.val += val;
+      n.text = String(n.val);
+      n.life = Math.max(n.life, .5);          // 더할 때마다 조금 더 머문다
+      if (size > n.size) { n.size = size; n.color = color; }   // 치명타가 끼면 그 색으로
+      n.pop = .12;                            // 더해진 순간 한 번 부푼다
+      return;
+    }
+  }
   const n = alloc(numbers); if (!n) return;
-  n.active = true; n.x = x + rnd(-6, 6); n.y = y; n.vy = -46; n.life = .7;
-  n.text = text; n.color = color; n.size = size;
+  n.active = true; n.x = x + rnd(-6, 6); n.y = y;
+  n.vx = rnd(-34, 34); n.vy = -46 + rnd(-12, 12);
+  n.life = .7; n.pop = 0;
+  n.val = val; n.text = String(val); n.color = color; n.size = size; n.eid = eid;
+  /* 뿌릴 때 이미 놓인 숫자를 피해 위로 쌓는 것도 해 봤는데 겹침이 안 줄었다
+     (5~6쌍 그대로). 남은 겹침은 뿌릴 때가 아니라 **떠오르며** 생기기 때문이다 —
+     출발 자리를 옮겨도 0.7초 동안 서로를 지나간다. 이득이 없어 뺐다. */
 }
 function spawnGem(x, y, value) {
   let g = alloc(gems);
@@ -2365,7 +2396,7 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
   }
 
   const col = crit ? "#ffd34d" : (ELEMENTS[elem] ? ELEMENTS[elem].color : "#ffffff");
-  if (Opt.numbers) spawnNumber(e.x, e.y - e.r, Math.round(final), col, crit ? 19 : 14);
+  if (Opt.numbers) spawnNumber(e.x, e.y - e.r, Math.round(final), col, crit ? 19 : 14, e.id);
   if (knock) {
     const a = Math.atan2(e.y - fromY, e.x - fromX);
     /* 세기의 바닥을 올린다.
@@ -3006,7 +3037,7 @@ const Game = {
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
   usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0,
   optFrom: "intro", optRow: 0, wipeArm: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
-  lmFlash: 0, lmFlashText: "", advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
+  lmFlash: 0, lmFlashText: "", bandY: 0, advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
 
@@ -3945,7 +3976,9 @@ function update(dt) {
     if (!n.active) continue;
     n.life -= dt;
     if (n.life <= 0) { n.active = false; continue; }
+    n.x += n.vx * dt; n.vx *= .90;
     n.y += n.vy * dt; n.vy *= .93;
+    if (n.pop > 0) n.pop -= dt;
   }
   for (const f of fxs) {
     if (!f.active) continue;
@@ -4437,6 +4470,17 @@ function drawEnemyNames() {
     pick.push([dist2(e.x, e.y, player.x, player.y), e, sx, sy]);
   }
   pick.sort((a, b) => a[0] - b[0]);
+  /* 맞고 있는 몹은 이름을 접는다.
+
+     이름표는 서로 겹치지 않게 자리를 비켜 주는데(아래 40×13 검사) **피해 숫자는
+     모르고 있었다.** 둘 다 몹 머리 위 같은 자리를 노리므로 반드시 부딪힌다 —
+     고정 장면에서 겹친 36쌍 중 29쌍이 이 짝이었다.
+
+     비켜 줄 쪽은 이름표다. 맞는 중인 몹에 대해 '얼마나 아픈가'는 숫자가 말하고
+     이름은 이미 그림이 말한다. 숫자는 0.7초만 살므로 때리기를 멈추면 이름이
+     돌아온다. */
+  const beingHit = new Set();
+  for (const n of numbers) if (n.active && n.eid !== undefined) beingHit.add(n.eid);
   ctx.save();
   ctx.font = "600 9px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillStyle = "rgba(226,232,246,.62)";
@@ -4445,6 +4489,7 @@ function drawEnemyNames() {
   let drawn = 0;
   for (let i = 0; i < pick.length && drawn < NAME_LIMIT; i++) {
     const [, e, sx, sy] = pick[i];
+    if (beingHit.has(e.id)) continue;
     const ly = sy - e.r - 11;
     let clash = false;
     for (let j = 0; j < px.length; j++)
@@ -5590,7 +5635,8 @@ function drawWorld() {
     const nx = n.x - cam.x, ny = n.y - cam.y;
     if (nx < -40 || nx > W + 40 || ny < -30 || ny > HT + 30) continue;
     ctx.globalAlpha = clamp(n.life / .7, 0, 1);
-    ctx.font = "700 " + n.size + "px " + FONT;
+    // 값이 더해진 순간에만 살짝 커진다 — 하나로 합쳐도 '또 맞았다'가 보인다
+    ctx.font = "700 " + (n.size * (n.pop > 0 ? 1 + n.pop : 1)).toFixed(1) + "px " + FONT;
     ctx.strokeText(n.text, nx, ny);
     ctx.fillStyle = n.color;
     ctx.fillText(n.text, nx, ny);
@@ -7726,6 +7772,23 @@ function fmtTime(t) {
 }
 
 function drawHUD() {
+  // 지난 프레임의 완성된 목록을 넘겨받고 이번 것을 새로 모은다
+  hudPrev.length = 0;
+  for (let i = 0; i < hudRects.length; i++) hudPrev.push(hudRects[i]);
+  hudRects.length = 0;
+  hudCapture = true;
+  /* 위 중앙 띠의 바닥. 이 띠에는 채널이 여럿 쓴다 — 시계 · 보스 체력 · 보스 미션 ·
+     전직 알림 · 지형지물 토스트. 다섯이 각자 y 를 박아 두고 있었다.
+
+     처음 검사에서는 「토스트만 어긋난다」가 나왔다. 그 판단이 틀렸다 —
+     **미션 배너에 상태가 둘 있는 것을 검사가 안 봤다.** 막 뜬 동안은 my=150 이고
+     가라앉으면 82 인데, 82 일 때 미션 석 줄(82·99·115)이 보스 체력바(64~80)와
+     전직 알림(108·128)을 통째로 뚫고 지나간다. 상태가 있는 채널은 상태마다 재야 한다.
+
+     그래서 띠 전체를 흐름 배치로 바꾼다. 채널마다 제 바닥을 여기에 적고 다음
+     채널은 그 아래에서 시작한다. 박아 두었던 y 는 '적어도 여기까지는 내려간다'는
+     바닥값으로만 남으므로, 위에 아무것도 없으면 예전과 같은 자리다. */
+  Game.bandY = 58;
   const s = player.stats;
   // 선택 화면 위에는 전투 배너를 띄우지 않는다. (반드시 사용 지점보다 먼저 선언할 것 —
   // 아래쪽에 두었더니 조합 해금 배너가 뜨는 프레임마다 TDZ 예외가 나서 화면이 멈췄다)
@@ -7852,6 +7915,13 @@ function drawHUD() {
     cy += 25;
   }
 
+  /* 좁은 화면에서는 왼쪽 판이 가운데 띠까지 뻗는다.
+     판은 가로 240(x 14~254) 고정이고 띠 글자는 가운데 정렬에 반폭이 160쯤이라,
+     W/2 - 160 < 254 이면 반드시 겹친다 — 520px 폭에서 보스 이름
+     「역병 군주 16,305」가 「접전 ×0」 위에 6.3px 얹혔다.
+     그때만 띠를 왼쪽 판 아래에서 시작한다. 넓은 화면에서는 아무 일도 안 한다. */
+  if (W / 2 - 160 < 254) Game.bandY = Math.max(Game.bandY, cy + 8);
+
   // 타이머
   ctx.textAlign = "center";
   ctx.font = "800 30px " + FONT;
@@ -7976,7 +8046,7 @@ function drawHUD() {
     let boss = null;
     for (const e of enemies) if (e.active && (e.boss || e.sigilKey)) { boss = e; if (e.boss) break; }
     if (boss) {
-      const bw = 420, bx = W / 2 - bw / 2, by = 64;
+      const bw = 420, bx = W / 2 - bw / 2, by = Math.max(64, Game.bandY + 6);
       const f = clamp(boss.hp / boss.maxHp, 0, 1);
       pxChip(bx, by, bw, 16, "rgba(0,0,0,.6)", "rgba(255,255,255,.14)", 5);
       pxChip(bx + PIX, by + PIX, (bw - PIX * 2) * f, 16 - PIX * 2,
@@ -7984,12 +8054,14 @@ function drawHUD() {
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.font = "700 11px " + FONT; ctx.fillStyle = "#fff";
       ctx.fillText((boss.boss ? (boss.type.title || "보스") : "제단의 파수꾼") + "  " + Math.ceil(boss.hp).toLocaleString("ko-KR"), W / 2, by + 8);
+      Game.bandY = by + 18;
       // 화면 밖이면 방향까지
       const sx = boss.x - cam.x, sy = boss.y - cam.y;
       if (sx < 0 || sx > W || sy < 0 || sy > H) {
         const d = Math.round(Math.hypot(boss.x - player.x, boss.y - player.y) / 10);
         ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
         ctx.fillText(d + "m 떨어져 있음", W / 2, by + 28);
+        Game.bandY = by + 36;
       }
     }
   }
@@ -8000,7 +8072,9 @@ function drawHUD() {
     const sx = e.x - cam.x, sy = e.y - cam.y;
     const m = 58;
     if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
-    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    mk.x = clamp(sx, m, W - m); mk.y = clamp(sy, m, H - m);
+    dodgeHud(mk, 24, 42);                       // 보스 표지는 글자가 커서 더 넉넉히
+    const ax = mk.x, ay = mk.y;
     const ang = Math.atan2(sy - player.sy, sx - player.sx);
     const col = e.boss ? "#ff3b6b" : "#c9a3ff";
     ctx.save();
@@ -8025,7 +8099,9 @@ function drawHUD() {
     if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
     const d = Math.hypot(s.x - player.x, s.y - player.y);
     if (d > 2600) continue;
-    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    mk.x = clamp(sx, m, W - m); mk.y = clamp(sy, m, H - m);
+    dodgeHud(mk, 26, 40);                       // HUD 판 밑으로 들어가지 않게
+    const ax = mk.x, ay = mk.y;
     const ang = Math.atan2(sy - player.sy, sx - player.sx);
     ctx.save();
     ctx.globalAlpha = clamp(1.5 - d / 2600, .35, .95) * (s.st ? .6 + .4 * Math.abs(Math.sin(Game.time * 4)) : 1);
@@ -8047,7 +8123,9 @@ function drawHUD() {
     if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
     const d = Math.hypot(lm.x - player.x, lm.y - player.y);
     if (d > 1500) continue;
-    const ax = clamp(sx, m, W - m), ay = clamp(sy, m, H - m);
+    mk.x = clamp(sx, m, W - m); mk.y = clamp(sy, m, H - m);
+    dodgeHud(mk, 20, 34);
+    const ax = mk.x, ay = mk.y;
     const ang = Math.atan2(sy - player.sy, sx - player.sx);
     ctx.save();
     ctx.globalAlpha = clamp(1.4 - d / 1500, .3, .95);
@@ -8120,7 +8198,8 @@ function drawHUD() {
     const big = Mission.flash > 0;
     /* 좁은 화면에서는 왼쪽 위의 조합 줄이 세로로 길게 서서 이 배너와 겹친다 —
        가운데 정렬이라 그 위를 그대로 지나간다. 좁으면 그 아래로 내린다. */
-    const my = big ? 150 : narrow() ? 152 : 82;
+    const base = big ? 150 : narrow() ? 152 : 82;
+    const my = Math.max(base, Game.bandY + (big ? 22 : 14));
     ctx.globalAlpha = big ? 1 : .9;
     fitFont("800", big ? 26 : 17, Mission.text, W - 60);
     ctx.fillStyle = "#ff9a5c";
@@ -8133,6 +8212,7 @@ function drawHUD() {
     // 남은 표식 개수
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "#ffd34d";
     ctx.fillText("남은 " + Mission.marks.length + "개", W / 2, my + (big ? 50 : 33));
+    Game.bandY = my + (big ? 50 : 33) + 10;
     ctx.globalAlpha = 1;
   }
 
@@ -8152,10 +8232,12 @@ function drawHUD() {
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     const a = .65 + Math.sin(performance.now() / 320) * .3;
     ctx.globalAlpha = a;
+    const ay = Math.max(108, Game.bandY + 14);
     ctx.font = "800 17px " + FONT; ctx.fillStyle = "#ffd34d";
-    iconText("shrine", "전직 가능 — 전직의 징표가 필요하다", W / 2, 108, "#c9a3ff", 2);
+    iconText("shrine", "전직 가능 — 전직의 징표가 필요하다", W / 2, ay, "#c9a3ff", 2);
     ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, 128);
+    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, ay + 20);
+    Game.bandY = ay + 30;
     ctx.globalAlpha = 1;
   }
 
@@ -8164,7 +8246,8 @@ function drawHUD() {
     ctx.globalAlpha = Math.min(1, Game.lmFlash / 3 * 1.6);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 20px " + FONT; ctx.fillStyle = "#ffe9a8";
-    ctx.fillText(Game.lmFlashText, W / 2, 206);
+    // 위에서 쓴 채널이 있으면 그 아래로 내려앉는다. 화면 절반보다는 안 내려간다.
+    ctx.fillText(Game.lmFlashText, W / 2, Math.min(H * .45, Math.max(206, Game.bandY + 16)));
     ctx.globalAlpha = 1;
   }
 
@@ -8245,6 +8328,8 @@ function drawHUD() {
   }
 
   if (touch.seen && !overlay) drawTouchControls();
+
+  hudCapture = false;
 }
 
 /* 터치 조작을 눈에 보이게 그린다.
@@ -8339,6 +8424,54 @@ function pxBar(x, y, w, h, f, color, track) {
   }
 }
 
+/* HUD 가 차지한 자리.
+
+   화면 밖 지형지물·보스 표지는 가장자리에서 46~58px 안쪽 링에 붙는데, HUD 판들이
+   정확히 그 링 위에 앉아 있다 — 실제로 신앙 막대 안에 「124m」이 들어가고
+   무기 슬롯 위에 「전쟁 대장간 95m」이 얹혔다.
+
+   비켜야 할 자리를 좌표로 적어 두면 배치를 바꿀 때마다 거짓말을 하므로,
+   **HUD 가 그리는 판을 그리는 순간 등록하게 한다.** panel 과 pxChip 한 줄씩이면
+   되고, 새 판이 생겨도 저절로 따라온다.
+
+   표지는 drawHUD 한가운데서 그려지므로 이번 프레임 목록은 아직 절반뿐이다
+   (아래 슬롯과 미니맵은 표지보다 나중에 그려진다). 그래서 **지난 프레임의 완성된
+   목록**을 본다. HUD 는 프레임 사이에 거의 안 움직이므로 한 프레임 늦어도 안 보인다. */
+let hudCapture = false;
+const hudRects = [], hudPrev = [];
+
+/* padX·padY 를 따로 받는다. 표지는 닻 하나가 아니라 닻 둘레로 글자를 뻗는다 —
+   지형지물은 위로 20(그림) 아래로 18(거리), 보스는 위로 26 아래로 26 이다.
+   닻만 빼내면 판 밖으로 나온 닻 아래에서 거리 글자가 슬롯 위에 그대로 앉는다.
+   가로는 이름 폭만큼 넓지만 그만큼 밀면 표지가 화면 한복판까지 들어오므로,
+   세로만 제 크기를 다 주고 가로는 절반쯤만 준다. */
+function dodgeHud(p, padX, padY) {
+  for (let pass = 0; pass < 3; pass++) {
+    let moved = false;
+    for (let i = 0; i < hudPrev.length; i += 4) {
+      const rx = hudPrev[i] - padX, ry = hudPrev[i + 1] - padY;
+      const rw = hudPrev[i + 2] + padX * 2, rh = hudPrev[i + 3] + padY * 2;
+      if (p.x < rx || p.x > rx + rw || p.y < ry || p.y > ry + rh) continue;
+      // 네 방향 중 가장 적게 움직이는 쪽으로 뺀다. 화면 밖으로 나가는 쪽은 고르지 않는다.
+      let best = null, bd = 1e9;
+      for (const [dx, dy] of [[rx - 1 - p.x, 0], [rx + rw + 1 - p.x, 0],
+                              [0, ry - 1 - p.y], [0, ry + rh + 1 - p.y]]) {
+        const nx = p.x + dx, ny = p.y + dy;
+        /* 화면 밖으로 미는 쪽은 고르지 않는다. 경계는 표지 제 크기만큼 안쪽이다 —
+           닻만 화면 안에 두면 그 위의 이름이 잘린다(보스 표지가 실제로 y=-12 에
+           찍혔다). 세로는 H 로 본다. HT 는 쿼터뷰로 눌리기 전 높이라, 그걸 쓰면
+           아래쪽 경계가 영영 안 걸려 표지가 화면 밑으로 밀려난다. */
+        if (nx < padX || nx > W - padX || ny < padY || ny > H - padY) continue;
+        const d = Math.abs(dx) + Math.abs(dy);
+        if (d < bd) { bd = d; best = [nx, ny]; }
+      }
+      if (best) { p.x = best[0]; p.y = best[1]; moved = true; }
+    }
+    if (!moved) break;
+  }
+}
+const mk = { x: 0, y: 0 };            // 비켜서기용 — 프레임마다 새로 만들지 않는다
+
 /* 작은 칸 — 배지 · 조합 줄 · HUD 막대 · 슬롯 · 미니맵 테. panel() 의 축소판이다.
    화면에 둥근 모서리가 하나라도 남으면 그것만 재질이 달라 눈에 띈다.
    fill 을 생략하면 테두리만 그린다(이미 그려진 것 위에 액자만 두를 때). */
@@ -8358,6 +8491,7 @@ function pxChipPath(x, y, w, h, r) {
 }
 function pxChip(x, y, w, h, fill, stroke, r) {
   const P = PIX;
+  if (hudCapture) hudRects.push(x, y, w, h);
   if (stroke) {
     ctx.fillStyle = stroke;
     ctx.beginPath(); pxChipPath(x, y, w, h, r); ctx.fill();
@@ -8396,6 +8530,7 @@ function pxChip(x, y, w, h, fill, stroke, r) {
    모서리는 둥글리는 대신 계단으로 깎는다. 픽셀에서 곡선은 계단이지, 곡선이 아니다. */
 function panel(x, y, w, h, r = 14, fill = "rgba(12,12,22,.92)", stroke = "rgba(255,255,255,.14)") {
   const P = PIX;
+  if (hudCapture) hudRects.push(x, y, w, h);
   // 격자에 안 맞추면 테두리 굵기가 칸마다 달라져 액자가 흔들린다
   const x0 = Math.round(x / P) * P, y0 = Math.round(y / P) * P;
   const w0 = Math.max(P * 8, Math.round(w / P) * P);

@@ -1492,12 +1492,13 @@ const BOSS_TIMES = [300, 600, 899];
    무기마다 속성이 하나씩 붙고, 서로 다른 속성의 무기를 함께 들면 조합이 열린다.
    조합 규칙을 공개해 두면 플레이어가 '외우는' 게 아니라 '설계'하게 된다. */
 const ELEMENTS = {
-  physical: { name: "물리", color: "#d8d8e4", icon: "⚔️" },
-  fire:     { name: "화염", color: "#ff8a3c", icon: "🔥" },
-  frost:    { name: "냉기", color: "#7fd2ff", icon: "❄️" },
-  storm:    { name: "뇌전", color: "#ffe066", icon: "⚡" },
-  holy:     { name: "신성", color: "#ffd9a0", icon: "✨" },
-  blood:    { name: "피",   color: "#e0426a", icon: "🩸" },
+  // px — 화면에 찍히는 표. 여섯이 색만 다르고 모양이 같으면 속성을 색으로만 묻게 된다.
+  physical: { name: "물리", color: "#d8d8e4", icon: "⚔️", px: "elem_physical" },
+  fire:     { name: "화염", color: "#ff8a3c", icon: "🔥", px: "elem_fire" },
+  frost:    { name: "냉기", color: "#7fd2ff", icon: "❄️", px: "elem_frost" },
+  storm:    { name: "뇌전", color: "#ffe066", icon: "⚡", px: "elem_storm" },
+  holy:     { name: "신성", color: "#ffd9a0", icon: "✨", px: "elem_holy" },
+  blood:    { name: "피",   color: "#e0426a", icon: "🩸", px: "elem_blood" },
 };
 
 // 속성 자체의 기본 효과
@@ -7811,9 +7812,9 @@ function drawHUD() {
       fl > 0 ? "rgba(255,225,150," + (.4 + fl * .6).toFixed(2) + ")" : "rgba(255,210,140,.28)", 7);
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.font = "11px " + FONT;
-    drawMenuIcon("element", 22, cy + 8, ea.color, 2);
+    drawMenuIcon(ea.px, 22, cy + 8, ea.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.3)"; ctx.fillText("+", 36, cy + 12);
-    drawMenuIcon("element", 47, cy + 8, eb.color, 2);
+    drawMenuIcon(eb.px, 47, cy + 8, eb.color, 2);
     const done = player.mastered.has(cb.key);
     ctx.font = "700 11.5px " + FONT;
     ctx.fillStyle = done ? "#ffe9a8" : (fl > 0 ? "#fff3d0" : "#ffd9a0");
@@ -7840,9 +7841,9 @@ function drawHUD() {
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.font = "700 10px " + FONT;
     ctx.fillStyle = la >= COMBO_LEVEL ? ea.color : "rgba(255,255,255,.32)";
-    drawMenuIcon("element", 24, cy + 7, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, 36, cy + 11);
+    drawMenuIcon(ea.px, 24, cy + 7, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, 36, cy + 11);
     ctx.fillStyle = lb >= COMBO_LEVEL ? eb.color : "rgba(255,255,255,.32)";
-    drawMenuIcon("element", 79, cy + 7, eb.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, 91, cy + 11);
+    drawMenuIcon(eb.px, 79, cy + 7, eb.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, 91, cy + 11);
     ctx.textAlign = "right";
     ctx.font = "600 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
     ctx.fillText(c.name, 246, cy + 11);
@@ -8567,6 +8568,113 @@ const MENU_ICONS = {
             ".....0002000....",
             "........0.......",
             "................"],
+
+  /* 원소 여섯은 오래도록 이 한 장(element)을 색만 바꿔 나눠 썼다.
+     화면 아홉 군데에 찍히는, 게임에서 가장 자주 보는 표인데 모양이 하나였으니
+     '무슨 속성인가'를 색으로만 물어본 셈이다 — 색약이면 아예 못 읽고,
+     알림 글씨 위에 얹히면 색조차 안 통한다.
+
+     여섯을 실루엣으로 가른다. 16px 이라 손그림을 내려 깔면 죽이 되므로
+     이 크기에 맞춰 직접 찍었다(art/icon-preview.py 로 모양만 정하면
+     윤곽·광·그늘은 규칙이 입힌다 — 빛은 나머지와 같은 왼쪽 위).
+     element 는 남겨 둔다. 새 속성이 늘 때 기댈 자리가 있어야 한다. */
+  elem_physical: ["................",
+                  "..0000.....0000.",
+                  "..03300...00330.",
+                  "..032200.003310.",
+                  "..0022200033100.",
+                  "...00222033100..",
+                  "....002223100...",
+                  ".....0022200....",
+                  "..000033222000..",
+                  "..033332222230..",
+                  "..031222211110..",
+                  "..000022210000..",
+                  ".....032210.....",
+                  ".....031110.....",
+                  ".....000000.....",
+                  "................"],
+  elem_fire: ["................",
+              "....000.........",
+              "....030.0000....",
+              "...0030.0330....",
+              "...033000310....",
+              "...0321033200...",
+              "..00322032210...",
+              "..03322232210...",
+              "..03222222210...",
+              "..03222222210...",
+              "..03222222210...",
+              "..03222222110...",
+              "..00022211100...",
+              "....00111000....",
+              ".....00000......",
+              "................"],
+  elem_frost: ["................",
+               "......0000......",
+               ".....003300.....",
+               "..00003311000...",
+               ".00300021003000.",
+               ".03320032003230.",
+               ".03222332233110.",
+               ".00122222211100.",
+               "..000222222000..",
+               ".00333222222300.",
+               ".03311221122210.",
+               ".03110022001110.",
+               ".00000331100000.",
+               ".....002100.....",
+               "......0310......",
+               "......0000......"],
+  elem_storm: ["................",
+               "................",
+               ".........000....",
+               ".......00030....",
+               "......003300....",
+               ".....003300000..",
+               "...00033223330..",
+               "..003332221100..",
+               "..03312221100...",
+               "..0000021100....",
+               ".....033100.....",
+               ".....03100......",
+               "....00300.......",
+               "....0300........",
+               "....000.........",
+               "................"],
+  elem_holy: ["................",
+              ".....000000.....",
+              ".....033330.....",
+              ".....032210.....",
+              ".....032210.....",
+              "..000032220000..",
+              "..033332222330..",
+              "..032222222210..",
+              "..032222222210..",
+              "..031222211110..",
+              "..000022210000..",
+              ".....032210.....",
+              ".....032210.....",
+              ".....031110.....",
+              ".....000000.....",
+              "................"],
+  elem_blood: ["................",
+               "................",
+               "......0000......",
+               "......0330......",
+               ".....003200.....",
+               ".....033210.....",
+               "....00322200....",
+               "....033222200...",
+               "...0032222210...",
+               "...03322222200..",
+               "...03222222110..",
+               "...00222222100..",
+               "....032222110...",
+               "....001211100...",
+               ".....0001000....",
+               ".......000......"],
+
   skill: ["......0000......",
           "..00.033320..000",
           ".0320032210.0332",
@@ -10797,7 +10905,7 @@ function drawTitle() {
     const ew = ctx.measureText(" · " + E.name).width;
     let tx = x + cw / 2 - (16 + nw + ew) / 2;
     const capY = yRow + 62 + stageH + 16 + oy;
-    drawMenuIcon("element", tx + 6, capY, E.color, 2);
+    drawMenuIcon(E.px, tx + 6, capY, E.color, 2);
     tx += 16;
     ctx.textAlign = "left";
     ctx.font = "700 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.92)";
@@ -10912,9 +11020,9 @@ function drawTitle() {
     panel(cx, cy, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    drawMenuIcon("element", cx + 16, cy + 17, ea.color, 2);
+    drawMenuIcon(ea.px, cx + 16, cy + 17, ea.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 27, cy + 20);
-    drawMenuIcon("element", cx + 44, cy + 17, eb.color, 2);
+    drawMenuIcon(eb.px, cx + 44, cy + 17, eb.color, 2);
     ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
     ctx.fillText(cb.name, cx + 58, cy + 17);
   }
@@ -11403,7 +11511,7 @@ function drawLevelUp() {
       const tw = ctx.measureText(E.name).width + 34;
       pxChip(x + cw / 2 - tw / 2, y0 + 178 + oy, tw, 19, "rgba(255,255,255,.07)", null, 6);
       ctx.fillStyle = E.color;
-      iconText("element", E.name, x + cw / 2, y0 + 188 + oy, E.color, 2);
+      iconText(E.px, E.name, x + cw / 2, y0 + 188 + oy, E.color, 2);
 
       // 이 카드를 고르면 열리는 조합 / 아직 모자란 조합을 함께 보여준다.
       // 조합이 최대 레벨을 요구하므로, "몇 단계 남았는지"가 보여야 강화할 마음이 생긴다.
@@ -11425,10 +11533,10 @@ function drawLevelUp() {
         const la = r.done ? COMBO_LEVEL : (cb.a === def.element ? c.level : r.la);
         const lb = r.done ? COMBO_LEVEL : (cb.b === def.element ? c.level : r.lb);
         ctx.fillStyle = ea.color;
-        drawMenuIcon("element", x + 33, by - 3, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, x + 45, by + 1);
+        drawMenuIcon(ea.px, x + 33, by - 3, ea.color, 2); ctx.fillText(la + "/" + COMBO_LEVEL, x + 45, by + 1);
         ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", x + 78, by + 1);
         ctx.fillStyle = eb2.color;
-        drawMenuIcon("element", x + 93, by - 3, eb2.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, x + 105, by + 1);
+        drawMenuIcon(eb2.px, x + 93, by - 3, eb2.color, 2); ctx.fillText(lb + "/" + COMBO_LEVEL, x + 105, by + 1);
         ctx.font = r.done ? "800 12px " + FONT : "700 11px " + FONT;
         ctx.fillStyle = r.master ? "#ffe9a8" : r.done ? "#ffd34d" : "rgba(255,255,255,.55)";
         ctx.fillText(r.master ? "★ " + cb.name + " 완성!" : r.done ? cb.name + " 열림!" : cb.name, x + 146, by + 1);

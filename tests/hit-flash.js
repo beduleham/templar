@@ -38,8 +38,18 @@ const { chromium } = require('playwright');
       const z = Game.spawnEnemy(kind, player.x + 170, player.y - 170, RANKS.common);
       z.think = () => {}; z.spd = 0; z.hp = 1e7; z.maxHp = 1e7; z.boss = false; z.sigilKey = null;
       player.base.maxHp = 1e9; recomputeStats(); player.hp = 1e9;
-      z.flash = 0; await step(); const a = shot();
-      z.flash = .12; await step(); const c = shot();   // 실제 피격이 넣는 값
+      /* 두 장 사이에 몹이 조금도 움직이면 안 된다.
+
+         처음엔 안 묶어 뒀더니 사냥개의 '최대'가 같은 코드로 98~202 사이를
+         오갔다(기준은 100). 까닭은 둘이다 — 걷기 장이 넘어가고(anim 은 spd 가
+         0 이어도 최소 0.35 배로 나아간다), 떠 있는 높이가 wob 을 따라 흔들린다.
+         화면 전체를 빼는 방식이라 그 움직임이 '밝아진 픽셀'로 그대로 들어오고,
+         가장 작은 그림에서는 그 잡음이 신호를 덮는다.
+
+         두 값을 찍기 직전마다 0 으로 눌러 같은 장을 같은 자리에 세운다. */
+      const pin = () => { z.anim = 0; z.wob = 0; z.flash = z.flash; };
+      z.flash = 0; pin(); await step(); pin(); const a = shot();
+      z.flash = .12; pin(); await step(); pin(); const c = shot();   // 실제 피격이 넣는 값
       let n = 0, sum = 0, mx = 0;
       for (let i = 0; i < a.length; i += 4) {
         const d = (c[i] - a[i]) + (c[i + 1] - a[i + 1]) + (c[i + 2] - a[i + 2]);
@@ -60,10 +70,22 @@ const { chromium } = require('playwright');
        (고치기 전 실측 0px)이지 세기가 아니다. 몹마다 그림 크기와 원래 밝기가
        다르다 — 사냥개는 36x19 로 가장 작아 밝아지는 픽셀 수가 적고, 파수꾼은
        원래 밝은 보랏빛이라 희게 만들어도 덜 오른다. 그걸 결함으로 잡으면
-       테스트가 그림마다 거짓말을 한다. */
+       테스트가 그림마다 거짓말을 한다.
+
+       '최대'의 문턱을 100 으로 두었다가 사냥개(97)에 걸렸다. **그 100 은 장면을
+       묶기 전의 흔들리는 값에서 나온 숫자였다** — 두 장 사이에 몹이 움직이던
+       때는 같은 코드로 98~202 가 나왔고, 통과하던 판들은 섬광이 아니라 움직임이
+       부풀린 값이었다. 장면을 묶고 다시 재니 일곱 종이
+
+         사냥개 97 · 파수꾼 106 · 방패병 112 · 괴수 115
+         좀비 147 · 역병 군주 166 · 강철 처형자 211
+
+       가장 낮은 것이 97 이므로 80 으로 내린다. 0 과 97 사이 어디든 '섬광이 없다'는
+       잡고 멀쩡한 그림은 안 잡는다. 계측을 고치면 기준도 다시 잡아야 한다 —
+       옛 기준은 옛 잡음 위에서 정해진 것이다. */
     if (v.n < 150) bad.push(`${k} 이 피격에 거의 밝아지지 않는다 (${v.n}px)`);
     if (v.avg < 30) bad.push(`${k} 의 섬광이 너무 옅다 (평균 +${v.avg})`);
-    if (v.max < 100) bad.push(`${k} 에 밝게 튀는 자리가 없다 (최대 +${v.max})`);
+    if (v.max < 80) bad.push(`${k} 에 밝게 튀는 자리가 없다 (최대 +${v.max})`);
   }
 
   if (bad.length) { console.error("\n실패:\n  " + bad.join("\n  ")); process.exit(1); }

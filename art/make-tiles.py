@@ -163,6 +163,31 @@ def tone(t, target, cap):
     return np.clip(t, 0, 255)
 
 
+def foot_align(T, frac):
+    """물건의 발밑을 모두 같은 높이로 민다.
+
+    한 화면에 마흔 개 넘게 깔리는 겹이라, 한 장만 몇 픽셀 떠 있으면 그 종류가
+    깔린 자리마다 전부 떠 보인다. 받은 넉 장은 바닥선이 77.6~81.2% 로 3.6%
+    벌어져 있었다.
+
+    align-frames.py 의 발밑 정렬과 같은 생각이지만, 여기서는 크롭을 하지 않고
+    **칸 안의 정해진 높이**로 민다. 그 높이를 알아야 게임이 그리는 그림자와
+    발을 맞출 수 있기 때문이다(그림자는 sy + r*0.78 에 있다)."""
+    out = []
+    for t in T:
+        m = t[:, :, 3] > 16
+        if not m.any():
+            out.append(t); continue
+        h = t.shape[0]
+        ys, _ = np.nonzero(m)
+        dy = int(round(frac * h - 1 - ys.max()))
+        o = np.zeros_like(t)
+        if dy >= 0: o[dy:] = t[:h - dy] if dy else t
+        else:       o[:dy] = t[-dy:]
+        out.append(o)
+    return out
+
+
 def alpha_stats(T, cell, floor_lum=39.7):
     """장식 겹은 '바닥보다 얼마나 튀는가'가 전부다."""
     print(f"\n{'':4}{'덮는 넓이':>10}{'밝기 평균':>10}{'밝기 최대':>10}{'상자 넓이':>11}{'중심':>16}")
@@ -185,10 +210,11 @@ def main():
     cell, sigma, band = 128, 40, 8
     alpha = "--alpha" in argv
     if alpha: argv.remove("--alpha")
-    target, cap, gk = 45.0, 70.0, 1.0
+    target, cap, gk, foot, sval, oyval = 45.0, 70.0, 1.0, 0.0, None, None
     kind = "black" if "--key-black" in argv else "magenta"
     if kind == "black": argv.remove("--key-black")
-    for flag in ("--cell", "--sigma", "--band", "--lum", "--cap", "--grow"):
+    for flag in ("--cell", "--sigma", "--band", "--lum", "--cap", "--grow",
+                 "--foot", "--s", "--oy"):
         if flag in argv:
             i = argv.index(flag); v = float(argv[i + 1]); argv = argv[:i] + argv[i + 2:]
             if flag == "--cell": cell = int(v)
@@ -196,6 +222,9 @@ def main():
             elif flag == "--lum": target = v
             elif flag == "--cap": cap = v
             elif flag == "--grow": gk = v
+            elif flag == "--foot": foot = v
+            elif flag == "--s": sval = v
+            elif flag == "--oy": oyval = v
             else: band = int(v)
     if len(argv) < 2:
         raise SystemExit(__doc__)
@@ -221,6 +250,7 @@ def main():
            밝기를 평균으로 끌어당기면 웅덩이(어두워야 한다)와 판석(밝아야 한다)이
            같은 회색으로 뭉개진다."""
         alpha_stats(T, cell)
+        if foot: T = foot_align(T, foot)
         T = [tone(t, target, cap) for t in T]
         print(f"\n밝기를 {target:.0f} 로 끌어내리고 {cap:.0f} 를 넘는 낱 픽셀을 눌렀다")
         alpha_stats(T, cell)
@@ -250,6 +280,15 @@ def main():
         raise SystemExit(f"{key} 의 셀이 {f['w']}x{f['h']} 라 {cell} 과 다르다")
 
     atlas = Image.open(ATLAS).convert("RGBA")
+    """자리를 예약해 둔 줄은 아직 판 밖일 수 있다 — 판을 늘려 준다.
+       늘리지 않으면 paste 가 조용히 아무 일도 안 하고, 게임은 '그림 없음'으로
+       판단해 계속 안 그린다. 실패가 눈에 안 띄는 종류라 여기서 막는다."""
+    need = f["y"] + cell
+    if need > atlas.height:
+        grown = Image.new("RGBA", (max(atlas.width, cell * f["n"]), need), (0, 0, 0, 0))
+        grown.paste(atlas, (0, 0))
+        atlas = grown
+        print(f"  아틀라스를 {need}px 로 늘렸다")
     for i, t in enumerate(T[:f["n"]]):
         img = (Image.fromarray(t.astype(np.uint8), "RGBA") if alpha
                else Image.fromarray(t.astype(np.uint8)).convert("RGBA"))
@@ -258,7 +297,10 @@ def main():
         atlas.paste(Image.new("RGBA", (cell, cell), (0, 0, 0, 0)), (f["x"] + i * cell, f["y"]))
         atlas.paste(img, (f["x"] + i * cell, f["y"]))
     atlas.save(ATLAS)
-    print(f"\n{key} {f['n']}장 → 아틀라스 (x={f['x']} y={f['y']})")
+    if sval is not None: f["s"] = sval
+    if oyval is not None: f["oy"] = int(oyval)
+    html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]
+    print(f"\n{key} {f['n']}장 → 아틀라스 (x={f['x']} y={f['y']} s={f.get('s')} oy={f.get('oy')})")
 
     b64 = base64.b64encode(io.open(ATLAS, "rb").read()).decode()
     io.open("art/atlas.b64", "w").write(b64)

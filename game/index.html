@@ -722,25 +722,42 @@ const spawnedObs = [];           // 보스가 소환한 것 — 격자와 무관
 const DECO_CELL = 118;           // 지형지물 격자(265)의 절반 이하 — 촘촘하게 깔린다
 const decos = [];
 const DECO_KINDS = {
-  stump:  { name: "부서진 기둥", sprite: "deco_stump",  r: [13, 26] },
+  stump:  { name: "부서진 기둥", sprite: "deco_stump",  r: [13, 26], col: .58 },
   /* 항아리는 처음에 r [9,17] 로 잡았다가 키웠다. 화면에서 10~19px 이라
      무엇인지 알아볼 수가 없었다 — 작은 물건은 같은 밝기라도 덜 읽힌다. */
-  urn:    { name: "깨진 항아리", sprite: "deco_urn",    r: [12, 21] },
+  urn:    { name: "깨진 항아리", sprite: "deco_urn",    r: [12, 21], col: .50 },
   /* 잔해는 받은 그림이 캔버스 폭의 90%까지 퍼져 있어(기둥은 51%) 같은 반지름이면
      넷 중 가장 커진다. 가장 눈에 안 띄어야 할 것이라 반지름으로 되돌렸다. */
   rubble: { name: "잔해 더미",   sprite: "deco_rubble", r: [10, 18], flat: true },
-  banner: { name: "낡은 깃대",   sprite: "deco_banner", r: [11, 20] },
+  banner: { name: "낡은 깃대",   sprite: "deco_banner", r: [11, 20], col: .34 },
   /* 다섯째는 앞의 넷에 없는 것을 넣는다 — 뚫린 자리다.
      기둥은 선 덩어리, 항아리는 작은 덩어리, 잔해는 납작하고 넓은 것,
      깃대는 세로로 긴 것. 다섯 다 '막힌 덩어리'라 눈이 금방 익숙해진다.
      아치 토막은 곡선 안쪽이 비어 있어 실루엣에 구멍이 생긴다. */
-  arch:   { name: "아치 토막",   sprite: "deco_arch",   r: [14, 26] },
+  arch:   { name: "아치 토막",   sprite: "deco_arch",   r: [14, 26], col: .55 },
 };
+
+/* col — 발치에 세우는 충돌 원의 반지름(그림 반지름에 대한 비율).
+   장식을 그림만 깔았더니 **부서진 기둥을 그냥 통과해서 걸어 다녔다.**
+   서 있어 보이는 것을 지나가면 그 자리에 아무것도 없다고 배우게 되고,
+   그러면 뒤에 깐 51개가 전부 무늬로 내려앉는다.
+
+   반지름은 그림이 아니라 '땅에 닿는 부분'에 맞춘다. 아치는 위가 넓고
+   깃대는 장대만 굵으므로, 그림 반지름을 그대로 쓰면 허공에 벽이 선다.
+   잔해 더미(flat)만 막지 않는다 — 납작하게 깔린 것을 타고 넘는 것은 자연스럽다.
+
+   막는 방식은 지형과 같은 길을 쓴다(obstacles 에 얹는다). 다만 stop·reflect·
+   breakable 이 전부 거짓이라 발사체는 그냥 지나간다 — 장식이 탄을 먹으면
+   '왜 안 맞지'가 되고, 그건 여기서 사려던 것이 아니다. */
+const DECO_OBS = { name: "장식", block: true, stop: false, reflect: false, breakable: false, color: "#7a7488" };
 const DECO_LIST = Object.keys(DECO_KINDS);
 
 function updateDecos() {
   decos.length = 0;
   if (!Sprites.ready) return;
+  // 아래에서 obstacles 에 충돌 원을 얹으므로, '지형지물 위는 피한다' 검사는
+  // 얹기 전 개수까지만 본다. 안 그러면 장식끼리 서로를 밀어내 절반이 사라진다.
+  const nObs = obstacles.length;
   const cx0 = Math.floor(player.x / DECO_CELL), cy0 = Math.floor(player.y / DECO_CELL);
   for (let cx = cx0 - 7; cx <= cx0 + 7; cx++) {
     for (let cy = cy0 - 6; cy <= cy0 + 6; cy++) {
@@ -761,7 +778,7 @@ function updateDecos() {
       if (Math.abs(x) < 200 && Math.abs(y) < 200) continue;   // 시작 지점은 비워둔다
       /* 진짜 지형지물 위에 겹치면 그것이 안 보인다. 장식이 주인공을 가리면 안 된다. */
       let hide = false;
-      for (const o of obstacles) { const rr = o.r + 18; if (dist2(o.x, o.y, x, y) < rr * rr) { hide = true; break; } }
+      for (let i = 0; i < nObs; i++) { const o = obstacles[i], rr = o.r + 18; if (dist2(o.x, o.y, x, y) < rr * rr) { hide = true; break; } }
       if (hide) continue;
       const sz = hash2(cx * 13 + 61, cy * 17 + 7);
       /* 종류마다 변종 4장을 둔다. 한 장이면 42% 칸에 같은 그림이 깔려 무늬가 된다.
@@ -769,8 +786,12 @@ function updateDecos() {
          두고 변종 번호를 time 자리에 넘기면 시간이 아니라 자리로 고정된다 —
          바닥 타일을 고르는 방식과 같다. */
       const v = Math.floor(hash2(cx * 19 + 83, cy * 23 + 37) * 4) % 4;
-      decos.push({ kind, K, x, y, v, r: K.r[0] + (K.r[1] - K.r[0]) * sz * sz,
-                   flip: hash2(cx + 101, cy + 53) > .5 });
+      const r = K.r[0] + (K.r[1] - K.r[0]) * sz * sz;
+      decos.push({ kind, K, x, y, v, r, flip: hash2(cx + 101, cy + 53) > .5 });
+      if (K.col)
+        obstacles.push({ key: "dc" + cx + "," + cy, kind, K: DECO_OBS, wall: true,
+                         x, y, r: r * K.col,
+                         st: { hp: Infinity, max: Infinity }, seed: h, deco: true });
     }
   }
 }
@@ -1098,7 +1119,11 @@ function rollRank(t) {
 const ENEMY_TYPES = {
   bat:    { name: "박쥐", dropMul: .8, r: 11, hp: 12,  speed: 88, anim: 1.6, dmg: 8,  xp: .85,  color: "#a37bff", shape: "bat", sprite: "bat" },
   slime:  { name: "슬라임", dropMul: .8, r: 15, hp: 29,  speed: 46, dmg: 10,  xp: .85,  color: "#57c96a", shape: "blob", sprite: "slime" },
-  ghost:  { name: "유령", r: 13, hp: 38,  speed: 74, anim: .6, dmg: 12, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
+  /* 유령만 r 13 이라 화면에서 19×34px 이었다 — 로스터에서 가장 작아,
+     떠 있는 실루엣이 무엇인지 읽히기 전에 지나가 버렸다. r 을 2배로 올린다.
+     이 파일에서 스프라이트 크기는 r 하나로 정해지므로(scale = r/14 × CHAR_SCALE)
+     r 만 바꾸면 그림과 판정이 함께 커져 '보이는 크기 = 맞는 크기'가 유지된다. */
+  ghost:  { name: "유령", r: 26, hp: 38,  speed: 74, anim: .6, dmg: 12, xp: 1,  color: "#7fd2ff", shape: "ghost", sprite: "ghost" },
   zombie: { name: "좀비", r: 16, hp: 62,  speed: 38, dmg: 15, xp: 2,  color: "#8aa35c", shape: "humanoid", sprite: "zombie" },
   brute:  { name: "괴수", r: 23, hp: 138, speed: 34, dmg: 22, xp: 6,  color: "#e0694a", shape: "humanoid", sprite: "brute" },
   reaper: { name: "사신", r: 18, hp: 210, speed: 62, anim: .55, dmg: 26, xp: 10, color: "#6f86c8", shape: "ghost", sprite: "reaper" },
@@ -1674,22 +1699,11 @@ const WEAPONS = {
         }
       }
     },
-    draw(p, w) {
-      if (!w.nodes) return;
-      for (const nd of w.nodes) {
-        const sx = nd.x - cam.x, sy = nd.y - cam.y;
-        ctx.save();
-        ctx.translate(sx, sy); ctx.rotate(nd.a * 2);
-        ctx.fillStyle = "#f4efe0"; ctx.strokeStyle = "#b8912f"; ctx.lineWidth = 2;
-        const s = 9 * p.stats.area;
-        ctx.fillRect(-s, -s * 1.3, s * 2, s * 2.6);
-        ctx.strokeRect(-s, -s * 1.3, s * 2, s * 2.6);
-        ctx.fillStyle = "#b8912f";
-        ctx.fillRect(-s * .15, -s * .8, s * .3, s * 1.6);
-        ctx.fillRect(-s * .55, -s * .35, s * 1.1, s * .3);
-        ctx.restore();
-      }
-    },
+    /* 그리는 일은 여기서 하지 않는다 — drawDepth 가 낱장씩 월드 y 로 끼워 넣는다.
+       무기 그리기 패스는 drawDepth 다음이라, 여기서 그리면 성서가 늘 주인공 위에
+       얹힌다. 궤도는 주인공을 한 바퀴 도는 것이라 절반은 등 뒤를 지나는데,
+       그 절반이 앞으로 나와 있으면 도는 것이 아니라 얼굴 앞에서 왔다 갔다 하는
+       것으로 보인다. 낱장으로 넣으면 몹과 지형에 대해서도 같이 정렬된다. */
   },
 
   flame: {
@@ -5592,10 +5606,12 @@ function drawWorld() {
 const depthList = [];
 function drawDepth() {
   depthList.length = 0;
-  for (const o of obstacles) if (!o.struct) depthList.push([o.y, 0, o]);
+  for (const o of obstacles) if (!o.struct && !o.deco) depthList.push([o.y, 0, o]);
   for (const d of decos) depthList.push([d.y, 4, d]);
   for (const lm of landmarks) depthList.push([lm.y, 1, lm]);
   for (const e of enemies) if (e.active) depthList.push([e.y, 2, e]);
+  for (const w of player.weapons)
+    if (w.key === "orbit" && w.nodes) for (const nd of w.nodes) depthList.push([nd.y, 5, nd]);
   depthList.push([player.y, 3, null]);
   depthList.sort((a, b) => a[0] - b[0]);
   for (const d of depthList) {
@@ -5603,8 +5619,25 @@ function drawDepth() {
     else if (d[1] === 4) drawDeco(d[2]);
     else if (d[1] === 1) drawLandmark(d[2]);
     else if (d[1] === 2) drawEnemy(d[2]);
+    else if (d[1] === 5) drawOrbitNode(d[2]);
     else drawPlayer();
   }
+}
+
+/* 궤도 성서 한 장. 월드 y 를 가진 '서 있는 것'이라 깊이 목록에 낱개로 들어간다. */
+function drawOrbitNode(nd) {
+  const sx = nd.x - cam.x, sy = nd.y - cam.y;
+  if (sx < -60 || sx > W + 60 || sy < -60 || sy > HT + 60) return;
+  ctx.save();
+  ctx.translate(sx, sy); ctx.rotate(nd.a * 2);
+  ctx.fillStyle = "#f4efe0"; ctx.strokeStyle = "#b8912f"; ctx.lineWidth = 2;
+  const s = 9 * player.stats.area;
+  ctx.fillRect(-s, -s * 1.3, s * 2, s * 2.6);
+  ctx.strokeRect(-s, -s * 1.3, s * 2, s * 2.6);
+  ctx.fillStyle = "#b8912f";
+  ctx.fillRect(-s * .15, -s * .8, s * .3, s * 1.6);
+  ctx.fillRect(-s * .55, -s * .35, s * 1.1, s * .3);
+  ctx.restore();
 }
 
 /* 지형과 지형지물을 낱개로 그릴 수 있게 뽑아 둔다.
@@ -7881,7 +7914,7 @@ function drawHUD() {
     // 지형 — 벽만 옅게
     ctx.fillStyle = "rgba(150,150,175,.30)";
     for (const o of obstacles) {
-      if (!o.wall) continue;
+      if (!o.wall || o.deco) continue;              // 장식은 미니맵을 어지럽히기만 한다
       const dx = (o.x - player.x) * sc, dy = (o.y - player.y) * sc;
       if (Math.abs(dx) > MM / 2 - 3 || Math.abs(dy) > MM / 2 - 3) continue;
       ctx.fillRect(ccx + dx - 2, ccy + dy - 2, 4, 4);

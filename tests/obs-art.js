@@ -127,7 +127,7 @@ const { chromium } = require('playwright');
        한 번 잃었다. 두 시각에서 찍어 화면이 달라지는지 본다. */
     out.glow = {};
     for (const [kind, A] of Object.entries(OBS_ART)) {
-      if (!A.glow && !A.bubbles) continue;                  // 후광·거품 — 움직이는 것들
+      if (!A.glow && !A.bubbles && !A.fire && !A.lamp) continue;   // 후광·거품·불 — 움직이는 것들
       const t0 = Game.time;
       Game.time = 0;   const a = shot(kind, 0, 50);
       Game.time = 1.21; const b2 = shot(kind, 0, 50);   // 맥동 반 바퀴 뒤
@@ -145,7 +145,7 @@ const { chromium } = require('playwright');
 
   let bad = 0;
   // 변종 장수는 실측이 정했다 — 한 화면에 같이 보이는 개수의 90분위
-  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2, obelisk: 2, pillar: 2, crate: 1 };
+  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2, obelisk: 2, pillar: 2, crate: 1, brazier: 2, lantern: 2 };
   for (const k of r.kinds) {
     if (!k.fits) { console.log(`!! ${k.name} — 판이 그 줄까지 자라지 않았다, 자리만 예약된 상태다`); bad++; }
     if (k.dryFits === false) { console.log(`!! ${k.name} — 시든 판이 판 밖이다`); bad++; }
@@ -170,13 +170,17 @@ const { chromium } = require('playwright');
   /* 부러진 변형이 있는 종류 — 받침은 축 대칭으로 재고, 누운 윗단이 오른쪽으로
      얼마나 삐져나와도 되는지의 한계다. 성한 변형은 1.0 이라야 한다. */
   const SYM = { pillar: [.96, 1.5], obelisk: [.96, 1.7] };
+  const OBS_ART_FRAC = { brazier: .72, lantern: .75 };
   console.log('종류     변종  반지름   맞춰야 할 폭 / 판정 지름   높이   상자폭');
   for (const s of r.shots) {
+    /* 광원 둘은 판정이 그림보다 넓다 — 화톳불의 판정은 태우는 원, 등불은 빛의 자리.
+       절차 그림도 판정의 0.72·0.75 였다. 그 비율을 그대로 요구한다. */
+    const frac = (OBS_ART_FRAC[s.kind] || 1);
     const useFoot = !!FOOT[s.kind], useSym = !!SYM[s.kind];
-    const w = useFoot ? s.foot : useSym ? s.sym : s.wide, d = w - s.collider;
+    const w = useFoot ? s.foot : useSym ? s.sym : s.wide, d = w - Math.round(s.collider * frac);
     console.log(`${s.kind.padEnd(7)}  ${s.v + 1}    ${String(s.r).padStart(3)}      ${String(w).padStart(4)} / ${String(s.collider).padStart(4)}`
       + `   (${d >= 0 ? '+' : ''}${d})${useFoot ? ' 발치' : '     '}   ${String(s.h).padStart(3)}   ${s.wide}`);
-    if (Math.abs(d) > Math.max(4, s.collider * .06)) {
+    if (Math.abs(d) > Math.max(4, s.collider * frac * .06)) {
       console.log(`  !! ${s.kind} 변종 ${s.v + 1} r=${s.r} — ${useFoot ? '발치' : '보이는'} 폭 ${w} 와 판정 지름 ${s.collider} 가 어긋난다`); bad++; }
     if (s.h < 8) { console.log(`  !! ${s.kind} 변종 ${s.v + 1} r=${s.r} — 아무것도 안 그려졌다`); bad++; }
     // 절차 고목이 1.41 배, 절차 수정은 오히려 판정보다 좁았다(0.84 배 — 허공에서
@@ -203,10 +207,10 @@ const { chromium } = require('playwright');
      기준 자체가 부풀어 있었다. 자가 틀리면 비교 대상도 같이 틀린다. */
   const BAND = { rock: [84, 110], ruin: [48, 70], thorn: [76, 100],
                  tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178],
-                 bog: [62, 98], wall: [60, 90], obelisk: [72, 104], pillar: [82, 112], crate: [64, 92] };
+                 bog: [62, 98], wall: [60, 90], obelisk: [72, 104], pillar: [82, 112], crate: [64, 92], brazier: [40, 70], lantern: [40, 70] };
   for (const [kind, list] of Object.entries(r.lum)) {
     const [lo, hi] = BAND[kind] || [55, 135];
-    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74, obelisk: 87, pillar: 96, crate: 78 };
+    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74, obelisk: 87, pillar: 96, crate: 78, brazier: '그릇만 ~60', lantern: '기둥만 ~65' };
     console.log(`\n${kind} 밝기 ${list.join(' · ')}   (절차 ${PROC[kind]})`);
     for (const L of list) {
       if (L < lo) { console.log(`!! 밝기 ${L} — 바꿔 넣은 절차 그림(${lo}~${hi})보다 어둡다`); bad++; }

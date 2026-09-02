@@ -101,8 +101,33 @@ def main():
     print(f"공통 캔버스 {NW}×{maxH}, 머리 축 x={half}")
     strip = f"art/out/{cls}_all.png"
     order = [p for act in ACTS for p in cells[act]]
-    r = subprocess.run(["python3", "art/align-frames.py", strip, *order, "--cell", "128"], capture_output=True, text=True)
-    print("\n".join(l for l in r.stdout.splitlines() if "공통 크롭" in l or "완성" in l))
+    """정렬과 창은 여기서 직접 한다 — align-frames 의 공통 창은 내용의 합집합이라 한쪽으로
+       뻗은 무기가 창을 밀고, 몸이 칸 가운데를 벗어난다(전사 75/128, 마법사 71/128).
+       ox 로 밀어 맞추면 뒤집어 그릴 때 그림은 반전되고 ox 는 반전되지 않아 한쪽 방향에서
+       어긋남이 두 배가 된다(실측: 전사 오른쪽 +3px · 왼쪽 −10px). **몸이 칸 가운데에
+       있어야** 뒤집어도 같은 자리다. 캔버스에 머리 축이 가운데(half)로 놓여 있으니 창을
+       축 대칭으로 잡는다 — 반폭은 열여섯 장의 내용이 축에서 가장 멀리 간 거리다.
+       발밑선은 align-frames 와 같은 규칙(알파 경계상자의 바닥, 열림 연산 뒤)으로 맞춘다."""
+    from PIL import ImageFilter
+    fr_ = []
+    for pth in order:
+        a = np.array(Image.open(pth).convert("RGBA")).astype(int); m = key(a)
+        rgba = a.copy(); rgba[~m] = [0, 0, 0, 0]; rgba[m, 3] = 255
+        mm = Image.fromarray((m.astype(np.uint8) * 255)).filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+        ys, xs = np.nonzero(np.array(mm) > 0); fr_.append((rgba.astype(np.uint8), ys.min(), ys.max(), xs.min(), xs.max()))
+    base = max(f[2] for f in fr_)                          # 가장 낮은 발밑에 나머지를 내린다
+    top = min(f[1] + (base - f[2]) for f in fr_)
+    halfw = max(max(half - f[3], f[4] - half) for f in fr_) + 4
+    side = max(2 * halfw + 1, base - top + 8)              # 정사각 — 세로가 길면 세로가 정한다
+    x0 = half - side // 2; y1 = base + 4; y0 = y1 - side
+    out = Image.new("RGBA", (128 * len(fr_), 128), (0, 0, 0, 0))
+    for i, (rgba, t, bt, l, rt) in enumerate(fr_):
+        dy = base - bt
+        canvas = np.zeros((maxH + dy + 8, NW, 4), np.uint8); canvas[dy:dy + rgba.shape[0], :rgba.shape[1]] = rgba
+        im = Image.fromarray(canvas, "RGBA").crop((x0, y0, x0 + side, y0 + side)).resize((128, 128), Image.LANCZOS)
+        out.paste(im, (i * 128, 0))
+    out.save(strip)
+    print(f"공통 창 {side}px (축 대칭 반폭 {halfw}, 발밑 {base}) → 128칸 {len(fr_)}장")
     jobs = [f"hero_{cls}_{act}:{4 * i},{4 * i + 1},{4 * i + 2},{4 * i + 3}" for i, act in enumerate(ACTS)]
     r = subprocess.run(["python3", "art/inject-frames.py", strip, "128", *jobs], capture_output=True, text=True)
     print("\n".join(l for l in r.stdout.splitlines() if "hero_" in l or "아틀라스" in l))
@@ -126,7 +151,8 @@ def main():
         return bot - top2, (bot + 1) / 128, ax
     pb, pf, pax = cell_stats(fr["hero_paladin_idle"]); hb, hf, hax = cell_stats(fr[f"hero_{cls}_idle"], 0, brim)
     sp = fr["hero_paladin_idle"]["s"]; s = round(sp * pb / hb, 6)
-    oy = round((pf - .5) * 128 * sp / s - (hf - .5) * 128); ox = round(pax - hax)
+    # 머리 축은 칸 가운데(64)가 목표다 — 성기사 축(68.8)에 맞추면 성기사 자신의 치우침을 물려받는다
+    oy = round((pf - .5) * 128 * sp / s - (hf - .5) * 128); ox = round(64 - hax)
     for act in ACTS: fr[f"hero_{cls}_{act}"].update({"s": s, "oy": oy, "ox": ox})
     html = html[:a] + json.dumps(fr, separators=(",", ":"), ensure_ascii=False) + html[b:]; io.open(GAME, "w", encoding="utf-8").write(html)
     print(f"\n성기사 몸 {pb} 발 {pf:.4f} 축 {pax:.1f}  |  {cls} 몸 {hb} 발 {hf:.4f} 축 {hax:.1f}  →  s {s} oy {oy} ox {ox}")

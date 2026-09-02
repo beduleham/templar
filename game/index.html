@@ -2238,25 +2238,22 @@ function pxDisc(cx, cy, r, cols) {
    발사체와 달리 '면'이라 속을 옅게 깔고 테두리를 또렷하게 해서
    경계가 어디까지인지 보이게 한다. 평평한 원만 깔면 웅덩이가 아니라
    그냥 색칠한 바닥이라, 끓어오르는 방울을 몇 개 띄운다. */
-function pxHazard(cx, cy, r, cols, seed, aFill, aEdge) {
+/* 장판은 채움과 테두리를 따로 path 에 쌓는다 — 호출부가 같은 색 장판을 한 path 로
+   모아 한 번에 fill 하기 위해서다(겹쳐도 알파가 더해지지 않는다). */
+function pxHazardFill(cx, cy, r) {
   const gx = Math.round(cx / PIX) * PIX, gy = Math.round(cy / PIX) * PIX;
   const rows = Math.floor(r / PIX);
-  ctx.globalAlpha = aFill;
-  ctx.fillStyle = cols[2];
-  ctx.beginPath();
   for (let i = -rows; i <= rows; i++) {
     const y = i * PIX;
     const w = Math.max(PIX, Math.round(Math.sqrt(r * r - y * y) / PIX) * PIX);
     ctx.rect(gx - w, gy + y, w * 2, PIX);
   }
-  ctx.fill();
-
-  ctx.globalAlpha = aEdge;
-  ctx.fillStyle = cols[0];
-  ctx.beginPath();
-  // 테두리는 한 칸씩 띄운다. 촘촘히 두르면 장판 하나당 200칸이라
-  // 오래 남는 효과치고 비싸고, 점선이 오히려 '여기까지가 구역'으로 더 잘 읽힌다.
-  const steps = Math.max(10, Math.ceil(TAU * r / (PIX * 2)));
+}
+function pxHazardEdge(cx, cy, r, seed) {
+  const gx = Math.round(cx / PIX) * PIX, gy = Math.round(cy / PIX) * PIX;
+  // 점선 테두리. 예전엔 두 칸 간격이었는데 채움을 어둡게 내리면서 경계는 더 또렷해야
+  // 하므로 1.4칸 간격으로 촘촘히 한다 — 장판 하나 140칸, 여덟이면 1100칸. 감당된다.
+  const steps = Math.max(10, Math.ceil(TAU * r / (PIX * 1.4)));
   for (let i = 0; i < steps; i++) {
     const a = i / steps * TAU;
     ctx.rect(Math.round((gx + Math.cos(a) * r) / PIX) * PIX,
@@ -2270,8 +2267,6 @@ function pxHazard(cx, cy, r, cols, seed, aFill, aEdge) {
     ctx.rect(Math.round((gx + Math.cos(a) * d) / PIX) * PIX,
              Math.round((gy + Math.sin(a) * d) / PIX) * PIX, s, s);
   }
-  ctx.fill();
-  ctx.globalAlpha = 1;
 }
 
 // 픽셀 고리 — 퍼져 나가는 파동
@@ -5598,16 +5593,44 @@ function drawWorld() {
     ctx.restore();
   }
 
-  // 바닥 장판 — 밟으면 아프다
-  for (const h of hazards) {
-    if (!h.active) continue;
-    const sx = h.x - cam.x, sy = h.y - cam.y;
-    if (sx < -160 || sx > W + 160 || sy < -160 || sy > HT + 160) continue;
-    const t = h.life / h.maxLife;
-    ctx.save();
-    pxHazard(sx, sy, h.r, pxPal(h.color), (h.x | 0) + (h.y | 0) * 7,
-      .16 + .16 * t, .38 + .28 * Math.abs(Math.sin(Game.time * 4)));
-    ctx.restore();
+  /* 바닥 장판 — 밟으면 아프다.
+
+     역병 군주는 10초 주기로 장판을 3 + 5 개 깐다(반지름 80~90, 6~7초). 예전엔
+     하나하나 밝은 초록을 알파 .16~.32 로 칠했는데, 여덟이 겹치면 알파가 **더해져**
+     화면 절반이 연두색 덩어리가 됐다 — 그 위의 좀비(올리브색)가 사라졌다.
+
+     둘을 바꾼다. 하나, 같은 색 장판은 **한 path 로 모아 한 번 fill** — 겹친 자리도
+     한 겹이다(합집합이지 합이 아니다). 둘, 채움은 밝히지 않고 **어둡게 물들인다** —
+     독이 든 땅은 어둡고, 어두운 땅 위에서 밝은 스프라이트가 읽힌다. 위험 범위는
+     테두리가 말한다: 점선을 더 촘촘히, 더 밝게. */
+  {
+    const byCol = new Map();
+    for (const h of hazards) {
+      if (!h.active) continue;
+      const sx = h.x - cam.x, sy = h.y - cam.y;
+      if (sx < -160 || sx > W + 160 || sy < -160 || sy > HT + 160) continue;
+      let list = byCol.get(h.color); if (!list) byCol.set(h.color, list = []);
+      list.push([sx, sy, h]);
+    }
+    for (const [col, list] of byCol) {
+      const cols = pxPal(col);
+      // 채움 — 전부 한 path. 어두운 물감.
+      /* 얼마나 어둡게: 장판 안 밝기가 좀비 스프라이트 평균(68)과 같으면(첫 시도 66)
+         몸통이 바닥에 묻힌다. 바닥 33 과 스프라이트 68 사이, 50 언저리를 잡는다 —
+         몸통도 하이라이트도 위로 뜨고, 검은 윤곽선은 아래로 남는다. */
+      ctx.fillStyle = mixHex(col, "#0d0d16", .66);
+      ctx.globalAlpha = .5;
+      ctx.beginPath();
+      for (const [sx, sy, h] of list) pxHazardFill(sx, sy, h.r);
+      ctx.fill();
+      // 테두리와 방울 — 장판마다. 밝고 촘촘하게.
+      ctx.globalAlpha = .78 + .2 * Math.abs(Math.sin(Game.time * 4));
+      ctx.fillStyle = cols[0];
+      ctx.beginPath();
+      for (const [sx, sy, h] of list) pxHazardEdge(sx, sy, h.r, (h.x | 0) + (h.y | 0) * 7);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 
   // 파동

@@ -36,6 +36,9 @@ const { chromium } = require('playwright');
 
   const r = await pg.evaluate(() => {
     cam.x = 0; cam.y = 0;
+    /* 시각을 고정한다 — 화톳불·등불의 불은 시간에 따라 밝기가 흔들려서(알파 .55±.25)
+       고정하지 않으면 밝기 검사가 판마다 다르게 난다(78 이 나오고 다음엔 69 가 났다). */
+    Game.time = 0;
     const out = { kinds: [], shots: [], sigs: [], lum: {}, dry: null };
     for (const [kind, A] of Object.entries(OBS_ART)) {
       const f = Sprites.frames[A.key], d = A.dry && Sprites.frames[A.dry];

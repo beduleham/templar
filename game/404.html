@@ -1410,7 +1410,8 @@ const ENEMY_TYPES = {
         e.t1 = 3.4;
         e.phase = (e.phase + 1) % 3;
         if (e.phase === 0) {
-          for (let i = 0; i < 8; i++) {
+          // 화면이 상한까지 찼으면 뿜지 않는다 — 보스가 오래 살면 여기서 540까지 갔다
+          for (let i = 0; i < 8 && (Game.alive || 0) + i < ENEMY_CAP; i++) {
             const a = rnd(TAU);
             Game.spawnEnemy(pick(["bomber", "splitter", "zombie"]),
               e.x + Math.cos(a) * 120, e.y + Math.sin(a) * 120);
@@ -1602,6 +1603,9 @@ const SPAWN_TABLE = [
   { t: 800, types: ["reaper", "shield", "hound", "bomber"] },
 ]
 const BOSS_TIMES = [300, 600, 899];
+/* 동시 적 상한. 일반 스폰의 목표 수 상한이자, 사냥개 무리가 더 붓지 않는 선.
+   (보스·호위·분열체는 이 위로 넘칠 수 있다 — 풀은 540이다.) */
+const ENEMY_CAP = 300;
 
 /* ---------- 속성 ----------
    무기마다 속성이 하나씩 붙고, 서로 다른 속성의 무기를 함께 들면 조합이 열린다.
@@ -2767,7 +2771,11 @@ const player = {
   weapons: [],   // { key, level, timer, ... }
   passives: [],  // { key, level }
   stats: null,
-  base: { maxHp: 100, speed: 208 },
+  /* 기본 체력 100 → 130. 직업 보정이 성기사 +150 · 전사 +25 · 추적자 -20 ·
+     마법사 -8 이라 마법사 92 대 성기사 250, 2.7배였다. 같은 봇이 한쪽은 22초에
+     죽고 한쪽은 완주하는 건 조작 차이가 아니라 이 차이다. 성기사 보정을 +120 으로
+     내려 성기사는 250 그대로 두고 나머지 셋만 올린다(155 · 110 · 122, 2.3배). */
+  base: { maxHp: 130, speed: 208 },
   // 직업 자원 · 조합 · 전용 특성
   res: 0, noHit: 0, combos: new Set(), mastered: new Set(), traits: [], advance: [], stRes: 1,
   items: [], sigils: 0, buffFury: 0, buffWard: 0,
@@ -3147,7 +3155,7 @@ const Game = {
   state: "intro",        // intro | title | altar | playing | levelup | advance | paused | dead | won
   introT: 0,             // 시작 화면 연출 시간
   time: 0, kills: 0, dmgDealt: 0,
-  spawnAcc: 0, bossIdx: 0,
+  spawnAcc: 0, bossIdx: 0, alive: 0,
   choices: [], hover: -1, comboFlash: 0, comboFlashMaster: false,
   usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0,
   optFrom: "intro", optRow: 0, wipeArm: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
@@ -3450,8 +3458,24 @@ const Game = {
     // 그래서 계단을 옮겨도 벽은 따라 움직이기만 했다(3:36 → 4:35). 곡선 자체를 낮춘다.
     return { hp: 1 + m * .85 + Math.pow(m, 2.4) * .021, spd: 1 + m * .045, dmg: 1 + m * .13 };
   },
+  /* 동시에 살려 둘 적의 목표 수.
+
+     예전엔 0초부터 30이었다 — 실측 5초에 31마리, 30초에 37마리. 체력 95 짜리
+     마법사는 같은 봇으로 22~31초에 죽고 체력 250 짜리 성기사는 4~15분을 갔다.
+     초반이 경사가 아니라 벽이었다. 첫 45초 동안 8에서 30으로 오른다.
+
+     처음엔 90초에 걸쳐 올렸는데, 그러자 4분에 죽는 자리에서 레벨이 셋 낮았다
+     (15.5 → 12.7). 적 곡선은 시각을 따르고 플레이어의 힘은 처치를 따르므로,
+     초반을 비우면 그만큼 경험치가 굶는다. 마법사를 살린 건 첫 30초였으니
+     거기만 비우고 45초에 원래 밀도로 돌아간다.
+
+     상한도 340에서 300으로 내렸다. 10분에 429·14분에 540마리가 살아 있으면
+     프레임이 55~67ms 로 떨어지고(헤드리스 실측), 그 프레임을 고정 스텝이
+     따라잡느라 더 느려지는 나선이 생긴다. */
   targetCount() {
-    return Math.min(340, Math.floor(30 + this.time / 60 * 16));
+    const t = this.time;
+    if (t < 45) return Math.floor(8 + 22 * t / 45);
+    return Math.min(ENEMY_CAP, Math.floor(30 + (t - 45) / 60 * 16));
   },
 
   spawnEnemy(typeKey, forceX, forceY, forceRank) {
@@ -3502,14 +3526,21 @@ const Game = {
       const b = this.spawnEnemy(BOSS_ORDER[Math.min(this.bossIdx - 1, BOSS_ORDER.length - 1)]);
       // 1번째 보스는 배수 없음, 이후 보스만 강해진다 (5분 구간의 난이도 스파이크 완화)
       if (b) { b.maxHp = b.hp = b.hp * (1 + (this.bossIdx - 1) * .6); cam.shake = 12; Sfx.boss(); }
-      for (let i = 0; i < 8 + this.bossIdx * 6; i++) this.spawnEnemy(pick(this.currentTypes()));
+      /* 호위는 절반으로. 보스2 등장 순간(600초) 동시 적이 236 → 319 로 뛰면서
+         성기사조차 체력 100% → 7% 로 30초 만에 무너졐다. 보스 자체가 벽이어야
+         하고 파도가 벽이면 안 된다. */
+      for (let i = 0; i < 4 + this.bossIdx * 3; i++) this.spawnEnemy(pick(this.currentTypes()));
     }
 
     let alive = 0;
     for (const e of enemies) if (e.active) alive++;
+    this.alive = alive;                        // 다른 스폰 자리(보스 졸개)가 상한을 보게 둔다
     const want = this.targetCount();
-    if (alive < want) {
-      this.spawnAcc += dt * (9 + this.time / 60 * 4);
+    // 첫 3초는 비운다 — 판이 열리는 순간 둘러싸이면 배울 틈이 없다
+    if (alive < want && this.time >= 3) {
+      // 초당 스폰도 2에서 시작해 1분에 9 — 목표 수만 낮추면 순간에 채워 버린다
+      const ramp = this.time < 30 ? 2 + 7 * this.time / 30 : 9;
+      this.spawnAcc += dt * (ramp + this.time / 60 * 4);
       while (this.spawnAcc >= 1 && alive < want) {
         this.spawnAcc -= 1; alive++;
         this.spawnEnemy(pick(this.currentTypes()));
@@ -3519,7 +3550,7 @@ const Game = {
     // 1차 각성 이후 30초마다 사냥개 무리 — 플레이어보다 빨라서 계속 도망만 칠 수 없다.
     // 각성 전에 풀면 대응 수단이 없는 채로 맞는다.
     const ht = Math.floor(this.time), pht = Math.floor(this.time - dt);
-    if (ht !== pht && this.time >= 300 && ht % 30 === 0) {
+    if (ht !== pht && this.time >= 300 && ht % 30 === 0 && alive < ENEMY_CAP) {
       const a = rnd(TAU), n = 8 + Math.floor((this.time - 300) / 50);
       for (let i = 0; i < n; i++) {
         const aa = a + rnd(-.7, .7), rad = rnd(820, 980);
@@ -3530,11 +3561,16 @@ const Game = {
     }
 
 
-    // 30초마다 소규모 러시 (한쪽 방향에서 몰려옴)
+    /* 24초마다 소규모 러시 (한쪽 방향에서 몰려옴).
+
+       이것이 초반 벽의 나머지 절반이었다. 24초에 19마리, 48초에 21마리가 상한과
+       무관하게 한꺼번에 붓는다 — 마법사가 40~41초에 세 판 연속으로 죽던 자리다.
+       경사를 다 지난 60초부터 시작하고, 상한을 넘기지 않는 만큼만 붓는다.
+       10분이면 61마리짜리라 상한 없이는 540(풀 크기)까지 갔다. */
     const t = Math.floor(this.time), pt = Math.floor(this.time - dt);
-    if (t !== pt && t > 0 && t % 24 === 0) {
-      const a = rnd(TAU);
-      for (let i = 0; i < 18 + t / 14; i++) {
+    if (t !== pt && t >= 60 && t % 24 === 0) {
+      const a = rnd(TAU), room = Math.max(0, ENEMY_CAP - alive);
+      for (let i = 0; i < Math.min(room, 18 + t / 14); i++) {
         const aa = a + rnd(-.5, .5), rad = rnd(780, 950);
         this.spawnEnemy(pick(this.currentTypes()), player.x + Math.cos(aa) * rad, player.y + Math.sin(aa) * rad);
       }
@@ -6759,7 +6795,7 @@ const CLASSES = [
     start: "aura",
     gemChance: .11,  // 군중을 통째로 쓸어 담으므로 한 마리당 전리품은 가장 낮다
     desc: "군중 한가운데로 파고들어 버티는 직업. 체력이 압도적으로 높고 느리다.",
-    mods: { maxHp: 150, speed: -.08, armor: .12, regen: .4 },
+    mods: { maxHp: 120, speed: -.08, armor: .12, regen: .4 },   // 기본 130 과 합쳐 250
     // ── 진영: 멈추면 방벽이 서고, 둘러싸일수록 강해진다. 군중 속으로 파고드는 직업.
     stanceName: "진영",
     stanceHint: "멈추면 방벽(방어·회복·연사) · 곁의 적이 많을수록 피해 증가",

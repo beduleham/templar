@@ -123,7 +123,7 @@ const { chromium } = require('playwright');
        한 번 잃었다. 두 시각에서 찍어 화면이 달라지는지 본다. */
     out.glow = {};
     for (const [kind, A] of Object.entries(OBS_ART)) {
-      if (!A.glow) continue;
+      if (!A.glow && !A.bubbles) continue;                  // 후광·거품 — 움직이는 것들
       const t0 = Game.time;
       Game.time = 0;   const a = shot(kind, 0, 50);
       Game.time = 1.21; const b2 = shot(kind, 0, 50);   // 맥동 반 바퀴 뒤
@@ -141,7 +141,7 @@ const { chromium } = require('playwright');
 
   let bad = 0;
   // 변종 장수는 실측이 정했다 — 한 화면에 같이 보이는 개수의 90분위
-  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2 };
+  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2 };
   for (const k of r.kinds) {
     if (!k.fits) { console.log(`!! ${k.name} — 판이 그 줄까지 자라지 않았다, 자리만 예약된 상태다`); bad++; }
     if (k.dryFits === false) { console.log(`!! ${k.name} — 시든 판이 판 밖이다`); bad++; }
@@ -190,10 +190,11 @@ const { chromium } = require('playwright');
      이 값들은 한 번 다시 쟀다. 처음엔 어두운 칸을 배경으로 오해하는 자로 재서
      기준 자체가 부풀어 있었다. 자가 틀리면 비교 대상도 같이 틀린다. */
   const BAND = { rock: [84, 110], ruin: [48, 70], thorn: [76, 100],
-                 tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178] };
+                 tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178],
+                 bog: [62, 98], wall: [60, 90] };
   for (const [kind, list] of Object.entries(r.lum)) {
     const [lo, hi] = BAND[kind] || [55, 135];
-    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159 };
+    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74 };
     console.log(`\n${kind} 밝기 ${list.join(' · ')}   (절차 ${PROC[kind]})`);
     for (const L of list) {
       if (L < lo) { console.log(`!! 밝기 ${L} — 바꿔 넣은 절차 그림(${lo}~${hi})보다 어둡다`); bad++; }
@@ -205,7 +206,7 @@ const { chromium } = require('playwright');
      **모양은 그대로, 색만.** 실루엣까지 바뀌면 '상해 간다'가 아니라 '다른
      것으로 바뀌었다'로 읽힌다. */
   for (const [kind, G] of Object.entries(r.glow)) {
-    console.log(`\n${kind} 후광 — 두 시각의 화면이 ${G.same ? '같다' : '다르다'}`);
+    console.log(`\n${kind} 움직임(후광·거품) — 두 시각의 화면이 ${G.same ? '같다' : '다르다'}`);
     if (G.same) { console.log(`!! ${kind} — 맥동이 멈췄다. 절차 가지에 있던 신호가 사라졌다`); bad++; }
   }
   for (const [kind, D] of Object.entries(r.dry)) {

@@ -184,6 +184,17 @@ const { chromium } = require('playwright');
   const fail = [];
   if (prev.n < 2) fail.push(`전직 카드가 ${prev.n} 장뿐이라 미리보기를 견줄 수 없다`);
   if (prev.leak) fail.push('미리보기용 겹 목록(advView)이 화면을 그린 뒤에도 남아 있다');
+  /* 손그림 초상 — 등록된 adv_ 줄이 판 안에 있고, 성기사 혈통 열일곱 중 몇 장이 있는지 센다.
+     (영원의 맹세는 아직 없다 — 겹 그림으로 떨어져야 하고, 그것도 위 leak 검사가 같이 본다.) */
+  const por = await pg.evaluate(() => {
+    const keys = Object.keys(Sprites.frames).filter(k => k.startsWith('adv_'));
+    const bad = keys.filter(k => Sprites.frames[k].y + Sprites.frames[k].h > Sprites.atlas.height);
+    const pal = ADVANCES.filter(a => ['paladin','guardian','inquisitor','everwall','crusader','executioner','grandinquisitor'].includes(a.from)).map(a => a.key);
+    return { n: keys.length, bad, have: pal.filter(k => Sprites.frames['adv_' + k]).length, total: pal.length };
+  });
+  console.log(`손그림 전직 초상 ${por.n}장 · 성기사 혈통 ${por.have}/${por.total}`);
+  if (por.bad.length) fail.push('초상 줄이 판 밖이다: ' + por.bad.join(' '));
+  if (por.have < 16) fail.push(`성기사 혈통 초상이 ${por.have}장 — 열여섯은 있어야 한다`);
   if (!prev.kept) fail.push('미리보기가 실제 전직 상태를 건드렸다');
   if (new Set(prev.cards.map(c => c.h)).size !== prev.n)
     fail.push('전직 카드들의 미리보기가 서로 똑같이 그려진다');

@@ -141,7 +141,7 @@ const { chromium } = require('playwright');
 
   let bad = 0;
   // 변종 장수는 실측이 정했다 — 한 화면에 같이 보이는 개수의 90분위
-  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2 };
+  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2, obelisk: 1 };
   for (const k of r.kinds) {
     if (!k.fits) { console.log(`!! ${k.name} — 판이 그 줄까지 자라지 않았다, 자리만 예약된 상태다`); bad++; }
     if (k.dryFits === false) { console.log(`!! ${k.name} — 시든 판이 판 밖이다`); bad++; }
@@ -191,10 +191,10 @@ const { chromium } = require('playwright');
      기준 자체가 부풀어 있었다. 자가 틀리면 비교 대상도 같이 틀린다. */
   const BAND = { rock: [84, 110], ruin: [48, 70], thorn: [76, 100],
                  tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178],
-                 bog: [62, 98], wall: [60, 90] };
+                 bog: [62, 98], wall: [60, 90], obelisk: [72, 104] };
   for (const [kind, list] of Object.entries(r.lum)) {
     const [lo, hi] = BAND[kind] || [55, 135];
-    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74 };
+    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74, obelisk: 87 };
     console.log(`\n${kind} 밝기 ${list.join(' · ')}   (절차 ${PROC[kind]})`);
     for (const L of list) {
       if (L < lo) { console.log(`!! 밝기 ${L} — 바꿔 넣은 절차 그림(${lo}~${hi})보다 어둡다`); bad++; }

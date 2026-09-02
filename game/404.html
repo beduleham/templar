@@ -225,15 +225,35 @@ const Music = {
   step: 0, nextTime: 0, timer: null, mode: "menu",
   bpm: 152,
 
-  // Am - F - C - G : 단조로 시작해 장조로 풀리는, 달리는 느낌의 진행
-  prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
-  // 리드 멜로디 (16분음표 격자, null 은 쉼표)
-  lead: [76, null, 74, 72, null, 72, 74, null, 76, null, 79, null, 77, null, 74, null],
+  /* 곡은 셋이다 — 모드마다 진행·리드·박자·악기가 다르다. 예전엔 한 곡(Am-F-C-G,
+     152bpm)을 볼륨 3단계로만 돌려서 메뉴와 보스전이 같은 노래였다.
+
+       menu   84bpm  Dm - Bb - F - C   느린 패드와 종소리. 킥 없음. 바람.
+       play  152bpm  Am - F - C - G    단조로 시작해 장조로 풀리는, 달리는 진행(원곡)
+       boss  168bpm  Dm - Gm - Bb - A  화성 단조. 반음 내려앉는 리드, 두 배 하이햇, 경보 5도
+
+     음은 MIDI 번호. 한 진행은 네 마디, 마디는 16분음표 16칸. lead 의 null 은 쉼표. */
+  tracks: {
+    menu: { bpm: 84,
+      prog: [[62, 65, 69], [58, 62, 65], [53, 57, 60], [55, 59, 62]],
+      lead: [74, null, null, null, 77, null, null, null, null, null, 81, null, null, null, 79, null] },
+    play: { bpm: 152,
+      prog: [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]],
+      lead: [76, null, 74, 72, null, 72, 74, null, 76, null, 79, null, 77, null, 74, null] },
+    boss: { bpm: 168,
+      prog: [[62, 65, 69], [55, 58, 62], [58, 62, 65], [57, 61, 64]],
+      // 반음으로 내려앉는 동기 — 화성 단조의 7음(C#)이 긴장을 만든다
+      lead: [86, null, 85, null, 82, null, 81, null, 86, null, 85, null, 82, 81, 79, null] },
+  },
+  get track() { return this.tracks[this.mode] || this.tracks.menu; },
+  get prog() { return this.track.prog; },
+  get lead() { return this.track.lead; },
 
   mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); },
 
   start(mode) {
     this.mode = mode || "menu";
+    this.bpm = this.track.bpm;
     if (!Sfx.ctx) Sfx.init();
     if (!Sfx.ctx) return;
     this.ctx = Sfx.ctx;
@@ -243,6 +263,10 @@ const Music = {
       this.gain = this.ctx.createGain();
       this.gain.gain.value = .0;
       this.gain.connect(this.ctx.destination);
+      // 앰비언트 — 낮은 드론과 바람. 모드가 바뀌어도 끊기지 않는 바닥이다.
+      this.ambient = this.ctx.createGain();
+      this.ambient.gain.value = 1;
+      this.ambient.connect(this.gain);
     }
     this.nextTime = this.ctx.currentTime + .1;
     this.timer = setInterval(() => this.schedule(), 25);
@@ -256,14 +280,28 @@ const Music = {
     this.gain.gain.setValueAtTime(this.gain.gain.value, t);
     this.gain.gain.linearRampToValueAtTime(Sfx.on ? v : 0, t + .5);
   },
-  setMode(m) { if (this.mode !== m) { this.mode = m; this.fade(this.vol()); } },
-  vol() { return (this.mode === "boss" ? .19 : this.mode === "play" ? .16 : .12) * Opt.musicMul(); },
+  /* 모드가 바뀌면 곡이 바뀐다. 마디 한가운데서 갈아타면 화음이 부딪히므로
+     다음 마디 머리까지 기다린다(pending). 박자는 그 순간부터 새 곡의 것. */
+  setMode(m) {
+    if (this.mode === m || this.pending === m) return;
+    if (!this.tracks[m]) return;
+    this.pending = m;
+    this.fade(this.vol(m));
+  },
+  vol(m) {
+    m = m || this.mode;
+    return (m === "boss" ? .19 : m === "play" ? .16 : .13) * Opt.musicMul();
+  },
 
   // 오디오 클럭보다 조금 앞서서 예약해 둔다
   schedule() {
     if (!this.ctx) return;
-    const spb = 60 / this.bpm / 4;                // 16분음표 한 칸
     while (this.nextTime < this.ctx.currentTime + .12) {
+      if (this.step % 16 === 0 && this.pending) {   // 마디 머리에서 갈아탄다
+        this.mode = this.pending; this.pending = null;
+        this.bpm = this.track.bpm; this.step = 0;
+      }
+      const spb = 60 / this.bpm / 4;                // 16분음표 한 칸
       this.tick(this.step, this.nextTime, spb);
       this.step = (this.step + 1) % 64;
       this.nextTime += spb;
@@ -279,57 +317,107 @@ const Music = {
     o.connect(g); g.connect(dest || this.gain);
     o.start(t); o.stop(t + dur + .02);
   },
-  noise(t, dur, vol, hp) {
+  // 부드럽게 켜지고 꺼지는 패드 — 종·현·드론. 어택이 길어 타악처럼 튀지 않는다
+  pad(t, freq, dur, type, vol, attack, lp) {
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
+    g.gain.setValueAtTime(vol, t + Math.max(attack, dur * .6));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    if (lp) {
+      const f = this.ctx.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = lp;
+      o.connect(f); f.connect(g);
+    } else o.connect(g);
+    g.connect(this.ambient || this.gain);
+    o.start(t); o.stop(t + dur + .02);
+  },
+  noise(t, dur, vol, hp, lp) {
     const n = Math.floor(this.ctx.sampleRate * dur);
     const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
     const src = this.ctx.createBufferSource(); src.buffer = buf;
-    const f = this.ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = hp || 2000;
+    const f = this.ctx.createBiquadFilter(); f.type = lp ? "lowpass" : "highpass"; f.frequency.value = hp || 2000;
     const g = this.ctx.createGain(); g.gain.value = vol;
     src.connect(f); f.connect(g); g.connect(this.gain);
     src.start(t);
+  },
+  kick(t, vol, hi) {
+    const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(hi || 140, t);
+    o.frequency.exponentialRampToValueAtTime(45, t + .12);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(.0001, t + .18);
+    o.connect(g); g.connect(this.gain); o.start(t); o.stop(t + .2);
   },
 
   tick(i, t, spb) {
     const bar = Math.floor(i / 16) % 4;
     const chord = this.prog[bar];
     const beat = i % 16;
-    const full = this.mode === "play" || this.mode === "boss";
-    const boss = this.mode === "boss";
+    const mode = this.mode;
 
-    // 킥 — 네 박자를 끌고 간다
-    if (beat % 4 === 0) {
-      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
-      o.type = "sine";
-      o.frequency.setValueAtTime(140, t);
-      o.frequency.exponentialRampToValueAtTime(45, t + .12);
-      g.gain.setValueAtTime(.9, t);
-      g.gain.exponentialRampToValueAtTime(.0001, t + .18);
-      o.connect(g); g.connect(this.gain); o.start(t); o.stop(t + .2);
+    /* ── 앰비언트 — 세 곡 아래 늘 깔린다 ──
+       마디 머리마다 근음 두 옥타브 아래 드론(사인 + 살짝 어긋난 삼각파)을 한 마디
+       길이로 겹쳐 잇는다. 바람은 8박마다 한 번, 낮게. 모드가 바뀌어도 이 층은 같은
+       재질이라 곡 사이가 이어진다. */
+    if (beat === 0) {
+      const root = this.mtof(chord[0] - 24);
+      this.pad(t, root, spb * 17, "sine", .11, spb * 3, 400);
+      this.pad(t, root * 1.004, spb * 17, "triangle", .05, spb * 4, 300);
     }
-    // 스네어 · 하이햇
-    if (beat === 4 || beat === 12) this.noise(t, .12, .28, 1400);
-    if (full && beat % 2 === 1) this.noise(t, .03, .07, 6000);
+    if (beat === 8 && bar % 2 === 0) this.noise(t, spb * 12, .035, 900, true);
 
-    // 베이스 — 8분음표로 밀어붙인다
-    if (beat % 2 === 0) {
+    if (mode === "menu") {
+      /* 메뉴 — 패드 화음이 마디마다 부드럽게 갈리고, 종이 드물게 떨어진다.
+         킥도 스네어도 없다. 여기서는 아무것도 재촉하지 않는다. */
+      if (beat === 0)
+        for (let k = 0; k < 3; k++) this.pad(t, this.mtof(chord[k]), spb * 15, "triangle", .06, spb * 2.5, 1600);
+      const m = this.lead[beat];
+      if (m !== null) {
+        this.tone(t, this.mtof(m), spb * 6, "sine", .07);        // 종 — 사인 + 배음 하나
+        this.tone(t, this.mtof(m + 12), spb * 3, "sine", .02);
+      }
+      if (beat === 6 || beat === 14) this.tone(t, this.mtof(chord[1] - 12), spb * 5, "triangle", .05);
+      return;
+    }
+
+    const boss = mode === "boss";
+
+    // 킥 — 네 박자를 끌고 간다. 보스전은 8·10 박에 더블 킥
+    if (beat % 4 === 0 || (boss && (beat === 10 || beat === 14))) this.kick(t, .9);
+    // 스네어 · 하이햇 — 보스전은 하이햇이 두 배, 15박에 톰 굴림
+    if (beat === 4 || beat === 12) this.noise(t, .12, .28, 1400);
+    if (boss ? true : beat % 2 === 1) this.noise(t, .03, boss ? .06 : .07, 6000);
+    if (boss && bar === 3 && beat >= 13) this.kick(t, .5, 220 - (beat - 13) * 40);
+
+    // 베이스 — 8분음표로 밀어붙인다. 보스전은 16분음표 갤럭
+    if (boss ? true : beat % 2 === 0) {
       const root = chord[0] - 12;
-      this.tone(t, this.mtof(beat % 8 === 6 ? root + 7 : root), spb * 1.7, "sawtooth", .16);
+      const n = boss ? (beat % 4 === 3 ? root + 1 : root)               // 반음 위로 긁는다
+                     : (beat % 8 === 6 ? root + 7 : root);
+      this.tone(t, this.mtof(n), spb * (boss ? 1.1 : 1.7), "sawtooth", boss ? .13 : .16);
     }
     // 아르페지오
-    if (full) {
+    {
       const n = chord[(i % 3)] + (beat >= 8 ? 12 : 0);
       this.tone(t, this.mtof(n), spb * 1.3, "square", .045);
     }
-    // 리드 — 보스전에서는 한 옥타브 위로 올려 급해진다
-    if (full) {
+    // 리드
+    {
       const m = this.lead[beat];
-      if (m !== null) this.tone(t, this.mtof(m + (boss ? 12 : 0) + (bar === 3 ? 2 : 0)), spb * 2.2, "triangle", .075);
+      if (m !== null) this.tone(t, this.mtof(m + (bar === 3 && !boss ? 2 : 0)), spb * 2.2, "triangle", boss ? .085 : .075);
     }
-    // 보스전 긴장 패드
-    if (boss && beat === 0)
-      this.tone(t, this.mtof(chord[0] - 24), spb * 15, "sawtooth", .05);
+    // 보스전 — 긴장 패드와 경보 5도(둘째 마디마다 두 박)
+    if (boss) {
+      if (beat === 0) this.tone(t, this.mtof(chord[0] - 24), spb * 15, "sawtooth", .05);
+      if (bar % 2 === 1 && (beat === 0 || beat === 2)) {
+        this.tone(t, this.mtof(chord[0] + 7), spb * 1.5, "square", .05);
+        this.tone(t, this.mtof(chord[0] + 13), spb * 1.5, "square", .03);   // 증4도 — 경보
+      }
+    }
   },
 };
 

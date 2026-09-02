@@ -94,14 +94,18 @@ const { chromium } = require('playwright');
         for (let x = 0; x < 520; x++) if (on(x, ay)) { if (a < 0) a = x; b2 = x; }
         foot = a < 0 ? 0 : b2 - a + 1;
       }
+      /* 축 대칭 폭 — 기준 줄에서 **축(sx=260)에서 왼끝까지의 두 배.**
+         부러진 기둥·첨탑은 윗단이 받침 오른쪽에 누워 있어 줄 전체를 재면
+         받침이 아니라 부스러기까지 들어간다. 부스러기는 늘 오른쪽이다(카드). */
+      const sym = a < 0 ? 0 : Math.round((260 - a) * 2);
       return { v, r: rr, wide: cnt ? x1 - x0 + 1 : 0, h: cnt ? bot - top + 1 : 0,
-        foot: Math.round(foot), mean: cnt ? lum / cnt : 0, sig };
+        foot: Math.round(foot), sym, mean: cnt ? lum / cnt : 0, sig };
     };
     for (const [kind, A] of Object.entries(OBS_ART)) {
       out.lum[kind] = [];
       for (let v = 0; v < A.f.length; v++) {
         const s = shot(kind, v, 50);
-        out.shots.push({ kind, v, r: 50, wide: s.wide, foot: s.foot, collider: 100, h: s.h });
+        out.shots.push({ kind, v, r: 50, wide: s.wide, foot: s.foot, sym: s.sym, collider: 100, h: s.h });
         out.sigs.push(s.sig);
         out.lum[kind].push(+s.mean.toFixed(0));
       }
@@ -113,7 +117,7 @@ const { chromium } = require('playwright');
       const K = OBS_KINDS[kind];
       for (const rr of [K.r[0], Math.round((K.r[0] + K.r[1]) / 2), Math.round(K.r[1] * 1.75)]) {
         const s = shot(kind, 1 % A.f.length, rr);
-        out.shots.push({ kind, v: 1 % A.f.length, r: rr, wide: s.wide, foot: s.foot, collider: rr * 2, h: s.h });
+        out.shots.push({ kind, v: 1 % A.f.length, r: rr, wide: s.wide, foot: s.foot, sym: s.sym, collider: rr * 2, h: s.h });
       }
     }
     /* 시든 판 — 체력이 절반 밑으로 내려가면 그림이 바뀌되 **모양은 그대로**여야
@@ -131,7 +135,7 @@ const { chromium } = require('playwright');
       out.glow[kind] = { same: a.sig === b2.sig, w: a.wide, gw: Math.max(a.wide, b2.wide) };
     }
     out.dry = {};
-    for (const kind of ['thorn', 'tree']) {
+    for (const kind of ['thorn', 'tree', 'crate']) {
       const wet = shot(kind, 0, 50, 1), dry = shot(kind, 0, 50, .2);
       out.dry[kind] = { wetW: wet.wide, dryW: dry.wide, wetH: wet.h, dryH: dry.h,
         wetL: +wet.mean.toFixed(0), dryL: +dry.mean.toFixed(0), same: wet.sig === dry.sig };
@@ -141,7 +145,7 @@ const { chromium } = require('playwright');
 
   let bad = 0;
   // 변종 장수는 실측이 정했다 — 한 화면에 같이 보이는 개수의 90분위
-  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2, obelisk: 1 };
+  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2, bog: 2, wall: 2, obelisk: 2, pillar: 2, crate: 1 };
   for (const k of r.kinds) {
     if (!k.fits) { console.log(`!! ${k.name} — 판이 그 줄까지 자라지 않았다, 자리만 예약된 상태다`); bad++; }
     if (k.dryFits === false) { console.log(`!! ${k.name} — 시든 판이 판 밖이다`); bad++; }
@@ -163,10 +167,13 @@ const { chromium } = require('playwright');
      값은 발치 밖으로 얼마나 벌어져도 되는지의 위아래 한계다. 아예 안 벌어지면
      기둥이지 나무·수정이 아니고, 한없이 벌어지면 어디서 막히는지를 못 배운다. */
   const FOOT = { tree: [1.15, 1.9], crystal: [1.05, 1.45] };
+  /* 부러진 변형이 있는 종류 — 받침은 축 대칭으로 재고, 누운 윗단이 오른쪽으로
+     얼마나 삐져나와도 되는지의 한계다. 성한 변형은 1.0 이라야 한다. */
+  const SYM = { pillar: [.96, 1.5], obelisk: [.96, 1.7] };
   console.log('종류     변종  반지름   맞춰야 할 폭 / 판정 지름   높이   상자폭');
   for (const s of r.shots) {
-    const useFoot = !!FOOT[s.kind];
-    const w = useFoot ? s.foot : s.wide, d = w - s.collider;
+    const useFoot = !!FOOT[s.kind], useSym = !!SYM[s.kind];
+    const w = useFoot ? s.foot : useSym ? s.sym : s.wide, d = w - s.collider;
     console.log(`${s.kind.padEnd(7)}  ${s.v + 1}    ${String(s.r).padStart(3)}      ${String(w).padStart(4)} / ${String(s.collider).padStart(4)}`
       + `   (${d >= 0 ? '+' : ''}${d})${useFoot ? ' 발치' : '     '}   ${String(s.h).padStart(3)}   ${s.wide}`);
     if (Math.abs(d) > Math.max(4, s.collider * .06)) {
@@ -174,6 +181,11 @@ const { chromium } = require('playwright');
     if (s.h < 8) { console.log(`  !! ${s.kind} 변종 ${s.v + 1} r=${s.r} — 아무것도 안 그려졌다`); bad++; }
     // 절차 고목이 1.41 배, 절차 수정은 오히려 판정보다 좁았다(0.84 배 — 허공에서
     // 막히던 쪽이다). 새것은 발치를 판정에 맞추고 위만 벌어진다.
+    if (useSym && s.sym) {
+      const spread = s.wide / s.sym, [lo, hi] = SYM[s.kind];
+      if (spread < lo) { console.log(`  !! ${s.kind} — 상자가 받침보다 좁다(${spread.toFixed(2)}배), 축이 틀렸다`); bad++; }
+      if (spread > hi) { console.log(`  !! ${s.kind} — 누운 돌이 받침의 ${spread.toFixed(2)}배까지 나간다`); bad++; }
+    }
     if (useFoot && s.foot) {
       const spread = s.wide / s.foot, [lo, hi] = FOOT[s.kind];
       if (spread < lo) { console.log(`  !! ${s.kind} — 위가 발치보다 안 넓다(${spread.toFixed(2)}배)`); bad++; }
@@ -191,10 +203,10 @@ const { chromium } = require('playwright');
      기준 자체가 부풀어 있었다. 자가 틀리면 비교 대상도 같이 틀린다. */
   const BAND = { rock: [84, 110], ruin: [48, 70], thorn: [76, 100],
                  tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178],
-                 bog: [62, 98], wall: [60, 90], obelisk: [72, 104] };
+                 bog: [62, 98], wall: [60, 90], obelisk: [72, 104], pillar: [82, 112], crate: [64, 92] };
   for (const [kind, list] of Object.entries(r.lum)) {
     const [lo, hi] = BAND[kind] || [55, 135];
-    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74, obelisk: 87 };
+    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159, bog: 81, wall: 74, obelisk: 87, pillar: 96, crate: 78 };
     console.log(`\n${kind} 밝기 ${list.join(' · ')}   (절차 ${PROC[kind]})`);
     for (const L of list) {
       if (L < lo) { console.log(`!! 밝기 ${L} — 바꿔 넣은 절차 그림(${lo}~${hi})보다 어둡다`); bad++; }
@@ -214,7 +226,8 @@ const { chromium } = require('playwright');
     if (D.same) { console.log(`!! ${kind} — 체력이 깎여도 같은 그림이다, 신호가 사라졌다`); bad++; }
     if (Math.abs(D.wetW - D.dryW) > 2 || Math.abs(D.wetH - D.dryH) > 2) {
       console.log(`!! ${kind} — 상하면서 모양이 바뀐다, 다른 것으로 바뀐 것처럼 보인다`); bad++; }
-    if (!(D.dryL < D.wetL - 8)) { console.log(`!! ${kind} — 상한 것이 눈에 띄게 어둡지 않다`); bad++; }
+    // 상자는 금이 가는 것이라 어두워지지 않는다 — 그림이 달라지고 모양이 같으면 된다
+    if (kind !== 'crate' && !(D.dryL < D.wetL - 8)) { console.log(`!! ${kind} — 상한 것이 눈에 띄게 어둡지 않다`); bad++; }
   }
   if (new Set(r.sigs).size !== r.sigs.length) { console.log('!! 같은 그림이 두 번 들어갔다'); bad++; }
 

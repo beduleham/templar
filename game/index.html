@@ -12036,25 +12036,43 @@ function comboRowsFor(c) {
   return rows;
 }
 
+/* 세로 화면에서 HUD 가 어디까지 내려왔는지. HUD 는 매 프레임 자기 판·칩의 사각형을
+   hudPrev 에 남긴다(§80 의 표지 피하기용). 위 HUD 의 아래 끝과 아래 HUD 의 위 끝을 재면
+   그 사이가 오버레이가 쓸 수 있는 띠다. 값을 박아 두면 HUD 줄 수가 바뀔 때 또 겹친다. */
+function hudBand() {
+  let topEnd = 0, botStart = H;
+  for (let i = 0; i < hudPrev.length; i += 4) {
+    const y = hudPrev[i + 1], h = hudPrev[i + 3];
+    if (y < H / 2) topEnd = Math.max(topEnd, y + h); else botStart = Math.min(botStart, y);
+  }
+  return [topEnd, botStart];
+}
+
 function drawLevelUp() {
-  ctx.fillStyle = "rgba(6,6,14,.78)"; ctx.fillRect(0, 0, W, H);
+  const stack = narrow();
+  /* 세로 화면은 HUD 가 다섯 줄로 서서 화면의 18% 를 차지한다. 예전엔 제목을 92 에
+     박아 그 줄 위에 겹쳤고, 배율은 (H - 148 - 22) 만 봐서 마지막 카드가 무기 슬롯을
+     덮었다. 지금은 HUD 사이의 띠를 재서 그 안에 앉힌다. 스크림도 세로에서는 더
+     진하게 — 카드 뒤로 HUD 글자가 비쳐 둘 다 안 읽혔다. */
+  const [hudTop, hudBot] = stack ? hudBand() : [0, H];
+  ctx.fillStyle = stack ? "rgba(6,6,14,.9)" : "rgba(6,6,14,.78)"; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const tp = Game.traitPick && player.cls;
   const ttl = tp ? advName() + " 특성" : "레벨 업!";
-  fitFont("800", 42, ttl, W - 40);
+  const titleY = stack ? hudTop + 34 : 108;
+  fitFont("800", stack ? 34 : 42, ttl, W - 40);
   ctx.fillStyle = tp ? advColor() : "#ffd34d";
-  ctx.fillText(ttl, W / 2, narrow() ? 92 : 108);
+  ctx.fillText(ttl, W / 2, titleY);
   const trk = tp ? trackName() : "";
   const sub = tp ? "레벨 " + player.level + " · 「" + trk + "」" + eul(trk) + " 어떻게 키울지 고르세요"
                  : "레벨 " + player.level + " · 하나를 선택하세요";
   fitFont("600", 15, sub, W - 32);
   ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText(sub, W / 2, narrow() ? 122 : 142);
+  ctx.fillText(sub, W / 2, titleY + 28);
 
   /* 카드 석 장을 한 줄로 놓으면 952px 이 필요하다 — 세로 화면에서는 가운데 한 장만 보였다.
      내용이 빽빽해서 다시 짜는 대신, 세로로 쌓고 화면에 맞게 한 번 줄인다.
      좌표계를 통째로 옮기므로 마우스도 같은 계로 옮겨야 한다. */
-  const stack = narrow();
   /* 예전에는 ch 가 356 고정이었다. 조합 줄이 없는 카드는 아래 절반이 통째로 비어
      '내용을 채우다 만 판'처럼 보였다. 석 장 중 가장 큰 것에 맞춰 자른다. */
   let maxRows = 0;
@@ -12062,11 +12080,13 @@ function drawLevelUp() {
   // 조합 줄은 y0+292 부터 30 간격, 높이 26. 그 아래에 [번호] 자리를 남긴다.
   const bottom = maxRows ? 292 + (Math.min(2, maxRows) - 1) * 30 + 13 : 276;
   const cw = 300, ch = bottom + 30, gap = stack ? 14 : 26;
-  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = stack ? 148 : 178;
-  const k = stack ? Math.min(1, (H - y0 - 22) / (3 * ch + 2 * gap)) : 1;
+  const total = 3 * cw + 2 * gap, x0 = (W - total) / 2, y0 = stack ? titleY + 52 : 178;
+  // 카드 기둥은 아래 HUD 위에서 끝나야 한다 — 슬롯을 덮으면 마지막 카드가 안 눌린다
+  const k = stack ? Math.min(1, (hudBot - 14 - y0) / (3 * ch + 2 * gap)) : 1;
   const mx = stack ? (mouse.x - W / 2) / k + cw / 2 : mouse.x;
   const my = stack ? (mouse.y - y0) / k : mouse.y;
 
+  Game._luLayout = { titleY, cardTop: y0, cardBot: Math.round(y0 + k * (3 * ch + 2 * gap)), k: +k.toFixed(2) };   // 회귀가 읽는다
   ctx.save();
   if (stack) { ctx.translate(W / 2, y0); ctx.scale(k, k); ctx.translate(-cw / 2, 0); }
 

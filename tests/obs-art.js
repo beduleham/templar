@@ -118,6 +118,18 @@ const { chromium } = require('playwright');
     }
     /* 시든 판 — 체력이 절반 밑으로 내려가면 그림이 바뀌되 **모양은 그대로**여야
        한다. 자리(폭·높이)가 달라지면 다른 덤불로 바뀐 것처럼 보인다. */
+    /* 맥동하는 신호가 살아 있는가 — 손그림으로 갈면서 절차 가지를 통째로
+       건너뛰면 그 안에 있던 연출이 조용히 사라진다. 실제로 수정 기둥의 후광을
+       한 번 잃었다. 두 시각에서 찍어 화면이 달라지는지 본다. */
+    out.glow = {};
+    for (const [kind, A] of Object.entries(OBS_ART)) {
+      if (!A.glow) continue;
+      const t0 = Game.time;
+      Game.time = 0;   const a = shot(kind, 0, 50);
+      Game.time = 1.21; const b2 = shot(kind, 0, 50);   // 맥동 반 바퀴 뒤
+      Game.time = t0;
+      out.glow[kind] = { same: a.sig === b2.sig, w: a.wide, gw: Math.max(a.wide, b2.wide) };
+    }
     out.dry = {};
     for (const kind of ['thorn', 'tree']) {
       const wet = shot(kind, 0, 50, 1), dry = shot(kind, 0, 50, .2);
@@ -129,7 +141,7 @@ const { chromium } = require('playwright');
 
   let bad = 0;
   // 변종 장수는 실측이 정했다 — 한 화면에 같이 보이는 개수의 90분위
-  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2 };
+  const WANT = { rock: 4, ruin: 2, thorn: 2, tree: 2, bones: 2, statue: 2, crystal: 2 };
   for (const k of r.kinds) {
     if (!k.fits) { console.log(`!! ${k.name} — 판이 그 줄까지 자라지 않았다, 자리만 예약된 상태다`); bad++; }
     if (k.dryFits === false) { console.log(`!! ${k.name} — 시든 판이 판 밖이다`); bad++; }
@@ -145,8 +157,12 @@ const { chromium } = require('playwright');
        바위·폐허  땅에 닿는 가장 넓은 줄 (= 상자 폭)   막히는 것은 밑동
        가시덤불   상자 전체                            가시 끝이 곧 아픈 경계
        거대 유해  상자 전체                            깔린 것 자체가 발판
-       고목       발치(뿌리)                           가지 밑은 지나가도 된다 */
-  const FOOT = { tree: true };
+       고목       발치(뿌리)                           가지 밑은 지나가도 된다
+       수정 기둥  발치(바위 밑동)                      살이 위로 벌어진다
+
+     값은 발치 밖으로 얼마나 벌어져도 되는지의 위아래 한계다. 아예 안 벌어지면
+     기둥이지 나무·수정이 아니고, 한없이 벌어지면 어디서 막히는지를 못 배운다. */
+  const FOOT = { tree: [1.15, 1.9], crystal: [1.05, 1.45] };
   console.log('종류     변종  반지름   맞춰야 할 폭 / 판정 지름   높이   상자폭');
   for (const s of r.shots) {
     const useFoot = !!FOOT[s.kind];
@@ -156,27 +172,28 @@ const { chromium } = require('playwright');
     if (Math.abs(d) > Math.max(4, s.collider * .06)) {
       console.log(`  !! ${s.kind} 변종 ${s.v + 1} r=${s.r} — ${useFoot ? '발치' : '보이는'} 폭 ${w} 와 판정 지름 ${s.collider} 가 어긋난다`); bad++; }
     if (s.h < 8) { console.log(`  !! ${s.kind} 변종 ${s.v + 1} r=${s.r} — 아무것도 안 그려졌다`); bad++; }
-    /* 고목은 수관이 발치보다 넓어야 나무다. 다만 한없이 넓으면 판정과 그림이
-       너무 벌어져 '어디서 막히는지'를 못 배운다. 절차 고목이 1.41 배다. */
+    // 절차 고목이 1.41 배, 절차 수정은 오히려 판정보다 좁았다(0.84 배 — 허공에서
+    // 막히던 쪽이다). 새것은 발치를 판정에 맞추고 위만 벌어진다.
     if (useFoot && s.foot) {
-      const spread = s.wide / s.foot;
-      if (spread < 1.15) { console.log(`  !! ${s.kind} — 수관이 발치보다 안 넓다(${spread.toFixed(2)}배), 나무로 안 보인다`); bad++; }
-      if (spread > 1.9) { console.log(`  !! ${s.kind} — 수관이 발치의 ${spread.toFixed(2)}배다, 판정과 그림이 너무 벌어졌다`); bad++; }
+      const spread = s.wide / s.foot, [lo, hi] = FOOT[s.kind];
+      if (spread < lo) { console.log(`  !! ${s.kind} — 위가 발치보다 안 넓다(${spread.toFixed(2)}배)`); bad++; }
+      if (spread > hi) { console.log(`  !! ${s.kind} — 위가 발치의 ${spread.toFixed(2)}배다, 판정과 그림이 너무 벌어졌다`); bad++; }
     }
   }
 
   /* 밝기는 겹의 자리다. 바닥 36 · 장식 48~52 · 장애물 57~97.
      장애물이 장식보다 어두우면 주워야 할 것처럼 보인다. 바꿔 넣은 절차
-     그림의 값에 맞춘다 — 바위 97 · 폐허 58 · 덤불 86 · 고목 56 · 유해 185.
+     그림의 값에 맞춘다 — 바위 97 · 폐허 58 · 덤불 86 · 고목 56 · 유해 185 ·
+     석상 88 · 수정 159.
      유해가 유독 밝은 것은 의도다. 이 게임 유일한 중립색(뼈) 지형이다.
 
      이 값들은 한 번 다시 쟀다. 처음엔 어두운 칸을 배경으로 오해하는 자로 재서
      기준 자체가 부풀어 있었다. 자가 틀리면 비교 대상도 같이 틀린다. */
   const BAND = { rock: [84, 110], ruin: [48, 70], thorn: [76, 100],
-                 tree: [46, 68], bones: [168, 205] };
+                 tree: [46, 68], bones: [168, 205], statue: [76, 100], crystal: [138, 178] };
   for (const [kind, list] of Object.entries(r.lum)) {
     const [lo, hi] = BAND[kind] || [55, 135];
-    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185 };
+    const PROC = { rock: 97, ruin: 58, thorn: 86, tree: 56, bones: 185, statue: 88, crystal: 159 };
     console.log(`\n${kind} 밝기 ${list.join(' · ')}   (절차 ${PROC[kind]})`);
     for (const L of list) {
       if (L < lo) { console.log(`!! 밝기 ${L} — 바꿔 넣은 절차 그림(${lo}~${hi})보다 어둡다`); bad++; }
@@ -187,6 +204,10 @@ const { chromium } = require('playwright');
      내려간다(어두운 판을 얹는다). 방법은 달라도 지켜야 할 것은 같다:
      **모양은 그대로, 색만.** 실루엣까지 바뀌면 '상해 간다'가 아니라 '다른
      것으로 바뀌었다'로 읽힌다. */
+  for (const [kind, G] of Object.entries(r.glow)) {
+    console.log(`\n${kind} 후광 — 두 시각의 화면이 ${G.same ? '같다' : '다르다'}`);
+    if (G.same) { console.log(`!! ${kind} — 맥동이 멈췄다. 절차 가지에 있던 신호가 사라졌다`); bad++; }
+  }
   for (const [kind, D] of Object.entries(r.dry)) {
     console.log(`\n상한 ${kind} — 폭 ${D.wetW}→${D.dryW} · 높이 ${D.wetH}→${D.dryH} · 밝기 ${D.wetL}→${D.dryL}`);
     if (D.same) { console.log(`!! ${kind} — 체력이 깎여도 같은 그림이다, 신호가 사라졌다`); bad++; }

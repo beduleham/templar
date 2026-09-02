@@ -601,21 +601,86 @@ const LM_TYPES = {
   monolith: { name: "고대 비석",   icon: "🗿", px: "stance", color: "#8fd0ff", r: 24 },
 };
 
+/* 전직 진입 — 첫 징표가 손에 닿게.
+
+   1차 전직은 레벨 8 · 3:00 · 징표 1개다. 징표는 제단 파수꾼(레벨 8 부터 열림) 아니면
+   보스(5:00)가 준다. 그런데 제단은 칸의 7%(해시 .90~.97)에만 서서 가장 가까운 것이
+   평균 세 화면 밖이고, 지형지물 방향표는 1500 안에서만 뜬다. 봇 12판이 제단을 한
+   번도 열지 않았고 성기사 완주 한 판만 보스 뒤에 전직 하나를 했다 — 96경로를 만들어
+   놓고 아무도 못 보는 셈이었다.
+
+   둘로 고친다.
+   하나, **보장**: 2:30 에 징표도 없고 연 제단도 없고 근처(1300)에 제단도 없으면,
+   바라보는 방향 두 칸쯤에 제단 하나를 세운다(forcedLm — 해시를 덮어쓴다). 한 판에 한 번.
+   둘, **안내**: 전직 대기·가능 상태이면 가장 가까운 제단으로 거리 제한 없는 표지를
+   띄우고, 상태 글에 거리를 적는다. 어디로 가라는지 없이 '파수꾼을 쓰러뜨려라'만
+   적혀 있었다. */
+const forcedLm = new Map();          // "cx,cy" -> type
+function lmTypeAt(cx, cy) {
+  const key = cx + "," + cy, f = forcedLm.get(key);
+  if (f) return f;
+  const h = hash2(cx, cy);
+  if (h < .80) return null;
+  return h > .97 ? "monolith" : h > .90 ? "shrine" : "chest";
+}
+function lmPosAt(cx, cy) {
+  return [cx * LM_CELL + LM_CELL * (.18 + hash2(cx + 31, cy) * .64),
+          cy * LM_CELL + LM_CELL * (.18 + hash2(cx, cy + 31) * .64)];
+}
+/* 가장 가까운 안 연 제단 — 9×9 칸(반경 약 3400)을 본다. 표지가 매 프레임 부르므로
+   결과는 0.5초 들고 있다. */
+let nearShrineCache = { t: -9, v: null };
+function nearestShrine() {
+  if (Game.time - nearShrineCache.t < .5 && nearShrineCache.t >= 0) return nearShrineCache.v;
+  const cx0 = Math.floor(player.x / LM_CELL), cy0 = Math.floor(player.y / LM_CELL);
+  let best = null, bd = Infinity;
+  for (let cx = cx0 - 4; cx <= cx0 + 4; cx++) for (let cy = cy0 - 4; cy <= cy0 + 4; cy++) {
+    if (lmTypeAt(cx, cy) !== "shrine") continue;
+    const key = cx + "," + cy;
+    if (lmState.get(key) === "done") continue;
+    const [x, y] = lmPosAt(cx, cy), d = Math.hypot(x - player.x, y - player.y);
+    if (d < bd) { bd = d; best = { key, x, y, d, fighting: lmState.get(key) === "fighting" }; }
+  }
+  nearShrineCache = { t: Game.time, v: best };
+  return best;
+}
+const SIGIL_GUARANTEE_AT = 150;      // 1차 관문(180초) 30초 전
+function ensureFirstShrine() {
+  if (Game.sigilForced || Game.time < SIGIL_GUARANTEE_AT) return;
+  if (player.sigils > 0 || Game.shrinesOpened > 0 || player.advance.length) return;
+  const near = nearestShrine();
+  Game.sigilForced = true;                                   // 한 판에 한 번만 본다
+  if (near && near.d <= 1300) return;
+  // 바라보는 방향으로 두 칸 — 그 칸에 다른 지형지물이 있으면 옆 칸으로
+  const fx = player.faceX || 1, fy = player.faceY || 0, L = Math.hypot(fx, fy) || 1;
+  const cx0 = Math.floor(player.x / LM_CELL), cy0 = Math.floor(player.y / LM_CELL);
+  const cands = [[2, 0], [0, 2], [-2, 0], [0, -2], [1, 1], [-1, 1], [1, -1], [-1, -1]]
+    .map(([a, b2]) => [cx0 + Math.round(fx / L * 1.6 + a * .5), cy0 + Math.round(fy / L * 1.6 + b2 * .5)]);
+  cands.unshift([cx0 + Math.round(fx / L * 1.6), cy0 + Math.round(fy / L * 1.6)]);
+  for (const [cx, cy] of cands) {
+    if (cx === cx0 && cy === cy0) continue;
+    if (lmTypeAt(cx, cy)) continue;
+    forcedLm.set(cx + "," + cy, "shrine");
+    nearShrineCache.t = -9;
+    Game.lmFlash = 3; Game.lmFlashText = "가까운 곳에서 봉인된 제단의 기척이 느껴진다";
+    return;
+  }
+}
+
 function updateLandmarks() {
   landmarks.length = 0;
   const cx0 = Math.floor(player.x / LM_CELL), cy0 = Math.floor(player.y / LM_CELL);
   for (let cx = cx0 - 2; cx <= cx0 + 2; cx++) {
     for (let cy = cy0 - 2; cy <= cy0 + 2; cy++) {
-      const h = hash2(cx, cy);
-      if (h < .80) continue;                       // 칸의 20% 정도에만 놓인다
+      const type = lmTypeAt(cx, cy);
+      if (!type) continue;                         // 칸의 20% 정도에만 놓인다
       const key = cx + "," + cy;
       if (lmState.get(key) === "done") continue;
-      const type = h > .97 ? "monolith" : h > .90 ? "shrine" : "chest";
       const T = LM_TYPES[type];
+      const [lx, ly] = lmPosAt(cx, cy);
       landmarks.push({
         key, type, T,
-        x: cx * LM_CELL + LM_CELL * (.18 + hash2(cx + 31, cy) * .64),
-        y: cy * LM_CELL + LM_CELL * (.18 + hash2(cx, cy + 31) * .64),
+        x: lx, y: ly,
         r: T.r,
         fighting: lmState.get(key) === "fighting",
       });
@@ -3340,7 +3405,7 @@ const Game = {
     player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
     player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0;
+    lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0;
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -3731,6 +3796,7 @@ function update(dt) {
 
   // 지형지물 — 근처 칸만 실체화하고 닿으면 발동
   updateLandmarks();
+  ensureFirstShrine();
   updateStructures();
   updateObstacles();
   updateDecos();                   // 지형지물 다음이어야 그 위를 피해 놓을 수 있다
@@ -8435,6 +8501,33 @@ function drawHUD() {
     }
   }
 
+  /* 징표 안내 — 전직 대기·가능 상태면 가장 가까운 제단으로, 거리 제한 없이.
+     아래 지형지물 표지는 1500 안에서만 뜨는데 제단은 평균 그보다 멀다. */
+  if (Game.advancePending || Game.advanceWaitT > 0) {
+    const sh = nearestShrine();
+    Game.guideShrine = sh || null;
+    if (sh) {
+      const sx = sh.x - cam.x, sy = sh.y - cam.y, m = 58;
+      if (!(sx > m && sx < W - m && sy > m && sy < H - m)) {
+        mk.x = clamp(sx, m, W - m); mk.y = clamp(sy, m, H - m);
+        dodgeHud(mk, 24, 42);
+        const ax = mk.x, ay = mk.y, ang = Math.atan2(sy - player.sy, sx - player.sx);
+        ctx.save();
+        ctx.globalAlpha = .75 + Math.sin(performance.now() / 300) * .25;
+        ctx.translate(ax, ay); ctx.rotate(ang);
+        ctx.fillStyle = "#ffd34d";
+        ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(-8, -13); ctx.lineTo(-8, 13); ctx.closePath(); ctx.fill();
+        ctx.rotate(-ang);
+        ctx.font = "800 12px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillStyle = "#ffd34d";
+        iconText("shrine", "징표 · 봉인된 제단", 0, -26, "#c9a3ff", 2);
+        ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.75)";
+        ctx.fillText(Math.round(sh.d / 10) + "m", 0, 26);
+        ctx.restore();
+      }
+    }
+  } else Game.guideShrine = null;
+
   // 화면 밖 보스·파수꾼 방향 — 지형지물보다 강하게
   for (const e of enemies) {
     if (!e.active || (!e.boss && !e.sigilKey)) continue;
@@ -8487,6 +8580,7 @@ function drawHUD() {
   }
 
   for (const lm of landmarks) {
+    if (Game.guideShrine && lm.key === Game.guideShrine.key) continue;   // 징표 안내가 이미 가리킨다
     const sx = lm.x - cam.x, sy = lm.y - cam.y;
     const m = 46;
     if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
@@ -8605,7 +8699,9 @@ function drawHUD() {
     ctx.font = "800 17px " + FONT; ctx.fillStyle = "#ffd34d";
     iconText("shrine", "전직 가능 — 전직의 징표가 필요하다", W / 2, ay, "#c9a3ff", 2);
     ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
-    ctx.fillText("봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, ay + 20);
+    const gs = Game.guideShrine;
+    ctx.fillText(gs ? "가장 가까운 봉인된 제단 " + Math.round(gs.d / 10) + "m — 표지를 따라가라 (보스도 준다)"
+                    : "봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, ay + 20);
     Game.bandY = ay + 30;
     ctx.globalAlpha = 1;
   }

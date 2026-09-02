@@ -1,6 +1,10 @@
 """영웅 동작 시트(2×2) 넷을 128칸 아틀라스 네 줄로 넣는다 — 전사에서 겪은 것을 절차로.
 
-  python3 art/hero-sheets.py <직업키> <대기.png> <걷기.png> <공격.png> <기술.png>
+  python3 art/hero-sheets.py <직업키> <대기.png> <걷기.png> <공격.png> <기술.png> [--brim]
+
+  --brim  모자를 쓴 인물(마법사). 머리 꼭대기 대신 **모자 챙**(위 35% 안에서 가장 넓은 줄)을
+          기준으로 몸을 재고 축을 잡는다. 뾰족한 모자 끝과 머리 위로 치켜든 지팡이가
+          꼭대기를 흔들기 때문이다. 챙은 이마쯤이라 챙→발 × 1.08 을 정수리→발로 친다.
 
 하는 일(§95·§96):
   1. 시트를 넷으로 가른다. 가로 중앙선은 세로 방향 빈 띠의 가운데, 세로 중앙선은
@@ -47,12 +51,21 @@ def split(sheet, cls, act):
     print(f"{act}: 가로선 y={cy}, 세로선 위 x={cuts[0]} 아래 x={cuts[1]}")
     return out
 
+BRIM = False
+
 def measure(p):
     a = np.array(Image.open(p).convert("RGBA")).astype(int); fg = key(a); H, W = fg.shape
     ys, xs = np.where(fg); bot = ys.max()
     rows = range(bot - int(H * .06), bot + 1)
     fax = int(np.median(np.concatenate([np.where(fg[y])[0] for y in rows if fg[y].any()])))
     lo = max(0, fax - int(W * .18)); band = fg[:, lo:fax + int(W * .18)]; top = np.where(band.any(1))[0].min()
+    if BRIM:
+        # 모자 챙 — 위 35% 안에서 가장 넓은 줄. 모자 끝은 프레임마다 기울어 축을 흔든다.
+        cand = [(y, np.where(fg[y])[0]) for y in range(top, top + int((bot - top) * .35)) if fg[y].any()]
+        by, r = max(cand, key=lambda t: t[1].max() - t[1].min())
+        ax = int((r.min() + r.max()) / 2)
+        wy = bot - int((bot - by) * 1.08 * .45); r2 = np.where(fg[wy])[0]
+        return dict(h=round((bot - by) * 1.08), waist=r2.max() - r2.min() + 1, ax=ax, bot=bot, W=W, H=H, x0=xs.min(), x1=xs.max())
     mids = []
     for y in range(top + int(H * .012), top + int(H * .09)):
         r = np.where(band[y])[0]
@@ -63,6 +76,9 @@ def measure(p):
     return dict(h=bot - top2, waist=r.max() - r.min() + 1, ax=ax, bot=bot, W=W, H=H, x0=xs.min(), x1=xs.max())
 
 def main():
+    global BRIM
+    brim = BRIM = "--brim" in sys.argv
+    if brim: sys.argv.remove("--brim")
     cls, sheets = sys.argv[1], sys.argv[2:6]
     cells = {act: split(sh, cls, act) for act, sh in zip(ACTS, sheets)}
     M = {p: measure(p) for act in ACTS for p in cells[act]}
@@ -93,22 +109,28 @@ def main():
     html = io.open(GAME, encoding="utf-8").read()
     a = html.index("const ATLAS_FRAMES = ") + len("const ATLAS_FRAMES = "); b = html.index("};", a) + 1; fr = json.loads(html[a:b])
     at = np.array(Image.open(ATLAS).convert("RGBA"))
-    def cell_stats(f, i=0):
+    def cell_stats(f, i=0, brim=False):
         m = at[f["y"]:f["y"] + 128, f["x"] + i * 128:f["x"] + (i + 1) * 128, 3] > 8; ys, xs = np.where(m); bot = ys.max()
         fax = int(np.median(np.concatenate([np.where(m[y])[0] for y in range(bot - 7, bot + 1) if m[y].any()])))
-        lo = max(0, fax - 24); band = m[:, lo:fax + 24]; top = np.where(band.any(1))[0].min(); mids = []
+        lo = max(0, fax - 24); band = m[:, lo:fax + 24]; top = np.where(band.any(1))[0].min()
+        if brim:
+            # 모자 챙 — 인물 위 35% 안에서 가장 넓은 줄. 축은 그 줄의 중점, 몸은 챙→발 × 1.08
+            rows = [(y, np.where(m[y])[0]) for y in range(top, top + int((bot - top) * .35)) if m[y].any()]
+            by, r = max(rows, key=lambda t: t[1].max() - t[1].min())
+            return round((bot - by) * 1.08), (bot + 1) / 128, (r.min() + r.max()) / 2
+        mids = []
         for y in range(top + 2, top + 12):
             r = np.where(band[y])[0]
             if len(r): mids.append((r.min() + r.max()) / 2 + lo)
         ax = float(np.mean(mids)); band2 = m[:, int(ax) - 7:int(ax) + 7]; top2 = np.where(band2.any(1))[0].min()
         return bot - top2, (bot + 1) / 128, ax
-    pb, pf, pax = cell_stats(fr["hero_paladin_idle"]); hb, hf, hax = cell_stats(fr[f"hero_{cls}_idle"])
+    pb, pf, pax = cell_stats(fr["hero_paladin_idle"]); hb, hf, hax = cell_stats(fr[f"hero_{cls}_idle"], 0, brim)
     sp = fr["hero_paladin_idle"]["s"]; s = round(sp * pb / hb, 6)
     oy = round((pf - .5) * 128 * sp / s - (hf - .5) * 128); ox = round(pax - hax)
     for act in ACTS: fr[f"hero_{cls}_{act}"].update({"s": s, "oy": oy, "ox": ox})
     html = html[:a] + json.dumps(fr, separators=(",", ":"), ensure_ascii=False) + html[b:]; io.open(GAME, "w", encoding="utf-8").write(html)
     print(f"\n성기사 몸 {pb} 발 {pf:.4f} 축 {pax:.1f}  |  {cls} 몸 {hb} 발 {hf:.4f} 축 {hax:.1f}  →  s {s} oy {oy} ox {ox}")
     for act in ACTS:
-        f = fr[f"hero_{cls}_{act}"]; print(f"  {act:7} 머리 축 " + " ".join(f"{cell_stats(f, i)[2]:.1f}" for i in range(4)) + "   몸 " + " ".join(str(cell_stats(f, i)[0]) for i in range(4)))
+        f = fr[f"hero_{cls}_{act}"]; print(f"  {act:7} 머리 축 " + " ".join(f"{cell_stats(f, i, brim)[2]:.1f}" for i in range(4)) + "   몸 " + " ".join(str(cell_stats(f, i, brim)[0]) for i in range(4)))
 
 if __name__ == "__main__": main()

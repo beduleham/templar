@@ -28,7 +28,7 @@ const { BOT } = require('./bot.js');
       player.x = 20000 + run * 9000; player.y = 20000 - run * 7000;   // 판마다 다른 자리
       const before = { forced: forcedLm.size };
       let nearAt150 = null, forcedAt150 = 0;
-      while (Game.time < 152) {
+      while (Game.time < 150.5) {                          // 보장은 150 에 선다 — 그 직후를 잰다(2초 더 걸으면 1300 이 흔들린다)
         if (Game.state !== 'playing') { Game.applyChoice(Game.choices.find(c => c.type !== 'heal') || Game.choices[0]); continue; }
         botTick(1 / 60, true); update(1 / 60); player.hp = 1e7;
         player.sigils = 0;                                    // 징표를 못 얻은 사람

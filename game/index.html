@@ -1129,7 +1129,26 @@ const Sprites = {
       dg.fillStyle = "#151426";
       dg.fillRect(0, 0, d.width, d.height);
       this.darkAtlas = d;
-    } catch (err) { this.flashAtlas = null; this.darkAtlas = null; }
+
+      /* 반 크기 판. 적은 128칸을 화면 28~60px 로 줄여 찍는데, 소프트웨어 래스터에서는
+         원본 칸이 클수록 blit 이 비싸다(10분 실측: 적 하나 47µs 중 대부분이 여기).
+         한 번 상자 필터로 절반(64칸)으로 줄여 두고, 그린 폭이 칸의 절반 이하면 이
+         판에서 찍는다. 픽셀아트를 '보간하지 않는다'는 규칙은 지킨다 — 이 판을 만들
+         때만 평균을 내고, 찍을 때는 여전히 최근접이다. 2배 넘게 줄이던 자리라
+         오히려 계단이 덜 생긴다. */
+      const hcv = document.createElement("canvas");
+      hcv.width = Math.ceil(this.atlas.width / 2); hcv.height = Math.ceil(this.atlas.height / 2);
+      const hg = hcv.getContext("2d");
+      hg.imageSmoothingEnabled = true;
+      hg.drawImage(this.atlas, 0, 0, hcv.width, hcv.height);
+      this.atlasHalf = hcv;
+      const fh = document.createElement("canvas");
+      fh.width = hcv.width; fh.height = hcv.height;
+      const fg = fh.getContext("2d");
+      fg.imageSmoothingEnabled = true;
+      fg.drawImage(this.flashAtlas, 0, 0, fh.width, fh.height);
+      this.flashHalf = fh;
+    } catch (err) { this.flashAtlas = null; this.darkAtlas = null; this.atlasHalf = null; this.flashHalf = null; }
   },
 
   /* 그렸으면 true, 프레임이 없으면 false → 호출부가 도형으로 폴백한다.
@@ -5805,19 +5824,110 @@ function drawDepth() {
   for (const o of obstacles) if (!o.struct && !o.deco) depthList.push([o.y, 0, o]);
   for (const d of decos) depthList.push([d.y, 4, d]);
   for (const lm of landmarks) depthList.push([lm.y, 1, lm]);
-  for (const e of enemies) if (e.active) depthList.push([e.y, 2, e]);
+  // 화면 밖 적은 정렬에도 넣지 않는다 — 10분에 300마리 중 절반은 밖이다
+  for (const e of enemies) {
+    if (!e.active) continue;
+    const sx = e.x - cam.x, sy = e.y - cam.y;
+    if (sx < -70 || sx > W + 70 || sy < -70 || sy > HT + 70) continue;
+    depthList.push([e.y, 2, e]);
+  }
   for (const w of player.weapons)
     if (w.key === "orbit" && w.nodes) for (const nd of w.nodes) depthList.push([nd.y, 5, nd]);
   depthList.push([player.y, 3, null]);
   depthList.sort((a, b) => a[0] - b[0]);
+  drawEnemyShadows();                                // 바닥에 깔리는 것이라 순서가 없다 — 한 번에
   for (const d of depthList) {
     if (d[1] === 0) drawObstacle(d[2]);
     else if (d[1] === 4) drawDeco(d[2]);
     else if (d[1] === 1) drawLandmark(d[2]);
-    else if (d[1] === 2) drawEnemy(d[2]);
+    else if (d[1] === 2) { if (!drawEnemyFast(d[2])) drawEnemy(d[2]); }
     else if (d[1] === 5) drawOrbitNode(d[2]);
     else drawPlayer();
   }
+}
+
+/* ── 적 그리기의 빠른 길 ──
+
+   10분 시점 프레임 51ms 중 적 그리기가 17ms 였다(298마리, 한 마리 57µs).
+   한 마리마다 standUp(save·translate·scale·translate) → 그림자 타원 둘(각각
+   beginPath·rect 열 몇 개·fill) → Sprites.draw(save·translate·scale·drawImage·
+   restore) → restore. path fill 넷과 save/restore 두 쌍이다.
+
+   그림자는 바닥에 깔리는 반투명 검정이라 **그릴 순서가 없다** — 깊이 루프 앞에서
+   전부 한 path 에 모아 알파별로 네 번만 fill 한다(596번 → 4번).
+
+   몸통은 standUp 없이 찍는다. standUp(sy) 은 sy 를 축으로 세로만 1/TILT 로 늘리는
+   것이라, 그 안에서 (x, sy+d) 에 높이 h 로 찍던 것은 밖에서 (x, sy + d/TILT) 에
+   높이 h/TILT 로 찍으면 같다. 좌우 반전은 drawImage 의 음수 너비로 한다.
+   그래서 한 마리 = drawImage 한 번(맞았으면 둘). 절차 도형으로 그리는 폴백은
+   그대로 옛 길(drawEnemy)을 탄다. */
+function drawEnemyShadows() {
+  // [바깥 타원 alpha, 안쪽 타원 alpha] × [걷는 것, 나는 것]
+  const groups = [[.30, false, 1.02, .76, .82], [.32, false, .66, .48, .82],
+                  [.22, true,  .62, .46, 1.15], [.20, true,  .40, .30, 1.15]];
+  for (const [alpha, flyG, rxK, ryK, dyK] of groups) {
+    ctx.fillStyle = "rgba(0,0,0," + alpha + ")";
+    ctx.beginPath();
+    let any = false;
+    for (const d of depthList) {
+      if (d[1] !== 2) continue;
+      const e = d[2], T = e.type;
+      const fly = T.shape === "bat" || T.shape === "ghost";
+      if (fly !== flyG) continue;
+      if (!Sprites.ready || !Sprites.frames[T.sprite]) continue;   // 옛 길과 같은 조건 — 도형 폴백엔 그림자가 없다
+      const sx = e.x - cam.x, sy = e.y - cam.y;
+      pxEllipseStand(sx, sy + e.r * dyK, e.r * rxK, e.r * ryK, sy);
+      any = true;
+    }
+    if (any) ctx.fill();
+  }
+}
+/* standUp(sy0) 안에서 찍던 격자 타원을 밖에서 같은 자리에 찍는다.
+   행 하나의 높이는 PIX/TILT 가 된다 — 안에서 PIX 였던 것이 늘어난 것이다. */
+function pxEllipseStand(cx, cy, rx, ry, sy0) {
+  const gx = Math.round(cx / PIX) * PIX, gy = Math.round(cy / PIX) * PIX;
+  const rows = Math.max(1, Math.floor(ry / PIX));
+  const hh = PIX / TILT;
+  for (let i = -rows; i <= rows; i++) {
+    const y = i * PIX;
+    const w = Math.max(PIX, Math.round(rx * Math.sqrt(Math.max(0, 1 - (y / ry) * (y / ry))) / PIX) * PIX);
+    ctx.rect(gx - w, sy0 + (gy + y - sy0) / TILT, w * 2, hh);
+  }
+}
+function drawEnemyFast(e) {
+  const T = e.type;
+  if (!Sprites.ready || !T.sprite) return false;
+  const f = Sprites.frames[T.sprite];
+  if (!f) return false;
+  const sx = e.x - cam.x, sy = e.y - cam.y;
+  const bob = Math.sin(e.wob) * (T.shape === "ghost" ? 4 : 2);
+  const n = f.n || 1, idx = n > 1 ? Math.floor(e.anim * (f.fps || 8)) % n : 0;
+  const k = e.r / 14 * CHAR_SCALE * (f.s || 1);
+  const w = f.w, h = f.h;
+  // standUp 안의 중심 (sx + ox·k, sy + bob + oy·k) → 밖에서는 세로만 sy 를 축으로 1/TILT
+  const cx = sx + (f.ox || 0) * k;
+  const cy = sy + (bob + (f.oy || 0) * k) / TILT;
+  const dw = w * k, dh = h * k / TILT;
+  const flip = e.x > player.x;
+  const dx = flip ? cx + dw / 2 : cx - dw / 2, dwS = flip ? -dw : dw;
+  // 그린 폭이 칸의 절반 이하면 반 크기 판에서 — 원본 픽셀을 1/4 만 읽는다
+  const half = Sprites.atlasHalf && dw <= w / 2;
+  const src = half ? Sprites.atlasHalf : Sprites.atlas, q = half ? .5 : 1;
+  ctx.drawImage(src, (f.x + idx * w) * q, f.y * q, w * q, h * q, dx, cy - dh / 2, dwS, dh);
+  if (e.flash > 0 && Sprites.flashAtlas) {
+    ctx.globalAlpha = Math.min(1, e.flash * 6);
+    const fsrc = half && Sprites.flashHalf ? Sprites.flashHalf : Sprites.flashAtlas, fq = half && Sprites.flashHalf ? .5 : 1;
+    ctx.drawImage(fsrc, (f.x + idx * w) * fq, f.y * fq, w * fq, h * fq, dx, cy - dh / 2, dwS, dh);
+    ctx.globalAlpha = 1;
+  }
+  if (!Attract.on && (e.boss || e.sigilKey || (e.rank && e.rank.ring))) {
+    // 체력바도 같은 사상으로 — 안에서 (sy - r - 16) 높이 6 이던 것
+    const bw = e.r * 2.4, hpf = clamp(e.hp / e.maxHp, 0, 1);
+    const by = sy + (-e.r - 16) / TILT, bh = 6 / TILT;
+    ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(sx - bw / 2, by, bw, bh);
+    ctx.fillStyle = "#ff4d6d"; ctx.fillRect(sx - bw / 2, by, bw * hpf, bh);
+  }
+  return true;
 }
 
 /* 궤도 성서 한 장. 월드 y 를 가진 '서 있는 것'이라 깊이 목록에 낱개로 들어간다. */
@@ -12116,17 +12226,23 @@ function frame(now) {
   else if (Attract.on) Attract.stop();
 
   acc += simDt;
+  /* 따라잡기 상한 5 → 2. 프레임이 늦으면 늦은 만큼 시뮬을 여러 번 돌려 따라잡는데,
+     10분 시점 실측이 프레임마다 update 3.4번이었다 — 늦어서 더 돌리고, 더 돌려서
+     더 늦는 나선이다. 2번까지만 따라잡고 나머지는 게임이 느려지는 쪽으로 흘린다.
+     느려지는 게임은 플레이가 되지만 멈추는 게임은 안 된다. */
   let guard = 0;
-  while (acc >= STEP && guard++ < 5) {
+  while (acc >= STEP && guard++ < 2) {
     if (inMenu) Attract.update(STEP); else update(STEP);
     acc -= STEP;
   }
+  if (acc > STEP) acc = STEP;                    // 밀린 시간은 버린다 — 이월하면 나선이 그대로다
 
   // 렌더
   // 흔들림을 넣는 곳은 스물일곱 군데다 — 배수는 '읽는 한 곳'에서 곱한다
   const sk = cam.shake * Opt.shakeMul();
   const shx = sk ? rnd(-sk, sk) : 0;
   const shy = sk ? rnd(-sk, sk) : 0;
+  ctx.imageSmoothingEnabled = false;            // 픽셀아트 — 프레임에 한 번. 빠른 길은 이걸 믿고 찍는다
   ctx.save();
   ctx.translate(shx, shy);
   // 메뉴에서도 월드를 그린다 — 그 위를 각 메뉴가 반투명하게 덮는다

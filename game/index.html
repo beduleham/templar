@@ -8499,13 +8499,15 @@ function drawHUD() {
     ctx.globalAlpha = 1;
   }
 
+  // 알림 자리 — 상태 밴드(보스·미션·전직) 바로 아래. 화면 절반보다는 안 내려간다.
+  const ny = Math.min(H * .45, Math.max(96, Game.bandY + 12));
+
   // 지형지물 알림
-  if (Game.lmFlash > 0 && !overlay) {
+  if (Notice.current === "lmFlash" && !overlay) {
     ctx.globalAlpha = Math.min(1, Game.lmFlash / 3 * 1.6);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 20px " + FONT; ctx.fillStyle = "#ffe9a8";
-    // 위에서 쓴 채널이 있으면 그 아래로 내려앉는다. 화면 절반보다는 안 내려간다.
-    ctx.fillText(Game.lmFlashText, W / 2, Math.min(H * .45, Math.max(206, Game.bandY + 16)));
+    ctx.fillText(Game.lmFlashText, W / 2, ny + 20);
     ctx.globalAlpha = 1;
   }
 
@@ -8534,7 +8536,7 @@ function drawHUD() {
   }
 
   // 새 조합 해금 배너
-  if (Game.comboFlash > 0 && !overlay) {
+  if (Notice.current === "comboFlash" && !overlay) {
     const a = clamp(Game.comboFlash / 2.6, 0, 1);
     ctx.globalAlpha = Math.min(1, a * 1.6);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -8542,33 +8544,33 @@ function drawHUD() {
     const txt = last ? last.name + " — " + last.desc : "";
     ctx.font = "600 14px " + FONT;
     const bwid = Math.max(300, ctx.measureText(txt).width + 60);
-    pxChip(W / 2 - bwid / 2, 82, bwid, 62, "rgba(10,8,18,.82)", "rgba(255,217,160,.4)", 12);
+    pxChip(W / 2 - bwid / 2, ny, bwid, 62, "rgba(10,8,18,.82)", "rgba(255,217,160,.4)", 12);
     ctx.font = "800 20px " + FONT; ctx.fillStyle = Game.comboFlashMaster ? "#ffe9a8" : "#ffd9a0";
-    ctx.fillText(Game.comboFlashMaster ? "★ 조합 완성! 효과가 강해졌다" : "속성 조합 발동!", W / 2, 104);
+    ctx.fillText(Game.comboFlashMaster ? "★ 조합 완성! 효과가 강해졌다" : "속성 조합 발동!", W / 2, ny + 22);
     ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.8)";
-    if (last) ctx.fillText(txt, W / 2, 128);
+    if (last) ctx.fillText(txt, W / 2, ny + 46);
     ctx.globalAlpha = 1;
   }
 
   // 전직 연출
-  if (Game.advanceFlash > 0 && !overlay) {
+  if (Notice.current === "advanceFlash" && !overlay) {
     const a = clamp(Game.advanceFlash / 3.2, 0, 1);
     ctx.globalAlpha = Math.min(1, a * 1.5);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 40px " + FONT; ctx.fillStyle = advColor();
-    iconText("stance", advName(), W / 2, 132, advColor(), 3);
+    iconText("stance", advName(), W / 2, ny + 26, advColor(), 3);
     ctx.font = "700 15px " + FONT; ctx.fillStyle = "rgba(255,255,255,.7)";
     ctx.fillText(player.advance.length >= 3 ? "★ 각성 완료 — 규칙이 바뀌었다"
-                                            : "전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, 164);
+                                            : "전직 완료 — 스킬과 특성이 새로 열렸다", W / 2, ny + 58);
     ctx.globalAlpha = 1;
   }
 
   // 사냥개 무리 경고
-  if (Game.houndWarn > 0 && !overlay) {
+  if (Notice.current === "houndWarn" && !overlay) {
     ctx.globalAlpha = Math.min(1, Game.houndWarn / 2.4 * 1.8) * (.6 + Math.abs(Math.sin(Game.time * 8)) * .4);
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.font = "800 24px " + FONT; ctx.fillStyle = "#ff9f6b";
-    iconText("wolf", "사냥개 무리가 온다 — 도망칠 수 없다", W / 2, 178, "#d8a86a", 3);
+    iconText("wolf", "사냥개 무리가 온다 — 도망칠 수 없다", W / 2, ny + 22, "#d8a86a", 3);
     ctx.globalAlpha = 1;
   }
 
@@ -12198,16 +12200,40 @@ function drawEnd(win) {
 
 /* ---------- 메인 루프 ---------- */
 let acc = 0, last = performance.now();
+/* 상단 알림 큐.
+
+   화면 위 가운데에 뜨는 것이 일곱이었다 — 보스 체력바·미션·전직 대기·전직 가능
+   (상태) 와 조합 발동·전직 연출·사냥개 경고·지형지물 토스트(알림). 상태 넷은
+   bandY 로 아래로 흘러 내렸지만 알림 넷은 **각자 고정 y** 에 그려서 서로도, 상태와도
+   겹쳤다. 7분 화면에 「속성 조합 발동!」「전직 가능」「사냥개 무리가 온다」가 세 겹으로
+   떠 있었다.
+
+   상태는 있는 동안 늘 보여야 하니 그대로 두고, 알림은 **한 번에 하나**만 보인다.
+   타이머는 예전 그대로 각자 갖되(코드 22곳이 그걸 켠다) 지금 보이는 것만 흐르고
+   나머지는 멈춰 기다린다 — 큐다. 기다리는 게 있으면 지금 것은 1.2초 안에 넘긴다.
+   우선순위: 전직 연출 > 사냥개 경고 > 조합 발동 > 토스트. 자리는 상태 밴드 바로 아래. */
+const Notice = {
+  order: ["advanceFlash", "houndWarn", "comboFlash", "lmFlash"],
+  current: null,
+  HANDOFF: 1.2,                           // 뒤에 기다리는 게 있을 때 지금 것에 남겨 주는 시간
+  waiting() { let n = 0; for (const k of this.order) if (Game[k] > 0) n++; return n; },
+  tick(dt) {
+    let cur = null;
+    for (const k of this.order) if (Game[k] > 0) { cur = k; break; }
+    this.current = cur;
+    if (!cur) return;
+    if (this.waiting() > 1) Game[cur] = Math.min(Game[cur], this.HANDOFF);
+    Game[cur] = Math.max(0, Game[cur] - dt);
+  },
+};
+
 function frame(now) {
   requestAnimationFrame(frame);
   let dt = (now - last) / 1000;
   last = now;
   if (dt > .25) dt = .25;            // 탭 전환 후 폭주 방지
   // 연출 타이머는 시뮬레이션이 멈춰 있어도(레벨업·전직 화면) 흘러야 한다
-  if (Game.comboFlash > 0) Game.comboFlash = Math.max(0, Game.comboFlash - dt);
-  if (Game.advanceFlash > 0) Game.advanceFlash = Math.max(0, Game.advanceFlash - dt);
-  if (Game.houndWarn > 0) Game.houndWarn = Math.max(0, Game.houndWarn - dt);
-  if (Game.lmFlash > 0) Game.lmFlash = Math.max(0, Game.lmFlash - dt);
+  Notice.tick(dt);                        // 알림 넷은 한 번에 하나만 흐른다
   if (Game.altarFlash > 0) Game.altarFlash = Math.max(0, Game.altarFlash - dt * 1.8);
   if (Game.quitArm > 0) Game.quitArm = Math.max(0, Game.quitArm - dt);
   if (Game.wipeArm > 0) Game.wipeArm = Math.max(0, Game.wipeArm - dt);

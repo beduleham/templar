@@ -1485,8 +1485,13 @@ const RANKS = {
 // 등급 추첨 — 시간이 갈수록 상위 등급이 섞인다
 function rollRank(t) {
   const m = t / 60;
-  if (m >= 4 && Math.random() < Math.min(.10, (m - 4) * .013)) return RANKS.rare;
-  if (m >= 1 && Math.random() < Math.min(.26, (m - 1) * .024)) return RANKS.elite;
+  /* 스폰 확률만 내리면 비율이 안 잡힌다 — 정예는 체력이 5.5배라 오래 살아 쌓인다(스폰 15%
+     인데 10분 실측 31~35%). 살아 있는 적의 18%가 이미 등급이면 일반만 낸다(§101). */
+  if ((Game.rankedAlive || 0) > (Game.alive || 0) * .18) return RANKS.common;
+  /* 상한을 내렸다(희귀 .10→.07 · 정예 .26→.15). 10분 실측에서 활성 적의 33%가 정예·희귀라
+     체력바 95개가 화면을 덮었다(§101). 등급은 '가끔 나오는 무거운 놈'이어야 읽힌다. */
+  if (m >= 4 && Math.random() < Math.min(.07, (m - 4) * .01)) return RANKS.rare;
+  if (m >= 1 && Math.random() < Math.min(.15, (m - 1) * .016)) return RANKS.elite;
   return RANKS.common;
 }
 
@@ -1955,10 +1960,10 @@ const WEAPONS = {
       ctx.save();
       // 안쪽은 평평하게 깔고 테두리만 픽셀 고리로 — 그라디언트를 쓰면
       // 주변이 전부 또렷한 픽셀인데 여기만 뿌옇게 뜬다
-      ctx.globalAlpha = a * .55;
+      ctx.globalAlpha = a * .3;                    // 채움은 힌트만(§101)
       ctx.fillStyle = "#ffcd6e";
       ctx.beginPath(); ctx.arc(p.sx, p.sy, R, 0, TAU); ctx.fill();
-      ctx.globalAlpha = Math.min(1, a * 3.4);
+      ctx.globalAlpha = Math.min(1, a * 2);
       ctx.globalCompositeOperation = "lighter";
       pxRing(p.sx, p.sy, R, w.fx > 0 ? 7 : 4, pxPal("#ffcd6e"));
       ctx.restore();
@@ -2556,7 +2561,7 @@ function spawnWave(o) {
   w.life = w.maxLife = o.life; w.dmg = o.dmg; w.color = o.color;
   w.element = o.element || "physical"; w.heal = o.heal || 0;
   w.hitIds.clear();
-  if (!w.heal) spawnFx(fxKey("boom", w.element), w.x, w.y, Math.min(260, o.maxR * .9), 0);
+  if (!w.heal) spawnFx(fxKey("boom", w.element), w.x, w.y, Math.min(150, o.maxR * .7), 0);   // 폭발 그림은 파동보다 작게(§101)
 }
 function spawnEShot(x, y, vx, vy, dmg, color) {
   const p = alloc(eshots); if (!p) return;
@@ -2589,6 +2594,7 @@ function spawnFx(key, x, y, px, rot) {
   if (!f.active) fxLive++;              // 살아 있는 것을 밀어냈으면 수는 그대로
   f.active = true; f.x = x; f.y = y; f.key = key;
   f.maxLife = f.life = (fr.n || 1) / (fr.fps || 8);
+  if (key.indexOf("fx_boom") === 0) px = Math.min(px, 130);   // 폭발은 130px 까지 — 화면을 덮는 폭발은 정보가 아니다(§101)
   f.scale = px / fr.w; f.rot = rot || 0;
 }
 // 속성 행이 없으면 물리로 떨어진다 (적 탄·환경 피해 등)
@@ -2598,6 +2604,13 @@ const fxKey = (kind, elem) =>
 function spawnParticles(x, y, n, color, speed = 120, life = .5, r = 3, opt) {
   const g = opt && opt.g || 0, streak = opt && opt.streak || 0, drag = opt && opt.drag || .9;
   const spread = opt && opt.spread, dir = opt && opt.dir;
+  /* 입자 예산은 적 수에 반비례한다(§101). 120마리까지는 그대로, 300마리면 40%.
+     입자는 '맞았다'의 신호인데 적이 300이면 신호가 아니라 안개가 된다. */
+  const alive = Game.alive || 0, budget = alive > 120 ? clamp(1 - (alive - 120) / 300, .4, 1) : 1;
+  if (budget < 1) {
+    n = Math.max(1, Math.round(n * budget));
+    if ((Game.partLive || 0) > 500 * budget) return;        // 예산을 넘긴 동안은 새 입자를 안 낸다
+  }
   for (let i = 0; i < n; i++) {
     const p = alloc(particles); if (!p) return;
     // 방향을 주면 부채꼴로 튄다 — 맞은 쪽으로 피가 튀어야 어디서 맞았는지 읽힌다
@@ -3787,9 +3800,10 @@ const Game = {
       for (let i = 0; i < 4 + this.bossIdx * 3; i++) this.spawnEnemy(pick(this.currentTypes()));
     }
 
-    let alive = 0;
-    for (const e of enemies) if (e.active) alive++;
+    let alive = 0, rankedAlive = 0;
+    for (const e of enemies) if (e.active) { alive++; if (e.rank && e.rank.ring) rankedAlive++; }
     this.alive = alive;                        // 다른 스폰 자리(보스 졸개)가 상한을 보게 둔다
+    this.rankedAlive = rankedAlive;            // 등급 추첨이 '지금 살아 있는 비율'을 보게 둔다(§101)
     const want = this.targetCount();
     // 첫 3초는 비운다 — 판이 열리는 순간 둘러싸이면 배울 틈이 없다
     if (alive < want && this.time >= 3) {
@@ -4368,8 +4382,10 @@ function update(dt) {
   }
 
   /* 9. 이펙트 */
+  let partLive = 0;
   for (const p of particles) {
     if (!p.active) continue;
+    partLive++; Game.partLive = partLive;
     p.life -= dt;
     if (p.life <= 0) { p.active = false; continue; }
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -4672,7 +4688,7 @@ function drawEnemyBody(e) {
     ctx.fill();
   }
   if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14 * CHAR_SCALE, e.anim, e.x > player.x, e.flash)) {
-    if (!Attract.on && (e.boss || e.sigilKey || (e.rank && e.rank.ring))) drawEnemyHpBar(e, sx, sy);
+    if (!Attract.on && (e.boss || e.sigilKey || e.rank === RANKS.rare)) drawEnemyHpBar(e, sx, sy);
     return;
   }
   if (e.burn > 0) {
@@ -4856,7 +4872,7 @@ function drawEnemyBody(e) {
     ctx.restore();
   }
   // 보스/정예 체력바
-  if (e.boss || e.sigilKey || (e.rank && e.rank.ring)) drawEnemyHpBar(e, sx, sy);
+  if (e.boss || e.sigilKey || e.rank === RANKS.rare) drawEnemyHpBar(e, sx, sy);
 }
 
 /* 몬스터 이름표.
@@ -4870,7 +4886,7 @@ function drawEnemyNames() {
   const pick = [];
   for (const e of enemies) {
     if (!e.active) continue;
-    if (e.boss || e.sigilKey || (e.rank && e.rank.ring)) continue;   // 이미 라벨이 있다
+    if (e.boss || e.sigilKey || e.rank === RANKS.rare) continue;   // 이미 라벨이 있다
     const sx = e.x - cam.x, sy = e.y - cam.y;
     if (sx < 0 || sx > W || sy < 0 || sy > HT) continue;
     pick.push([dist2(e.x, e.y, player.x, player.y), e, sx, sy]);
@@ -5894,23 +5910,32 @@ function drawWorld() {
   }
 
   // 파동
+  let wvDrawn = 0;
   for (const wv of waves) {
     if (!wv.active) continue;
     const t = 1 - wv.life / wv.maxLife;
     const sx = wv.x - cam.x, sy = wv.y - cam.y;
     if (sx < -wv.r - 60 || sx > W + wv.r + 60 || sy < -wv.r - 60 || sy > HT + wv.r + 60) continue;
+    /* 화면에 파동이 여섯을 넘으면 그 뒤는 앞날 한 줄만 그린다(§101). 연쇄 폭발 빌드는
+       한 프레임에 파동 13~19개를 살려 두는데, 채움과 뒷테가 겹치면 바닥이 통째로 밝아진다. */
+    if (++wvDrawn > 6) {
+      ctx.save(); ctx.globalAlpha = (1 - t) * .5; pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE); ctx.restore();
+      continue;
+    }
     ctx.save();
-    ctx.globalAlpha = (1 - t) * .18;
+    /* 알파를 절반으로(§101). 10분에 파동 15~19개가 동시에 살아 화면 중앙의 21%가 밝은
+       픽셀이었다 — 앞날(부딪히는 자리)만 남기고 채움·뒷테는 힌트로 내린다. */
+    ctx.globalAlpha = (1 - t) * .08;
     ctx.fillStyle = wv.color;
     ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
     ctx.globalCompositeOperation = "lighter";
     // 뒤에 남는 흐린 테 — 파동이 '지나갔다'가 보인다
-    ctx.globalAlpha = (1 - t) * .3;
+    ctx.globalAlpha = (1 - t) * .15;
     pxRing(sx, sy, wv.r * .82, 3 + (1 - t) * 4, pxPal(wv.color));
-    ctx.globalAlpha = (1 - t) * .75;
-    pxRing(sx, sy, wv.r, 4 + (1 - t) * 7, pxPal(wv.color));
+    ctx.globalAlpha = (1 - t) * .4;
+    pxRing(sx, sy, wv.r, 4 + (1 - t) * 5, pxPal(wv.color));
     // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다.
-    ctx.globalAlpha = (1 - t) * .85;
+    ctx.globalAlpha = (1 - t) * .7;
     pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE);
     ctx.restore();
   }
@@ -6204,7 +6229,7 @@ function drawEnemyFast(e) {
     ctx.drawImage(fsrc, (f.x + idx * w) * fq, f.y * fq, w * fq, h * fq, dx, cy - dh / 2, dwS, dh);
     ctx.globalAlpha = 1;
   }
-  if (!Attract.on && (e.boss || e.sigilKey || (e.rank && e.rank.ring))) {
+  if (!Attract.on && (e.boss || e.sigilKey || e.rank === RANKS.rare)) {
     // 체력바도 같은 사상으로 — 안에서 (sy - r - 16) 높이 6 이던 것
     const bw = e.r * 2.4, hpf = clamp(e.hp / e.maxHp, 0, 1);
     const by = sy + (-e.r - 16) / TILT, bh = 6 / TILT;
@@ -8316,6 +8341,9 @@ function drawLighting() {
 
   /* 광원. 주인공은 반드시 넣는다 — 자기 발밑이 어두우면 게임이 안 된다. */
   punch(player.x, player.y, 310 + (player.stance ? 50 : 0));
+  /* 좁고 진한 빛 한 겹 더(§101). 10분 실측에서 주인공 몸(밝기 50~57)이 둘레(59~80)보다
+     어두워 군중 속에서 찾기 어려웠다. 반경 70 안을 확실히 밝힌다. */
+  punch(player.x, player.y - 10, 45, 1);
   for (const o of obstacles) {
     if (o.kind === "brazier") { const p = firePos(o); punch(p.x, p.y, o.r * 7 + Math.sin(Game.time * 6 + o.seed * 9) * 8); }
     else if (o.kind === "lantern") { const p = lampPos(o); punch(p.x, p.y, o.r * 8 + Math.sin(Game.time * 5 + o.seed * 9) * 6); }
@@ -8886,8 +8914,10 @@ function drawHUD() {
     ctx.globalAlpha = .55 + Math.sin(performance.now() / 420) * .2;
     ctx.font = "800 16px " + FONT; ctx.fillStyle = "#c9a3ff";
     const w = Math.max(0, Math.ceil(Game.advanceWaitT));
+    const wy = Math.max(108, Game.bandY + 14);   // 보스 미션 배너 아래로 — 108 고정이면 미션 글자 위에 겹친다(§101)
     ctx.fillText("⏳ " + ["1차", "2차", "3차", "4차"][Game.advanceWaitTier - 1] + " 각성까지 "
-      + Math.floor(w / 60) + ":" + String(w % 60).padStart(2, "0"), W / 2, 108);
+      + Math.floor(w / 60) + ":" + String(w % 60).padStart(2, "0"), W / 2, wy);
+    Game.bandY = wy + 16;
     ctx.globalAlpha = 1;
   }
 
@@ -8903,12 +8933,12 @@ function drawHUD() {
     const gs = Game.guideShrine;
     ctx.fillText(gs ? "가장 가까운 봉인된 제단 " + Math.round(gs.d / 10) + "m — 표지를 따라가라 (보스도 준다)"
                     : "봉인된 제단의 파수꾼이나 보스를 쓰러뜨려라", W / 2, ay + 20);
-    Game.bandY = ay + 30;
+    Game.bandY = ay + 38;                      // 둘째 줄(12px, ay+20) 아래 여유 — 12 로 두면 다음 알림이 글자를 문다(§101)
     ctx.globalAlpha = 1;
   }
 
   // 알림 자리 — 상태 밴드(보스·미션·전직) 바로 아래. 화면 절반보다는 안 내려간다.
-  const ny = Math.min(H * .45, Math.max(96, Game.bandY + 12));
+  const ny = Math.min(H * .45, Math.max(96, Game.bandY + 18));
 
   // 지형지물 알림
   if (Notice.current === "lmFlash" && !overlay) {

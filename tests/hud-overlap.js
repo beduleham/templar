@@ -146,6 +146,7 @@ const CAPTURE = `(() => {
       Mission.flash = BIG ? 1.5 : 0;
       if (Game.state !== 'playing') Game.state = 'playing';
       await step();
+      await step();          // 한 프레임 더 — 표지가 '지난 프레임의 HUD 자리'를 보고 비키므로, 판이 무거울 때 한 번은 덜 앉는다(전체 회귀 동시 실행에서 한 번 흔들렸다)
       Mission.flash = BIG ? 1.5 : 0;
       const boxes = eval(CAP);
       // 중앙에 쓰는 것만 — 왼쪽 위 조합 줄이 좁은 화면에서 이 구간에 들어온다

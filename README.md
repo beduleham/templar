@@ -406,5 +406,8 @@ node art/make-guide.js     # Piskel 용 픽셀 도안
 
 ## 문서
 
-설계 근거, 개발 중 발견한 설계 결함, 밸런스 튜닝 지점, 그래픽 리소스 조달 계획,
-차별화 전략, 스팀 출시 준비는 [`docs/game-design.md`](docs/game-design.md) 에 정리돼 있다.
+| 문서 | 내용 |
+| --- | --- |
+| [`docs/개발정리.md`](docs/개발정리.md) | **여기부터.** 지금까지 만든 것과 부딪힌 문제, 계측 결과, 남은 일을 한 장에 |
+| [`docs/game-design.md`](docs/game-design.md) | 설계 근거, 개발 중 발견한 설계 결함, 밸런스 튜닝 지점, 차별화 전략, 스팀 출시 준비 |
+| [`docs/art-spec.md`](docs/art-spec.md) | 그래픽·소리 규격과 교체 절차 |

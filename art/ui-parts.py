@@ -37,7 +37,9 @@ min(138,208) - 79 = 59 > 55). 그래서 UI 부품만 순수 초록 배경으로 
 512 이므로 넓은 것은 한 줄에 하나씩, 작은 것은 한 줄에 여러 개 담는다. UI 는 늘려
 그리므로 128칸 격자에 맞출 이유가 없다 — 조각마다 제 크기를 준다.
 """
-import io, os, json, base64
+import io, os, sys, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import atlaslib
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -184,15 +186,7 @@ def main():
         if not known: y += rh
     if not known: new = new.crop((0, 0, AW, y))
 
-    new.save(ATLAS)
-    html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]
-    buf = io.BytesIO(); new.save(buf, "PNG", optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    io.open("art/atlas.b64", "w").write(b64)
-    i0 = html.index('Sprites.load("data:image/png;base64,')
-    i1 = html.index('"', i0 + len('Sprites.load("'))
-    html = html[:i0] + 'Sprites.load("data:image/png;base64,' + b64 + html[i1:]
-    io.open(GAME, "w", encoding="utf-8").write(html)
+    atlaslib.save(html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:], new)
     print(f"\nUI 부품 {len(parts)}개  아틀라스 {AW}x{AH} → {new.size[0]}x{new.size[1]}   "
           f"game/index.html {os.path.getsize(GAME) / 1024 / 1024:.2f}MB")
 

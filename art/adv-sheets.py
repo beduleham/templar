@@ -71,11 +71,11 @@ align-frames 의 배경 제거는 남은 한 겹을 침식으로 깎는데(원�
 가로는 알파 질량의 축, 세로는 **발 선**을 칸의 같은 높이에 둔다. 발 선은 경계상자
 바닥에서 문양이 삐져나온 만큼을 뺀 자리다 — 문양은 발밑에 깔린 것이므로 발이 기준이다.
 """
-import sys, io, os, json, base64
+import io, os, sys, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import atlaslib
 import numpy as np
 from PIL import Image, ImageFilter
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from importlib import import_module
 key_out = import_module("align-frames").key_out
 
@@ -273,15 +273,7 @@ def main():
     used = max((ty for _, ty in placed.values()), default=AH - CELL) + CELL
     new = new.crop((0, 0, AW, max(used, AH)))
 
-    new.save(ATLAS)
-    html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]
-    buf = io.BytesIO(); new.save(buf, "PNG", optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    io.open("art/atlas.b64", "w").write(b64)
-    i0 = html.index('Sprites.load("data:image/png;base64,')
-    i1 = html.index('"', i0 + len('Sprites.load("'))
-    html = html[:i0] + 'Sprites.load("data:image/png;base64,' + b64 + html[i1:]
-    io.open(GAME, "w", encoding="utf-8").write(html)
+    atlaslib.save(html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:], new)
     print(f"\n초상 {len(strip)}장  아틀라스 {AW}x{AH} → {new.size[0]}x{new.size[1]}   "
           f"game/index.html {os.path.getsize(GAME) / 1024:.0f}KB")
 

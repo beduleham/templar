@@ -32,7 +32,9 @@ align-frames.py 는 배경을 지우고 인물에 맞춰 크롭하는데, 타일
   예) python3 art/make-tiles.py floor art/src/floor_1.png ...
       python3 art/make-tiles.py floordeco2 art/src/floordeco2_1.png ... --alpha
 """
-import sys, os, json, io, base64
+import io, os, sys, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import atlaslib
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -348,19 +350,10 @@ def main():
         # 새 그림의 투명한 자리로 비쳐 나온다.
         atlas.paste(Image.new("RGBA", (cell, cell), (0, 0, 0, 0)), (f["x"] + i * cell, f["y"]))
         atlas.paste(img, (f["x"] + i * cell, f["y"]))
-    atlas.save(ATLAS)
     if sval is not None: f["s"] = sval
     if oyval is not None: f["oy"] = int(oyval)
-    html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]
     print(f"\n{key} {f['n']}장 → 아틀라스 (x={f['x']} y={f['y']} s={f.get('s')} oy={f.get('oy')})")
-
-    b64 = base64.b64encode(io.open(ATLAS, "rb").read()).decode()
-    io.open("art/atlas.b64", "w").write(b64)
-    s = html.index('Sprites.load("data:image/png;base64,') + len('Sprites.load("data:image/png;base64,')
-    e = html.index('"', s)
-    html = html[:s] + b64 + html[e:]
-    io.open(GAME, "w", encoding="utf-8").write(html)
-    print(f"game/index.html {len(html)//1024}KB")
+    atlaslib.save(html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:], atlas)
 
 
 main()

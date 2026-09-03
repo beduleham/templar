@@ -19,7 +19,9 @@
   예) python3 art/inject-frames.py art/out/paladin_5.png 128 \\
         hero_paladin_idle:0,0,0,0  hero_paladin_attack:1,2,3,4
 """
-import sys, os, json, base64, io
+import io, os, sys, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import atlaslib
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -126,15 +128,7 @@ def main():
             y += cell
     new = new.crop((0, 0, new.size[0], max(y, AH)))
 
-    new.save(ATLAS)
-    html = html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:]
-    buf = io.BytesIO(); new.save(buf, "PNG", optimize=True)
-    b64 = base64.b64encode(buf.getvalue()).decode()
-    io.open("art/atlas.b64", "w").write(b64)
-    i0 = html.index('Sprites.load("data:image/png;base64,')
-    i1 = html.index('"', i0 + len('Sprites.load("'))
-    html = html[:i0] + 'Sprites.load("data:image/png;base64,' + b64 + html[i1:]
-    io.open(GAME, "w", encoding="utf-8").write(html)
+    atlaslib.save(html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:], new)
     print(f"\n아틀라스 {AW}x{AH} → {new.size[0]}x{new.size[1]}   "
           f"game/index.html {os.path.getsize(GAME) / 1024:.0f}KB")
 

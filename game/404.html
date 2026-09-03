@@ -1573,30 +1573,46 @@ const Bg = {
     i.onerror = () => { this.ready = false; };
     i.src = url;
   },
-  /* 화면을 덮도록 잘라 그린다. 세로 화면에서는 좌우가 잘리므로 가운데를 남긴다 —
-     그림의 주인공(기사)이 가운데에 있다. */
-  draw() {
+  /* 덮도록 잘라 그린다. 덮기만 하면 1600×900 한 장이 화면에 그대로 들어가 기사가
+     화면 높이의 40% 밖에 안 됐다 — 멀리서 찍은 사진처럼 보였다. 1.55배 당겨,
+     그림 안의 (46%, 92%) 지점(주인공들의 발밑)을 화면 (50%, 100%) 에 맞춘다.
+     발밑을 기준으로 잡아야 당겨도 인물이 아래로 안 흘러내린다. 넘치면 잘라 준다. */
+  zoom: 1.55, fx: .46, fy: .92,
+  draw(soft) {
     if (!this.ready) return false;
     const iw = this.img.width, ih = this.img.height;
-    const k = Math.max(W / iw, H / ih), dw = iw * k, dh = ih * k;
+    const k = Math.max(W / iw, H / ih) * this.zoom, dw = iw * k, dh = ih * k;
+    const dx = clamp(W * .5 - dw * this.fx, W - dw, 0);
+    const dy = clamp(H - dh * this.fy, H - dh, 0);
     ctx.imageSmoothingEnabled = true;            // 회화다. 픽셀 격자에 맞출 게 없다
-    ctx.drawImage(this.img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.drawImage(this.img, dx, dy, dw, dh);
     ctx.imageSmoothingEnabled = false;
-    /* 글자가 읽히게 눌러 준다. 그림에서 가장 밝은 자리(기사의 갑주와 방패)가
-       버튼·기능 목록 뒤에 오므로 아래쪽을 더 깊게 깐다. */
+    /* 글자가 읽히게 눌러 준다.
+
+       soft 는 첫 화면용이다. 거기서는 글자가 가운데에 없다 — 왼쪽 직업 목록 · 오른쪽
+       설명 · 아래 버튼이 다 제 판을 깔고 앉아 있으므로 가운데를 누를 이유가 없다.
+       직업 선택은 카드가 화면 가운데를 채우므로 예전대로 깊게 누른다. */
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, "rgba(8,8,16,.44)");
-    g.addColorStop(.30, "rgba(8,8,16,.22)");
-    g.addColorStop(.58, "rgba(8,8,16,.42)");
-    g.addColorStop(1, "rgba(8,8,16,.70)");
+    if (soft) {
+      g.addColorStop(0, "rgba(8,8,16,.40)");
+      g.addColorStop(.26, "rgba(8,8,16,.10)");
+      g.addColorStop(.62, "rgba(8,8,16,.14)");
+      g.addColorStop(1, "rgba(8,8,16,.66)");
+    } else {
+      g.addColorStop(0, "rgba(8,8,16,.44)");
+      g.addColorStop(.30, "rgba(8,8,16,.22)");
+      g.addColorStop(.58, "rgba(8,8,16,.42)");
+      g.addColorStop(1, "rgba(8,8,16,.70)");
+    }
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-    /* 글자는 가운데 한 줄기에 모여 있다. 화면 전체를 더 누르면 그림이 사라지므로
-       글자가 지나는 폭만 좁게 한 겹 더 깐다 — 양끝은 0 이라 띠로 보이지 않는다. */
-    const c = ctx.createLinearGradient(W * .10, 0, W * .90, 0);
-    c.addColorStop(0, "rgba(8,8,16,0)");
-    c.addColorStop(.5, "rgba(8,8,16,.42)");
-    c.addColorStop(1, "rgba(8,8,16,0)");
-    ctx.fillStyle = c; ctx.fillRect(0, 0, W, H);
+    if (!soft) {
+      /* 카드가 지나는 폭만 좁게 한 겹 더 깐다 — 양끝은 0 이라 띠로 보이지 않는다. */
+      const c = ctx.createLinearGradient(W * .10, 0, W * .90, 0);
+      c.addColorStop(0, "rgba(8,8,16,0)");
+      c.addColorStop(.5, "rgba(8,8,16,.42)");
+      c.addColorStop(1, "rgba(8,8,16,0)");
+      ctx.fillStyle = c; ctx.fillRect(0, 0, W, H);
+    }
     return true;
   },
 };
@@ -11822,25 +11838,40 @@ function embossText(text, x, y, deep, mid, lite, main) {
   ctx.fillStyle = main; ctx.fillText(text, x, y);
 }
 
+/* 넓으면 목업대로 — 왼쪽에 직업 목록, 오른쪽에 설명, 가운데 아래에 버튼.
+   **가운데를 비워 두는 것이 요점이다.** 그림의 주인공들이 거기 서 있다.
+   좁으면 그 자리가 없어 글자가 그림 위에 바로 앉으므로 배경을 깊게 눌러야 한다 —
+   그림 그리는 쪽(Bg.draw)도 같은 판정을 봐야 해서 함수로 뺐다. */
+function introWide() {
+  return !!(Sprites.frames.ui_logo && Sprites.atlas) && W >= 980 && H >= 560;
+}
+
 function drawIntro() {
-  menuScrim(.52);
+  /* 그림 배경이 있으면 덜 누른다. 예전에는 .52 검정을 통째로 덮고 그 위에 배경 겹
+     둘을 더 깔아서 그림의 19% 만 남았다 — 회화를 넣고도 안 보였다.
+     이제 목록·설명·버튼이 저마다 판을 깔고 앉으므로 화면을 누를 이유가 없다. */
+  const wideMenu = introWide();
+  menuScrim(Bg.ready && wideMenu ? .17 : .52);
   const t = Game.introT;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   const cx = W / 2, cy = 150;
+  let headY = 358;                       // 제목 아래 — 아래 것들이 여기서부터 내려온다
   /* 손그림 로고가 있으면 문장 + 글자 제목을 그것 하나로 대신한다. 제목은 게임에서
      가장 먼저·가장 크게 보이는 한 장이라 손그림이 이긴다. 로고 안에 십자가 이미
      들어 있으므로 위의 문장은 겹친다 — 둘 중 하나만 둔다.
      로고가 없으면 아래 절차 그림으로 그대로 떨어진다. */
   const lf = Sprites.frames.ui_logo;
   if (lf && Sprites.atlas) {
-    const lw = Math.min(W - 48, 470), lh = Math.round(lw * lf.h / lf.w), ly = 88;
+    const lw = Math.min(W - (wideMenu ? 540 : 48), 470);
+    const lh = Math.round(lw * lf.h / lf.w), ly = wideMenu ? 10 : 88;
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(Sprites.atlas, lf.x, lf.y, lf.w, lf.h, Math.round(cx - lw / 2), ly, lw, lh);
     ctx.imageSmoothingEnabled = false;
+    headY = ly + lh + (wideMenu ? 12 : 20);
     ctx.font = "700 16px " + FONT;
     ctx.fillStyle = "#ff9a5c";
-    ctx.fillText("15분을 버텨라", cx, ly + lh + 20);
+    ctx.fillText("15분을 버텨라", cx, headY);
   } else {
 
   // 문장(紋章) — 방패와 십자
@@ -11875,6 +11906,97 @@ function drawIntro() {
   ctx.fillText("15분을 버텨라", cx, 328);
   }
 
+  if (wideMenu) {
+    /* ── 왼쪽: 직업 목록. 고르면 곧장 직업 선택 화면으로 넘어간다 —
+       첫 화면에서 「어떤 게 있나」가 먼저 보여야 들어가 볼 마음이 든다. */
+    const clw = Math.min(214, Math.round(W * .18)), clx = 24, rowH = 68;
+    const clh = 42 + CLASSES.length * rowH + 10;
+    const cly = Math.max(52, Math.round(H * .10));
+    panel(clx, cly, clw, clh, 14, "rgba(9,8,15,.78)", "rgba(255,211,110,.18)");
+    drawSlice9("ui_panel", clx - 5, cly - 5, clw + 10, clh + 10, .16, .20);
+    ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.62)";
+    ctx.fillText("클래스", clx + clw / 2, cly + 24);
+    let hoverCls = -1;
+    for (let i = 0; i < CLASSES.length; i++) {
+      const c = CLASSES[i], ry = cly + 42 + i * rowH, rmid = ry + (rowH - 6) / 2;
+      const on = inRect(mouse.x, mouse.y, clx + 6, ry, clw - 12, rowH - 6);
+      if (on) {
+        hoverCls = i;
+        ctx.fillStyle = "rgba(255,211,110,.10)";
+        ctx.fillRect(clx + 6, ry, clw - 12, rowH - 6);
+      }
+      uiArt("ui_crest_" + c.key, clx + 40, rmid, 50, on ? 1 : .8);
+      ctx.textAlign = "left";
+      ctx.font = "700 16px " + FONT; ctx.fillStyle = on ? "#ffd36e" : c.color;
+      ctx.fillText(c.name, clx + 70, rmid - 8);
+      fitFont("600", 10.5, c.tagline, clx + clw - 12 - (clx + 70));
+      ctx.fillStyle = "rgba(255,255,255,.42)";
+      ctx.fillText(c.tagline, clx + 70, rmid + 10);
+      ctx.textAlign = "center";
+    }
+
+    /* ── 오른쪽: 무엇을 하는 게임인가. 좁은 판이라 설명은 한 줄로 줄인다 —
+       긴 쪽은 좁은 화면의 목록이 그대로 들고 있다. */
+    const info = [
+      ["pad",   "이동만 조작한다", "WASD · 방향키 · 드래그. 공격은 자동"],
+      ["cards", "레벨업마다 3택",  "무기 6칸 · 능력 6칸을 두고 고른다"],
+      ["steps", "각성 4단계",     "3 · 6 · 9 · 12분, 56갈래로 갈린다"],
+      ["skull", "보스는 미션을 낸다", "표식을 부수기 전에는 안 통한다"],
+    ];
+    const rw = Math.min(316, Math.round(W * .26)), rrh = 48;
+    const rh = 14 + info.length * rrh + 10, rx = W - 24 - rw;
+    const ry0 = Math.max(cly, H - 96 - rh);
+    panel(rx, ry0, rw, rh, 14, "rgba(9,8,15,.78)", "rgba(255,211,110,.18)");
+    drawSlice9("ui_panel", rx - 5, ry0 - 5, rw + 10, rh + 10, .16, .20);
+    ctx.textAlign = "left";
+    for (let i = 0; i < info.length; i++) {
+      const [ic, head, body] = info[i], yy = ry0 + 14 + i * rrh + rrh / 2;
+      drawRuleIcon(ic, rx + 26, yy - 2);
+      ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.9)";
+      ctx.fillText(head, rx + 48, yy - 9);
+      ctx.font = "500 10.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.fillText(body, rx + 48, yy + 9);
+    }
+    ctx.textAlign = "center";
+
+    /* ── 가운데 아래: 버튼 셋을 세로로. 예전에는 화면 절반 높이(y=396)에 있어
+       기사의 가슴을 가렸다. 그림이 배경이 된 뒤로는 아래로 내려야 한다. */
+    const bw = 252, bh = 52, bgp = 8, bx = cx - bw / 2;
+    const by0 = Math.max(headY + 34, H - 88 - (bh * 3 + bgp * 2));
+    const menu = [
+      ["start", "▶  게임 시작", "스페이스 또는 클릭", "#ffd36e", "sel"],
+      ["altar", "영혼의 제단", "판이 끝나도 남는 강화", "#c9a3ff", ""],
+      ["opt",   "설정", "", "rgba(255,255,255,.78)", ""],
+    ];
+    let hit = "";
+    for (let i = 0; i < menu.length; i++) {
+      const [key, label, sub, col, st] = menu[i], y = by0 + i * (bh + bgp);
+      const on = inRect(mouse.x, mouse.y, bx, y, bw, bh);
+      if (on) hit = key;
+      if (!uiPlate(bx, y, bw, bh, on ? "hover" : st))
+        panel(bx, y, bw, bh, 12, on ? "rgba(255,211,110,.2)" : "rgba(20,17,32,.92)",
+          on ? "#ffd36e" : "rgba(255,211,110,.34)");
+      ctx.font = "800 19px " + FONT; ctx.fillStyle = col;
+      ctx.fillText(label, cx, y + (sub ? 22 : bh / 2));
+      if (sub) {
+        ctx.font = "600 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+        ctx.fillText(sub, cx, y + 40);
+      }
+    }
+
+    ctx.font = "600 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.fillText("최고 기록 " + fmtTime(Game.bestTime)
+      + "   ·   모은 영혼 " + Meta.souls.toLocaleString("ko-KR"),
+      cx, by0 + bh * 3 + bgp * 2 + 24);
+
+    if (mouse.clicked) {
+      Sfx.init(); Music.start("menu");
+      if (hoverCls >= 0) { selectedClass = hoverCls; Game.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
+      if (hit === "start") { Game.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
+      if (hit === "altar") { Game.introFrom = "intro"; Game.state = "altar"; return; }
+      if (hit === "opt") { Game.optFrom = "intro"; Game.state = "options"; return; }
+    }
+  } else {
   // 기록
   ctx.font = "600 13px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.5)";
@@ -11950,6 +12072,7 @@ function drawIntro() {
     else { ry += 17; ctx.fillText(body, lx + 36, ry); ry += 26; }
   }
   ctx.textAlign = "center";
+  }
 
   ctx.font = "600 11px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.3)";
@@ -13232,7 +13355,7 @@ function frame(now) {
   /* 첫 화면(인트로·직업 선택)에는 손그림 한 장을 깐다. 그림이 화면을 통째로 덮으므로
      그 뒤의 월드는 그리지 않는다 — 안 보이는 것을 그릴 이유가 없다. 데모는 계속
      굴러간다(제단·설정으로 넘어가면 그때는 다시 보인다). */
-  const artBg = (Game.state === "intro" || Game.state === "title") && Bg.draw();
+  const artBg = (Game.state === "intro" || Game.state === "title") && Bg.draw(Game.state === "intro" && introWide());
   if (!artBg) {
     ctx.save();
     ctx.translate(shx, shy);

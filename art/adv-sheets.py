@@ -4,7 +4,9 @@
 사용:
   python3 art/adv-sheets.py <시트.png>:<키1,키2,키3,키4> ... <낱장.png>:<키>
       [--sigil key,key]   발밑 문양이 있는 갈래 (4차)
-      [--target 108]      128 칸 안에서 인물이 차지할 세로 px
+      [--frac-from 시트]  그 시트에서 문양 몫을 재서 쓴다 (아래 조건을 아는 사람이 지정)
+      [--sigil-frac 0.93] 문양 몫을 손으로 준다
+      [--target 108]      128 칸 안에서 인물이 차지할 세로 px (칸을 넘으면 저절로 줄인다)
       [--dry]             아틀라스를 건드리지 않고 재기만 한다
 
 ■ 왜 따로 재야 하는가
@@ -27,10 +29,15 @@
 없는 둘(불패의 투사 · 군중의 지배자)이 같이 들었고, 없는 쪽의 장식은 옆으로만 돈다 —
 세로를 건드리지 않는다. 거기서 516/555 = 0.930 이 나왔다.
 
-**이걸 시트마다 자동으로 재면 안 된다.** 성기사 S4 로 같은 계산을 하면 1.033 이 나온다
-(문양 570 · 없음 588) — 문양 없는 둘(불의 화신 · 정화의 태양)이 머리 **위로** 도는
-불꽃을 달고 있어서, 문양의 몫이 아니라 장식의 차이를 잰 것이다. 한 시트 안의 두 무리는
-문양 말고도 다른 게 다르므로 이 비교는 성립하지 않는다. 필요하면 --sigil-frac 으로 준다.
+**이 계산은 아무 시트에서나 성립하지 않는다.** 성기사 S4 로 같은 계산을 하면 1.033 이
+나온다(문양 570 · 없음 588) — 문양 없는 둘(불의 화신 · 정화의 태양)이 머리 **위로** 도는
+불꽃을 달고 있어서, 문양의 몫이 아니라 장식의 차이를 잰 것이다.
+
+성립하는 조건은 하나다: **문양 없는 칸의 장식이 옆으로만 돌아 세로를 안 건드릴 것.**
+그건 그림을 봐야 아는 것이라 기계가 판정할 수 없다. 그래서 `--frac-from <시트>` 로
+사람이 지정하면 거기서 재고, 아니면 상수를 쓴다. 조건을 만족하는 시트에서도 값은
+묶음마다 다르다 — 전사 W4 는 0.930, 추적자 R4 는 0.980 이었다(추적자 쪽 문양이 더
+얕게 그려졌다). 그러니 새 직업을 받을 때마다 재는 게 맞다.
 
 ■ 배경은 줄이기 **전에** 뺀다
 
@@ -47,6 +54,17 @@ align-frames 의 배경 제거는 남은 한 겹을 침식으로 깎는데(원�
 
 그래서 **줄이고 배경을 뺀 결과를 다시 재서** 배율을 고친다. 세 번이면 붙는다.
 맞추는 것은 '그리기 전의 그림'이 아니라 '화면에 보이는 것'이다.
+
+■ 칸에 들어가야 한다
+
+세로를 맞추면 가로는 따라온다 — 다만 발밑 문양이 넓게 그려진 묶음은 128 칸을 넘는다.
+추적자 「천 개의 송곳니」는 목표 108 에서 가로 138px 이었고, 그대로 넣으면 문양 고리가
+좌우로 잘려 닫힌 타원이 아니라 끊긴 활로 보인다(실제로 그렇게 나왔다).
+
+그래서 목표를 **그 직업에서 가장 넓은 초상이 칸에 들어가는 값으로** 저절로 내린다.
+직업끼리 크기가 조금 달라지지만(전사 108 · 추적자 100) 전직 선택은 늘 한 직업 안의
+같은 차수 셋이라 나란히 놓일 일이 없다. 잘린 문양은 바로 보이고, 직업 간 7% 차이는
+볼 자리가 없다.
 
 ■ 자리
 
@@ -121,13 +139,14 @@ def bbox_of(img):
 
 def main():
     argv = sys.argv[1:]
-    sigil, target, dry, frac = set(), 108, False, SIGIL_FRAC
+    sigil, target, dry, frac, fracFrom = set(), 108, False, SIGIL_FRAC, None
     if "--dry" in argv: dry = True; argv.remove("--dry")
-    for flag in ("--sigil", "--target", "--sigil-frac"):
+    for flag in ("--sigil", "--target", "--sigil-frac", "--frac-from"):
         if flag in argv:
             i = argv.index(flag); v = argv[i + 1]; del argv[i:i + 2]
             if flag == "--sigil": sigil = set(v.split(","))
             elif flag == "--target": target = int(v)
+            elif flag == "--frac-from": fracFrom = v
             else: frac = float(v)
     if not argv:
         raise SystemExit(__doc__)
@@ -150,16 +169,19 @@ def main():
         x0, y0, x1, y1 = bbox_of(img)
         info[k] = dict(sheet=sheet, x0=x0, y0=y0, x1=x1, y1=y1, h=y1 - y0, w=x1 - x0)
 
-    # 3. 문양이 더하는 몫 — 상수다. 시트마다 자동으로 재면 장식 차이를 재게 된다(머리말).
-    print(f"\n문양이 더하는 몫: 인물 = 경계상자 × {frac:.3f}"
-          f"{'  (--sigil-frac 로 준 값)' if frac != SIGIL_FRAC else '  (전사 W4 에서 잰 상수)'}")
+    # 3. 문양이 더하는 몫 — 지정한 시트에서 재거나(머리말의 조건), 상수를 쓴다
+    how = "--sigil-frac 로 준 값" if frac != SIGIL_FRAC else "전사 W4 에서 잰 상수"
     for sh in sorted({v["sheet"] for v in info.values()}):
         grp = [k for k in order if info[k]["sheet"] == sh]
         a = [info[k]["h"] for k in grp if k in sigil]
         b = [info[k]["h"] for k in grp if k not in sigil]
-        if a and b:
-            print(f"  참고: {sh} 에서 같은 계산을 하면 {np.median(b) / np.median(a):.3f} "
-                  f"(문양 {np.median(a):.0f} · 없음 {np.median(b):.0f}) — 쓰지 않는다")
+        if not (a and b): continue
+        v = float(np.median(b)) / float(np.median(a))
+        if fracFrom and os.path.basename(fracFrom) == sh:
+            frac, how = v, f"{sh} 에서 잼 (문양 {np.median(a):.0f} · 없음 {np.median(b):.0f})"
+        else:
+            print(f"  참고: {sh} 에서 같은 계산을 하면 {v:.3f} — 조건을 확인하지 않았으므로 쓰지 않는다")
+    print(f"\n문양이 더하는 몫: 인물 = 경계상자 × {frac:.3f}   ({how})")
 
     # 4. 하나의 자로 맞춘다 — 줄이고 배경을 뺀 결과를 재서 배율을 고친다
     cut = {}                                     # 원본 해상도에서 한 번만 배경을 뺀다
@@ -183,14 +205,14 @@ def main():
         if len(ys) == 0: return out, None
         return out, (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)
 
-    print(f"\n{'키':<14}{'시트':>14}{'경계h':>7}{'보인h':>7}{'배율':>7}{'폭':>6}")
-    strip = []
-    for k in order:
+    def build(target):
+      strip = []
+      for k in order:
         v = info[k]
         f = frac if k in sigil else 1.0
         s = target / (v["h"] * f)
         rgba = box = None
-        for _ in range(4):                       # 세 번이면 붙는다. 한 번 더 둔다.
+        for _ in range(4):                     # 세 번이면 붙는다. 한 번 더 둔다.
             rgba, box = render(k, s)
             if box is None: break
             vis = (box[3] - box[1]) * f
@@ -198,15 +220,26 @@ def main():
             s *= target / vis
         if box is None: raise SystemExit(f"{k}: 배경 제거가 과했다")
         vh = box[3] - box[1]
-        over = vh * (1 - f)                      # 문양이 발 아래로 삐져나온 몫
+        over = vh * (1 - f)                    # 문양이 발 아래로 삐져나온 몫
         cellimg = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
         sub = Image.fromarray(rgba[box[1]:box[3], box[0]:box[2]])
-        cx = (CELL - sub.size[0]) // 2
-        cy = int(round(FOOT_Y + over - vh))
-        cellimg.paste(sub, (cx, cy), sub)
-        strip.append((k, cellimg))
-        print(f"{k:<14}{v['sheet'][-12:]:>14}{v['h']:>7}{vh:>7}{s:>7.3f}{sub.size[0]:>6}")
-        if sub.size[0] > CELL: print(f"    ! 가로가 칸을 넘는다 ({sub.size[0]}px) — target 을 줄여라")
+        cellimg.paste(sub, ((CELL - sub.size[0]) // 2, int(round(FOOT_Y + over - vh))), sub)
+        strip.append((k, cellimg, sub.size[0], s, vh))
+      return strip
+
+    # 가장 넓은 초상이 칸에 들어갈 때까지 목표를 내린다
+    strip = build(target)
+    wide = max(w for _, _, w, _, _ in strip)
+    if wide > CELL:
+        t2 = int(target * CELL / wide)
+        print(f"\n가장 넓은 초상이 {wide}px — 칸(128)을 넘는다. 목표 {target} → {t2} 로 내린다")
+        target = t2
+        strip = build(target)
+    print(f"\n{'키':<14}{'시트':>14}{'경계h':>7}{'보인h':>7}{'배율':>7}{'폭':>6}")
+    for (k, _, w, s, vh) in strip:
+        v = info[k]
+        print(f"{k:<14}{v['sheet'][-12:]:>14}{v['h']:>7}{vh:>7}{s:>7.3f}{w:>6}")
+    strip = [(k, img) for k, img, _, _, _ in strip]
 
     if dry:
         print("\n--dry — 아틀라스는 건드리지 않았다")

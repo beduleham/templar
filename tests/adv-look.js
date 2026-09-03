@@ -192,9 +192,11 @@ const { chromium } = require('playwright');
      한 번은 배경 제거의 침식을 줄인 뒤에 걸어 얇은 관이 지워지는 바람에 24% 까지
      벌어졌다(art/adv-sheets.py 머리말). 눈으로는 늦게 보이는 종류의 어긋남이다.
 
-     4차는 발밑 문양이 경계상자를 아래로 늘리므로 같은 상수(0.930)로 깎아서 견준다. */
+     4차는 발밑 문양이 경계상자를 아래로 늘리는데 그 몫은 묶음마다 다르다
+     (전사 0.930 · 추적자 0.980, art/adv-sheets.py 머리말). 그래서 여기서는 상수를
+     쓰지 않는다 — **편차는 문양이 없는 1~3차끼리만** 재고, 4차는 그 중앙값의
+     1.0~1.20 배 안인지만 본다(문양이 아래로 더해지는 만큼). */
   const por = await pg.evaluate(() => {
-    const SIGIL_FRAC = 0.930;
     const M = {}; for (const a of ADVANCES) M[a.key] = a;
     const root = k => { const f = M[k].from; return ['paladin','warrior','rogue','mage'].includes(f) ? f : root(f); };
     const keys = Object.keys(Sprites.frames).filter(k => k.startsWith('adv_'));
@@ -211,30 +213,37 @@ const { chromium } = require('playwright');
       for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++)
         if (d[(y * 128 + x) * 4 + 3] > 8) { if (y < y0) y0 = y; if (y > y1) y1 = y; if (x < x0) x0 = x; if (x > x1) x1 = x; }
       if (y1 < 0) return null;
-      return { h: (y1 - y0 + 1) * (M[k].tier === 4 ? SIGIL_FRAC : 1), w: x1 - x0 + 1 };
+      return { h: y1 - y0 + 1, w: x1 - x0 + 1, t4: M[k].tier === 4 };
     };
     const per = {};
     for (const cls of ['paladin', 'warrior', 'rogue', 'mage']) {
       const line = ADVANCES.filter(a => root(a.key) === cls).map(a => a.key);
       const have = line.filter(k => Sprites.frames['adv_' + k]);
       const m = have.map(size).filter(Boolean);
-      per[cls] = { total: line.length, have: have.length,
-        lo: m.length ? Math.min(...m.map(v => v.h)) : 0,
-        hi: m.length ? Math.max(...m.map(v => v.h)) : 0,
+      const plain = m.filter(v => !v.t4), sig = m.filter(v => v.t4);
+      const med = plain.length ? plain.map(v => v.h).sort((a, b) => a - b)[plain.length >> 1] : 0;
+      per[cls] = { total: line.length, have: have.length, med,
+        lo: plain.length ? Math.min(...plain.map(v => v.h)) : 0,
+        hi: plain.length ? Math.max(...plain.map(v => v.h)) : 0,
+        sigLo: sig.length ? Math.min(...sig.map(v => v.h)) : 0,
+        sigHi: sig.length ? Math.max(...sig.map(v => v.h)) : 0,
         wide: m.length ? Math.max(...m.map(v => v.w)) : 0 };
     }
     return { n: keys.length, bad, per };
   });
   const done = Object.entries(por.per).filter(([, v]) => v.have > 0);
   console.log(`손그림 전직 초상 ${por.n}장 — ` + done.map(([c, v]) =>
-    `${c} ${v.have}/${v.total} 세로 ${v.lo.toFixed(0)}~${v.hi.toFixed(0)}`).join(' · '));
+    `${c} ${v.have}/${v.total} 1~3차 ${v.lo}~${v.hi} · 4차 ${v.sigLo}~${v.sigHi}`).join(' · '));
   if (por.bad.length) fail.push('초상 줄이 판 밖이다: ' + por.bad.join(' '));
   if ((por.per.paladin.have | 0) < 17) fail.push(`성기사 혈통 초상이 ${por.per.paladin.have}장 — 열일곱은 있어야 한다`);
   if ((por.per.warrior.have | 0) < 17) fail.push(`전사 혈통 초상이 ${por.per.warrior.have}장 — 열일곱은 있어야 한다`);
+  if ((por.per.rogue.have | 0) < 17) fail.push(`추적자 혈통 초상이 ${por.per.rogue.have}장 — 열일곱은 있어야 한다`);
   for (const [c, v] of done) {
     if (v.have < v.total) continue;                 // 아직 다 안 받은 직업은 넘어간다
     const spread = v.hi / v.lo - 1;
-    if (spread > .08) fail.push(`${c} 초상의 인물 크기가 ${(spread * 100).toFixed(1)}% 어긋난다 (${v.lo.toFixed(0)}~${v.hi.toFixed(0)}px, 상한 8%)`);
+    if (spread > .08) fail.push(`${c} 1~3차 초상의 인물 크기가 ${(spread * 100).toFixed(1)}% 어긋난다 (${v.lo}~${v.hi}px, 상한 8%)`);
+    if (v.sigLo && (v.sigLo < v.med * .99 || v.sigHi > v.med * 1.20))
+      fail.push(`${c} 4차 초상이 ${v.sigLo}~${v.sigHi}px — 1~3차 중앙값 ${v.med}px 의 1.0~1.20 배여야 한다 (문양이 아래로 더해지는 몫)`);
     if (v.wide > 128) fail.push(`${c} 초상이 칸을 넘는다 (가로 ${v.wide}px)`);
   }
   if (!prev.kept) fail.push('미리보기가 실제 전직 상태를 건드렸다');

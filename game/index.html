@@ -237,29 +237,148 @@ const Pad = {
   },
 };
 
-/* ---------- 사운드 (에셋 없이 합성) ---------- */
+/* ---------- 효과음 ----------
+   소리에도 예산이 있다. §101 이 눈에 대해 정한 것을 귀에 대해서도 정해야 한다.
+
+   후반에는 초당 수천 번 피해가 들어간다. 그걸 다 울리면 백색소음이 되고,
+   울리지 않으면 판이 조용하다 — 계측해 보니 10분에 피격 10,504건에 소리 121개였고,
+   그 121개는 전부 화면 한가운데서 같은 크기로 났다. 500px 밖에서 터진 폭발이
+   발밑에서 터진 것과 똑같이 들렸다는 뜻이다.
+
+   그래서 소리를 층으로 나눈다.
+
+     안내음   레벨업 · 전직 · 제단 · 메뉴. 늘 가운데서, 늘 들린다.
+     내 소리  무기 발사 · 피격 · 획득. 늘 가운데서, 늘 들린다.
+     판 소리  타격 · 처치 · 적 탄 · 폭발. **자리가 있다** — 화면 밖이면 아예
+              울리지 않고, 멀수록 작고, 좌우로 갈린다. 동시 발음 상한을
+              넘으면 이쪽부터 떨어진다(안내음과 내 소리는 절대 안 떨어진다).
+
+   합이 1 을 넘으면 파형 꼭대기가 잘려 찌그러지므로 master 뒤에 압축기를 둔다.
+   덕분에 열 개가 겹쳐도 안전하고, 하나만 울릴 때는 문턱 아래라 손대지 않는다. */
 const Sfx = {
-  ctx: null, on: true, last: {},
+  ctx: null, on: true, last: {}, ends: [],
+  CAP: 14,                       // 동시에 울릴 수 있는 판 소리 수
+  CUT: 880,                      // 이 화면거리(px)를 넘으면 울리지 않는다
   init() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) { this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = Opt.sfxVol(); this.master.connect(this.ctx.destination); }
+    if (!AC) return;
+    this.ctx = new AC();
+    this.master = this.ctx.createGain();
+    this.master.gain.value = Opt.sfxVol();
+    const comp = this.ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 9;
+    comp.attack.value = .003; comp.release.value = .18;
+    this.master.connect(comp); comp.connect(this.ctx.destination);
+    this.comp = comp;                       // 회귀 시험이 리미터의 존재를 확인한다
+    /* 잡음은 한 번만 만들어 두고 아무 데서나 잘라 쓴다.
+       초당 수십 번 createBuffer 를 부를 수는 없다. */
+    const n = Math.floor(this.ctx.sampleRate * .5);
+    this.nz = this.ctx.createBuffer(1, n, this.ctx.sampleRate);
+    const d = this.nz.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   },
   // 어트랙트 데모의 전투음이 메뉴에서 울리면 안 된다.
   // setTimeout 으로 미룬 소리는 시뮬레이션이 끝난 뒤에 울리므로,
   // '예약하는 시점'에도 이걸 봐야 한다.
   muted() { return typeof Attract !== "undefined" && Attract.sim; },
-  play(freq, dur, type = "square", vol = 1, slide = 0) {
+
+  /* 울리는 동안 목소리 하나를 쓴다. 예산은 이 수를 보고 자른다.
+
+     반납을 setTimeout 에 맡기면 안 된다 — 브라우저는 배경 탭의 타이머를 늦추고,
+     프레임이 밀리면 그만큼 더 늦는다. 한 번 어긋나면 카운터가 영영 높은 채로
+     남아 판 소리가 통째로 막힌다(실측: 180초 뒤 상한 14 에 카운터 260).
+     끝나는 시각을 오디오 시계로 적어 두고 셀 때마다 지난 것을 걷어내면
+     어긋날 자리가 없다. */
+  hold(dur) { this.ends.push(this.ctx.currentTime + dur + .05); },
+  live() {
+    const t = this.ctx.currentTime, e = this.ends;
+    let k = 0;
+    for (let i = 0; i < e.length; i++) if (e[i] > t) e[k++] = e[i];
+    e.length = k;
+    return k;
+  },
+
+  /* 월드 좌표 → [크기 배수, 좌우]. 화면에서 너무 멀면 null 이다.
+     화면 y 는 눕혀져 있으므로(TILT) 귀에도 눕은 거리를 준다. */
+  place(x, y) {
+    const dx = (x - cam.x) - W / 2, dy = ((y - cam.y) * TILT) - H / 2;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > this.CUT) return null;
+    const k = 1 - d / this.CUT;
+    return [.22 + .78 * k * k, clamp(dx / (W * .34), -1, 1)];
+  },
+  // 자리가 있으면 좌우로 갈라 보낸다
+  sink(node, pan) {
+    if (pan && this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner(); p.pan.value = pan;
+      node.connect(p); p.connect(this.master);
+    } else node.connect(this.master);
+  },
+  // pos 가 있으면 판 소리(자리·예산), 없으면 내 소리·안내음(가운데·무조건)
+  gate(vol, pos) {
+    if (!pos) return [vol, 0];
+    const p = this.place(pos.x, pos.y);
+    if (!p || this.live() >= this.CAP) return null;
+    return [vol * p[0], p[1]];
+  },
+
+  play(freq, dur, type = "square", vol = 1, slide = 0, pos = null) {
     if (!this.on || !this.ctx || this.muted()) return;
+    const gp = this.gate(vol, pos); if (!gp) return;
     if (this.ctx.state === "suspended") this.ctx.resume();
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator(), g = this.ctx.createGain();
     osc.type = type; osc.frequency.setValueAtTime(freq, t);
     if (slide) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), t + dur);
-    g.gain.setValueAtTime(vol * .3, t);
+    /* 곧바로 최대치에서 시작하면 파형이 툭 서서 '딱' 이 앞에 붙는다. 2ms 만 올린다. */
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.linearRampToValueAtTime(gp[0] * .3, t + .002);
     g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    osc.connect(g); g.connect(this.master); osc.start(t); osc.stop(t + dur + .02);
+    osc.connect(g); this.sink(g, gp[1]);
+    osc.start(t); osc.stop(t + dur + .02);
+    this.hold(dur);
   },
+
+  /* 타격의 몸. 오실레이터 하나로는 '삑' 이지 '퍽' 이 아니다 —
+     때린 소리에는 음정이 없는 겹이 함께 있어야 한다. */
+  burst(dur, vol, band, pos = null) {
+    if (!this.on || !this.ctx || !this.nz || this.muted()) return;
+    const gp = this.gate(vol, pos); if (!gp) return;
+    if (this.ctx.state === "suspended") this.ctx.resume();
+    const t = this.ctx.currentTime;
+    const s = this.ctx.createBufferSource(); s.buffer = this.nz;
+    const f = this.ctx.createBiquadFilter();
+    f.type = "bandpass"; f.frequency.value = band; f.Q.value = .8;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(gp[0] * .3, t);
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    s.connect(f); f.connect(g); this.sink(g, gp[1]);
+    s.start(t, Math.random() * .4, dur + .02);
+    this.hold(dur);
+  },
+
+  // 판 소리 한 줄짜리 — 자리를 준 play
+  at(x, y, freq, dur, type, vol, slide) { this.play(freq, dur, type, vol, slide, { x, y }); },
+
+  /* 중요한 소리는 음악을 잠깐 눌러 자리를 낸다.
+     볼륨을 올려 이기게 하면 음악이 시끄러워지고, 눌러서 이기면 조용해진다.
+
+     이미 눌려 있는데 더 얕게 다시 누르면 음악이 들썩인다 — 성기사는 15분에
+     200번 넘게 맞으므로 그때마다 되돌리면 음악이 파도가 된다. 더 깊을 때만 받는다. */
+  duckAmt: 0, duckEnd: 0,
+  duck(amt, dur) {
+    if (!Music.gain || !Music.ctx) return;
+    const now = performance.now() / 1000;
+    if (now < this.duckEnd && amt <= this.duckAmt) return;
+    this.duckAmt = amt; this.duckEnd = now + dur;
+    const t = Music.ctx.currentTime, v = Music.vol() * (Sfx.on ? 1 : 0);
+    Music.gain.gain.cancelScheduledValues(t);
+    Music.gain.gain.setValueAtTime(Music.gain.gain.value, t);
+    Music.gain.gain.linearRampToValueAtTime(v * (1 - amt), t + .04);
+    Music.gain.gain.linearRampToValueAtTime(v, t + dur);
+  },
+
   // 같은 소리가 초당 수십 번 나지 않도록 제한
   throttled(key, ms, fn) {
     if (this.muted()) return;           // 데모가 쿨다운을 소진해 진짜 소리를 막으면 안 된다
@@ -267,18 +386,54 @@ const Sfx = {
     if (this.last[key] && now - this.last[key] < ms) return;
     this.last[key] = now; fn();
   },
-  hit()     { this.throttled("hit", 45, () => this.play(rnd(420, 540), .05, "square", .35, -200)); },
-  shoot()   { this.throttled("shoot", 70, () => this.play(700, .05, "triangle", .3, -300)); },
-  hurt()    { this.play(150, .22, "sawtooth", .9, -90); },
+  /* 화면을 넷으로 나눠 칸마다 따로 센다. 하나로 세면 왼쪽에서 나던 소리가
+     오른쪽 소리를 막아, 소리가 어디서 나는지가 다시 사라진다. */
+  quad(x, y) {
+    return ((x - cam.x) > W / 2 ? 1 : 0) + (((y - cam.y) * TILT) > H / 2 ? 2 : 0);
+  },
+  /* 적이 많을수록 간격을 벌린다. §101 이 입자에 준 규칙과 같다 —
+     '맞았다' 의 신호가 초당 마흔 번이면 신호가 아니라 안개다.
+     실측: 이 손잡이 없이 10분에 초당 89개가 울렸다. */
+  gap(base, top) {
+    const a = Game.alive || 0;
+    return base + (top - base) * clamp((a - 60) / 220, 0, 1);
+  },
+
+  /* 타격 — 음 하나에 잡음 한 겹. 화면 칸마다 따로 제한한다. */
+  hit(x, y) {
+    const pos = x === undefined ? null : { x, y };
+    /* 안 들릴 소리가 쿨다운을 먼저 먹으면 안 된다. 화면 밖에서 죽은 적이
+       칸의 차례를 가져가면, 정작 눈앞의 타격이 조용해진다. */
+    if (pos && !this.place(x, y)) return;
+    this.throttled("hit" + (pos ? this.quad(x, y) : ""), this.gap(85, 260), () => {
+      this.play(rnd(430, 560), .05, "square", .3, -220, pos);
+      this.burst(.045, .5, 2600, pos);
+    });
+  },
+  /* 처치 — 타격보다 낮고 짧게. 후반에는 초당 수십 마리가 죽으므로
+     칸마다 더 크게 벌린다. 타격에 묻히면 처치의 되먹임이 사라진다. */
+  kill(x, y) {
+    if (!this.place(x, y)) return;
+    this.throttled("kill" + this.quad(x, y), this.gap(170, 420), () => {
+      this.at(x, y, rnd(180, 230), .09, "triangle", .45, -80);
+      this.burst(.07, .42, 1200, { x, y });
+    });
+  },
+  shoot(o) {
+    o = o || {};
+    this.throttled("shoot" + (o.k || ""), 60, () =>
+      this.play(o.f || 700, o.d || .05, o.ty || "triangle", o.v || .3, o.s === undefined ? -300 : o.s));
+  },
+  hurt()    { this.duck(.45, .5); this.play(150, .22, "sawtooth", .9, -90); this.burst(.1, .7, 700); },
   pickup()  { this.throttled("pickup", 55, () => this.play(880, .05, "sine", .35, 300)); },
   // 음을 차례로 늘어놓는다. 예약 시점에 데모면 아예 잡지 않는다.
   arp(notes, gap, dur, type, vol) {
     if (this.muted()) return;
     notes.forEach((f, i) => setTimeout(() => this.play(f, dur, type, vol), i * gap));
   },
-  levelup() { this.arp([523, 659, 784, 1046], 70, .13, "triangle", .8); },
-  boss()    { this.play(70, .8, "sawtooth", 1, 40); },
-  dead()    { this.arp([400, 330, 260, 180], 130, .3, "sawtooth", .8); },
+  levelup() { this.duck(.4, .9); this.arp([523, 659, 784, 1046], 70, .13, "triangle", .8); },
+  boss()    { this.duck(.55, 1.4); this.play(70, .8, "sawtooth", 1, 40); this.burst(.5, .8, 260); },
+  dead()    { this.duck(.6, 1.6); this.arp([400, 330, 260, 180], 130, .3, "sawtooth", .8); },
 };
 
 /* ---------- 배경음악 ----------
@@ -888,7 +1043,7 @@ function activateStructure(s) {
   spawnFx(fxKey("boom", "holy"), s.x, s.y, s.r * 1.6, 0);
   spawnParticles(s.x, s.y, 30, K.color, 300, .9, 5);
   cam.shake = 10;
-  Sfx.play(300, .5, "triangle", .9, 620);
+  Sfx.at(s.x, s.y, 300, .5, "triangle", .9, 620);
 }
 
 /* 켜져 있는 동안 — 수명·피해·효과를 한 자리에서 처리한다 */
@@ -921,7 +1076,7 @@ function updateStructureEffects(dt) {
       spawnFx(fxKey("boom", "physical"), s.x, s.y, s.r * 2, 0);
       spawnParticles(s.x, s.y, 40, K.color, 320, 1, 6);
       cam.shake = 14;
-      Sfx.play(120, .5, "sawtooth", .8, -70);
+      Sfx.at(s.x, s.y, 120, .5, "sawtooth", .8, -70);
       continue;
     }
 
@@ -938,7 +1093,7 @@ function updateStructureEffects(dt) {
           damageEnemy(e, dmg, s.x, s.y, 150, "holy");
           spawnBeam(s.x, s.y - s.r * .55, e.x, e.y, K.color);
         }
-        if (targets.length) Sfx.throttled("spire", 140, () => Sfx.play(880, .12, "triangle", .35, 320));
+        if (targets.length) Sfx.throttled("spire", 140, () => Sfx.at(s.x, s.y, 880, .12, "triangle", .35, 320));
       }
     }
 
@@ -1387,7 +1542,7 @@ function damageObstacle(o, dmg) {
   spawnParticles(o.x, o.y, 18, o.K.color, 220, .7, 4);
   spawnGem(o.x, o.y, 3);
   if (Math.random() < .22) givePickupItem(pick(CONSUMABLE_KEYS), o.x, o.y);
-  Sfx.throttled("rock", 90, () => Sfx.play(160, .18, "square", .5, -80));
+  Sfx.throttled("rock", 90, () => { Sfx.at(o.x, o.y, 160, .18, "square", .5, -80); Sfx.burst(.16, .4, 1100, o); });
   return true;
 }
 
@@ -1644,7 +1799,7 @@ const ENEMY_TYPES = {
           e.state = 2; e.t1 = .55;
           const a = Math.atan2(player.y - e.y, player.x - e.x);
           e.cx = Math.cos(a); e.cy = Math.sin(a);
-          Sfx.throttled("charge", 200, () => Sfx.play(180, .2, "sawtooth", .5, 240));
+          Sfx.throttled("charge", 200, () => Sfx.at(e.x, e.y, 180, .2, "sawtooth", .5, 240));
         }
         return false;
       }
@@ -1676,7 +1831,7 @@ const ENEMY_TYPES = {
     onDeath(e) {
       spawnHazard(e.x, e.y, 110 * (e.rank ? e.rank.r : 1), e.dmg * 2.6, .9, "#ffcf3a");
       spawnParticles(e.x, e.y, 20, "#ffcf3a", 280, .6, 4);
-      Sfx.throttled("boom", 90, () => Sfx.play(120, .22, "sawtooth", .6, -70));
+      Sfx.throttled("boom", 90, () => { Sfx.at(e.x, e.y, 120, .22, "sawtooth", .6, -70); Sfx.burst(.2, .5, 800, e); });
     } },
 
   shaman: { name: "주술사", r: 15, hp: 70, speed: 40, dmg: 10, xp: 6, color: "#b06ad0", shape: "ghost", sprite: "shaman",
@@ -1838,7 +1993,7 @@ const ENEMY_TYPES = {
           e.state = 2; e.t1 = .7;
           const a = Math.atan2(player.y - e.y, player.x - e.x);
           e.cx = Math.cos(a); e.cy = Math.sin(a);
-          Sfx.play(150, .3, "sawtooth", .8, 260);
+          Sfx.at(e.x, e.y, 150, .3, "sawtooth", .8, 260);
         }
         return false;
       }
@@ -1914,7 +2069,7 @@ const ENEMY_TYPES = {
             const a = off + i / n * TAU;
             spawnEShot(e.x, e.y, Math.cos(a) * 210, Math.sin(a) * 210, e.dmg * .55, "#d68aff");
           }
-          Sfx.throttled("bshot", 140, () => Sfx.play(240, .18, "square", .5, -80));
+          Sfx.throttled("bshot", 140, () => Sfx.at(e.x, e.y, 240, .18, "square", .5, -80));
         }
         e.flash = .2;
       }
@@ -2009,7 +2164,7 @@ const WEAPONS = {
           kind: "dagger", angle: ang, color: "#ffe9a8", element: "physical",
         });
       }
-      Sfx.shoot();
+      Sfx.shoot({ k: "dagger", f: 780, d: .045, ty: "triangle", v: .26, s: -400 });
     },
   },
 
@@ -2032,7 +2187,6 @@ const WEAPONS = {
         }
       }
       w.fx = .25;                       // 링 이펙트 표시 시간
-      if (any) Sfx.hit();
     },
     draw(p, w) {
       const R = this.radius[w.level - 1] * p.stats.area;
@@ -2071,7 +2225,8 @@ const WEAPONS = {
         const ang = base + (i % 2 === 1 ? Math.PI : 0) + (i >= 2 ? (i % 2 ? .5 : -.5) : 0);
         spawnSlash(p, ang, dmg, this.len[w.level - 1] * p.stats.area, .9, "physical", this.arc);
       }
-      Sfx.shoot();
+      Sfx.shoot({ k: "whip", f: 300, d: .1, ty: "sawtooth", v: .3, s: -170 });
+      Sfx.burst(.09, .34, 900);
     },
   },
 
@@ -2100,7 +2255,7 @@ const WEAPONS = {
           homing: 6.5 + L * .9, target: targets[i] || targets[0] || null,
         });
       }
-      Sfx.shoot();
+      Sfx.shoot({ k: "orb", f: 540, d: .1, ty: "sine", v: .3, s: 280 });
     },
   },
 
@@ -2130,6 +2285,7 @@ const WEAPONS = {
         }
       }
       Sfx.play(180, .18, "sawtooth", .7, 900);
+      Sfx.burst(.16, .5, 3400);
     },
   },
 
@@ -2162,7 +2318,6 @@ const WEAPONS = {
             if (Game.time - last > .45) {
               w.hitAt.set(e.id, Game.time);
               damageEnemy(e, dmg, ox, oy, 180, "holy");
-              Sfx.hit();
             }
           }
         }
@@ -2195,7 +2350,7 @@ const WEAPONS = {
           kind: "flame", angle: ang, color: "#ff9a3c", element: "fire",
         });
       }
-      Sfx.throttled("flame", 90, () => Sfx.play(220, .16, "sawtooth", .4, 120));
+      Sfx.throttled("flame", 90, () => { Sfx.play(220, .16, "sawtooth", .4, 120); Sfx.burst(.15, .3, 1600); });
     },
   },
 
@@ -2211,6 +2366,7 @@ const WEAPONS = {
         life: .45, color: "#e0426a", element: "blood", heal: 1.2,
       });
       Sfx.play(150, .25, "triangle", .6, 260);
+      Sfx.burst(.12, .32, 700);
     },
   },
 };
@@ -2852,11 +3008,16 @@ function damageEnemy(e, dmg, fromX, fromY, knock, elem) {
       e.shieldHp = 0;
       spawnParticles(e.x, e.y, 14, "#cfd6e6", 220, .5, 3.5);
       spawnNumber(e.x, e.y - e.r - 16, "방패 파괴!", "#cfd6e6", 16);
-      Sfx.throttled("shbreak", 120, () => Sfx.play(300, .2, "square", .5, -160));
+      Sfx.throttled("shbreak", 120, () => { Sfx.at(e.x, e.y, 300, .2, "square", .5, -160); Sfx.burst(.14, .45, 3000, e); });
     }
     final *= .25;
   }
   e.hp -= final;
+  /* 지금까지 타격음은 성역과 성서에만 있었다. 10분 화면에서 피격 10,504건 중
+     소리가 난 건 121건 — 판이 조용했다는 뜻이다. 여기 두면 무기를 가리지 않는다.
+     대신 자리와 예산이 지킨다: 화면 밖은 안 울리고, 칸마다 따로 제한한다.
+     화상·독 같은 지속 피해는 이 함수를 거치지 않으므로 저절로 빠진다. */
+  Sfx.hit(e.x, e.y);
   if (e.flash <= 0 && (crit || fxLive < 70))
     spawnFx(fxKey("hit", elem), e.x, e.y, e.r * 2.2 + 12, 0);
   e.flash = .12;
@@ -2980,7 +3141,7 @@ function killEnemy(e, elem) {
                   dmg: (e.maxHp * .35 + 20) * comboPower("blast"),
                   life: .3, color: "#ff8a3c", element: "fire" });
       procCombo("blast", e.x, e.y);
-      Sfx.throttled("blast", 90, () => Sfx.play(120, .18, "sawtooth", .5, -60));
+      Sfx.throttled("blast", 90, () => { Sfx.at(e.x, e.y, 120, .18, "sawtooth", .5, -60); Sfx.burst(.16, .45, 900, e); });
     }
     // 감전 폭풍 — 뇌전 + 냉기 (둔화된 적이 죽을 때)
     if (C.has("surge") && wasSlowed) {
@@ -3038,7 +3199,7 @@ function killEnemy(e, elem) {
     spawnPickup(e.x, e.y, Math.random() < .8 ? "heart" : "vacuum");
     Game.heartCd = TRASH_CD;
   }
-  Sfx.hit();
+  Sfx.kill(e.x, e.y);
   e.dying = false;
 }
 
@@ -4190,7 +4351,7 @@ function update(dt) {
           p.bounced = (p.bounced || 0) + 1;
           p.hitIds.clear();                   // 튕긴 뒤에는 같은 적을 다시 때릴 수 있다
           spawnParticles(p.x, p.y, 4, "#bfefff", 150, .3, 3);
-          Sfx.throttled("ref", 70, () => Sfx.play(880, .08, "triangle", .3, 300));
+          Sfx.throttled("ref", 70, () => Sfx.at(p.x, p.y, 880, .08, "triangle", .3, 300));
           if (p.bounced > 3) p.active = false;
         }
         damageObstacle(ob, p.dmg * .5);

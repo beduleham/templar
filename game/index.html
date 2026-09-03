@@ -1972,10 +1972,15 @@ const WEAPONS = {
 
   whip: {
     name: "쇠사슬 플레일", icon: "⛓️", element: "physical", px: "whip", desc: "바라보는 방향으로 넓게 후려친다.",
-    cd: [1.4, 1.3, 1.2, 1.08, .96, .85, .74, .62],
+    /* 1~2레벨을 올렸다(§밸런스 2차): cd 1.4→1.15, 앞·뒤 두 부채꼴을 1레벨부터, 부채꼴 ±.62→±.8rad.
+       붙어 싸우는 봇으로 재니 27~43초에 죽었고 1레벨 플레일은 초당 7 피해였다 — 30초에
+       적 22마리가 오는 판에서 '광역 근접'이 한 번에 한 마리를 쳤다. 성기사의 성역은 사방을 치고
+       추적자의 단검은 100~290초를 버틴다. 전사만 무기가 판을 못 따라갔다. */
+    cd: [1.15, 1.1, 1.0, .92, .84, .76, .68, .6],
     dmg: [15, 21, 30, 42, 59, 82, 114, 158],
-    count: [1, 1, 2, 2, 2, 3, 3, 4],
+    count: [2, 2, 2, 2, 3, 3, 3, 4],
     len: [92, 102, 115, 132, 155, 185, 222, 268],
+    arc: .8,
     fire(p, w) {
       // 전직: 검성의 이중 참격 / 마검성의 무한의 검
       const extra = (advVal("doubleSlash", false) ? 1 : 0) + traitLv("endlessBlade");
@@ -1984,7 +1989,7 @@ const WEAPONS = {
       for (let i = 0; i < n; i++) {
         // 앞 → 뒤 → 앞위 → 뒤아래 순으로 부채꼴을 추가
         const ang = base + (i % 2 === 1 ? Math.PI : 0) + (i >= 2 ? (i % 2 ? .5 : -.5) : 0);
-        spawnSlash(p, ang, dmg, this.len[w.level - 1] * p.stats.area, .9, "physical");
+        spawnSlash(p, ang, dmg, this.len[w.level - 1] * p.stats.area, .9, "physical", this.arc);
       }
       Sfx.shoot();
     },
@@ -2548,11 +2553,11 @@ function spawnProjectile(o) {
   p.hitIds.clear();
   return p;
 }
-function spawnSlash(p, ang, dmg, len, life, element) {
+function spawnSlash(p, ang, dmg, len, life, element, arc) {
   const s = alloc(slashes); if (!s) return;
   s.active = true; s.x = p.x; s.y = p.y; s.ang = ang; s.len = len;
   s.life = s.maxLife = life * .28; s.dmg = dmg; s.hitIds.clear();
-  s.element = element || "physical";
+  s.element = element || "physical"; s.arc = arc || .62;      // 부채꼴 반각(rad) — 플레일만 .8
 }
 
 function spawnWave(o) {
@@ -3492,7 +3497,7 @@ const Game = {
       for (const o of pool) o.active = false;
     fxLive = 0;
     floorTx = NaN; floorTy = NaN;      // 바닥 캐시 무효화
-    this.time = 0; this.kills = 0; this.dmgDealt = 0; this.spawnAcc = 0; this.bossIdx = 0;
+    this.time = 0; this.kills = 0; this.dmgDealt = 0; this.spawnAcc = 0; this.bossIdx = 0; this.houndPause = 0;
     player.x = 0; player.y = 0; player.level = 1; player.xp = 0; player.xpNext = 5;
     player.iframe = 0; player.hurtFlash = 0; player.faceX = 1; player.faceY = 0;
     player.actT = 0; player.swingCd = 0; player.castT = 0; player.moving = false; player.flip = false;
@@ -3798,6 +3803,17 @@ const Game = {
          성기사조차 체력 100% → 7% 로 30초 만에 무너졐다. 보스 자체가 벽이어야
          하고 파도가 벽이면 안 된다. */
       for (let i = 0; i < 4 + this.bossIdx * 3; i++) this.spawnEnemy(pick(this.currentTypes()));
+      /* 보스에게 자리를 준다(§밸런스 2차). 600초의 동시 적 263~309 는 targetCount(178)가 아니라
+         사냥개 무리(30초마다 14마리)와 분열체가 상한(300)까지 채운 것이라, 일반 스폰을 쉬어도
+         줄지 않았다(실측). 그래서 등장 순간 **화면 밖 1000 너머의 적**을 150 까지 걷어낸다 —
+         보이지 않는 적은 걷어내도 아무도 모르지만, 보스 곁의 300 마리는 벽이 된다. */
+      let cnt = this.alive || 0;
+      for (const e of enemies) {
+        if (cnt <= 150) break;
+        if (!e.active || e.boss || e.sigilKey || e.rank === RANKS.rare) continue;
+        if (Math.hypot(e.x - player.x, e.y - player.y) > 1000) { e.active = false; cnt--; }
+      }
+      this.houndPause = this.time + 30;                                   // 보스와 싸우는 30초는 사냥개도 쉰다
     }
 
     let alive = 0, rankedAlive = 0;
@@ -3805,11 +3821,17 @@ const Game = {
     this.alive = alive;                        // 다른 스폰 자리(보스 졸개)가 상한을 보게 둔다
     this.rankedAlive = rankedAlive;            // 등급 추첨이 '지금 살아 있는 비율'을 보게 둔다(§101)
     const want = this.targetCount();
+    /* 보스에게 자리를 준다(§밸런스 2차). 600초 실측: 등장 순간 동시 적 263, 40초 동안 성기사
+       체력 100 → 38%. 호위를 반으로 줄여도 파도가 벽이었다. 등장 10초 전에는 일반 스폰을
+       멈추고, 등장 뒤 20초는 절반 속도로 낸다 — 보스 자체가 벽이어야 한다. */
+    const nextBoss = this.bossIdx < BOSS_TIMES.length ? BOSS_TIMES[this.bossIdx] - this.time : 1e9;
+    const sinceBoss = this.bossIdx > 0 ? this.time - BOSS_TIMES[this.bossIdx - 1] : 1e9;
+    const lull = nextBoss < 10 ? 0 : sinceBoss < 20 ? .5 : 1;
     // 첫 3초는 비운다 — 판이 열리는 순간 둘러싸이면 배울 틈이 없다
-    if (alive < want && this.time >= 3) {
+    if (alive < want && this.time >= 3 && lull > 0) {
       // 초당 스폰도 2에서 시작해 1분에 9 — 목표 수만 낮추면 순간에 채워 버린다
       const ramp = this.time < 30 ? 2 + 7 * this.time / 30 : 9;
-      this.spawnAcc += dt * (ramp + this.time / 60 * 4);
+      this.spawnAcc += dt * (ramp + this.time / 60 * 4) * lull;
       while (this.spawnAcc >= 1 && alive < want) {
         this.spawnAcc -= 1; alive++;
         this.spawnEnemy(pick(this.currentTypes()));
@@ -3819,7 +3841,7 @@ const Game = {
     // 1차 각성 이후 30초마다 사냥개 무리 — 플레이어보다 빨라서 계속 도망만 칠 수 없다.
     // 각성 전에 풀면 대응 수단이 없는 채로 맞는다.
     const ht = Math.floor(this.time), pht = Math.floor(this.time - dt);
-    if (ht !== pht && this.time >= 300 && ht % 30 === 0 && alive < ENEMY_CAP) {
+    if (ht !== pht && this.time >= 300 && ht % 30 === 0 && alive < ENEMY_CAP && this.time >= (this.houndPause || 0)) {
       const a = rnd(TAU), n = 8 + Math.floor((this.time - 300) / 50);
       for (let i = 0; i < n; i++) {
         const aa = a + rnd(-.7, .7), rad = rnd(820, 980);
@@ -4109,7 +4131,7 @@ function update(dt) {
       const d = Math.hypot(dx, dy);
       if (d > sl.len + e.r) continue;
       let da = Math.abs(((Math.atan2(dy, dx) - sl.ang + Math.PI * 3) % TAU) - Math.PI);
-      if (da < .62) {
+      if (da < (sl.arc || .62)) {
         sl.hitIds.add(e.id);
         damageEnemy(e, sl.dmg, sl.x, sl.y, 260, sl.element);
         // 3차 각성: 참격이 적중하면 연쇄한다
@@ -4429,6 +4451,10 @@ function update(dt) {
    raw 는 방어력 적용 전 값. */
 function hurtPlayer(raw, tag) {
   if (player.iframe > 0 || player.dash > 0 || Game.state !== "playing") return;
+  /* 첫 1분은 맞는 피해를 0.7 에서 1.0 으로 올린다(§밸런스 2차). 스폰 경사를 잡은 뒤에도
+     추적자·마법사 봇이 48~136초에 죽었고, 첫 90초 피해는 100% 접촉이었다 — 배우는 동안
+     둘러싸여도 한두 번은 빠져나올 수 있어야 한다. 1분 뒤에는 정상. */
+  if (Game.time < 60) raw *= .7 + .3 * Game.time / 60;
   const base = raw * player.stats.armor;
   const reduced = base * player.dynArmor;      // 방벽 등 자세로 줄인 값
   // 한 대에 풀피가 날아가면 대응할 기회 없이 억울하게 죽는다.
@@ -7415,7 +7441,9 @@ const CLASSES = [
     start: "whip",
     gemChance: .16,
     desc: "광역 근접 타격에 특화. 공격 범위와 체력이 높다.",
-    mods: { maxHp: 25, area: .15, damage: .1, speed: -.03 },
+    /* armor .12(§밸런스 2차): 플레일은 92 안에서 걷는 방향으로만 나가므로 전사는 접촉 거리에서
+       싸운다. 붙어 싸우는 봇으로 재니 30초 안에 죽었다 — 붙어야 하는 직업이 붙으면 죽는 구조다. */
+    mods: { maxHp: 25, area: .15, damage: .1, speed: -.03, armor: .12 },
     // 처치로만 차고 가만있으면 빠진다 → 몰아쳐야 유지된다
     resource: { name: "분노", color: "#ff8a5c", onKill: 3.4, decay: 3.2, hint: "처치 시 충전 · 시간이 지나면 감소" },
     skill: {
@@ -7500,6 +7528,10 @@ const CLASSES = [
         const cont = Math.min(maxStage, p.channel);
         const effSt = Math.min(cont, 3) + Math.max(0, cont - 3) * .45;   // 4단계부터 체감 감소
         p.dynDmg *= 1 + .26 * effSt + .18 * traitLv("overchannel") * (st >= maxStage ? 1 : 0);
+        /* 영창 중 방어(§밸런스 2차). 서 있어야 힘이 나오는 직업인데 서 있으면 접촉에 죽는다 —
+           봇 실측 90초 중 37~57초를 서 있다가 48~66초에 죽었다. 1단계 −22%, 2단계 이상 −34%.
+           방벽(성기사 −52%)보다는 얕다 — 마법사는 여전히 물러설 줄 알아야 한다. */
+        if (st >= 1) p.dynArmor *= st >= 2 ? .66 : .78;
         if (advVal("channelHeal", 0) && st > 0)
           p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * advVal("channelHeal", 0) * st * dt);
         p.dynCd *= Math.max(.52, 1 - .1 * effSt);   // 피해와 연사를 동시에 몰아주면 곱셈이 폭주한다
@@ -8586,8 +8618,9 @@ function drawHUD() {
      그때만 띠를 왼쪽 판 아래에서 시작한다. 넓은 화면에서는 아무 일도 안 한다. */
   if (W / 2 - 160 < 254) Game.bandY = Math.max(Game.bandY, cy + 8);
 
-  // 타이머
-  ctx.textAlign = "center";
+  // 타이머 — 기준선을 못 박는다. 앞 채널이 남긴 textBaseline 을 물려받으면 시계가 프레임마다
+  // 위아래로 15px 뛰고, 세로 화면에서는 보스 체력바(64~80)와 겹치기도 한다(회귀가 간헐적으로 잡았다).
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.font = "800 30px " + FONT;
   ctx.lineWidth = 5; ctx.strokeStyle = "rgba(0,0,0,.7)";
   ctx.strokeText(fmtTime(Game.time), W / 2, 42);

@@ -18,6 +18,13 @@
    판마다 흔들리므로 한 판으로는 못 잡는다 — 고치기 전에도 3판 중 1판은 죽었다.
    세 판을 돌려 **한 판도 못 이기는지**를 본다.
 
+   ■ 판마다 다른 계보를 태운다
+
+   성기사 하나로만 재면 다음에 다른 갈래가 뚫려도 모른다. 실제로 방벽과 부동의 맹세를
+   막고 나니 **성전사 + 흡혈 전환**으로 다시 뚫렸다 — 온 맵에 폭발이 깔리면 흡혈의
+   리필 속도(당시 초당 5%)가 그대로 무한 회복이 됐다. 불멸의 성벽 · 성전사 · 처형자
+   셋을 돌아가며 태운다.
+
    실행: node tests/no-afk-clear.js */
 const { chromium } = require('playwright');
 
@@ -34,6 +41,9 @@ const { chromium } = require('playwright');
       /* 손을 아예 안 댄다 — 이동 0. 스킬만 매 프레임 누른다(대기가 있으면 알아서 막힌다).
          징표는 준다: 여기서 재려는 것은 「탐험 없이 이기는가」가 아니라
          「서 있는 것만으로 이기는가」이므로, 각성을 막아 이기게 하면 자가 물러진다. */
+      /* 판마다 다른 계보를 태운다. 성기사 하나로만 재면 다음에 다른 갈래가 뚫려도
+         모른다 — 실제로 방벽을 막고 나니 성전사 + 흡혈 전환으로 다시 뚫렸다. */
+      const LINE = [['guardian', 'everwall'], ['guardian', 'crusader'], ['inquisitor', 'executioner']][n];
       selectedClass = 0; Game.reset();
       for (let i = 0; i < 60 * 905; i++) {
         if (i % 120 === 0) player.sigils = 9;
@@ -42,7 +52,8 @@ const { chromium } = require('playwright');
         let g = 0;
         while ((Game.state === 'levelup' || Game.state === 'advance') && g++ < 60) {
           const C = Game.choices, hpF = player.hp / player.stats.maxHp;
-          Game.applyChoice(C.find(c => c.tier) || (hpF < .4 && C.find(c => c.type === 'heal'))
+          Game.applyChoice(C.find(c => c.tier && LINE.includes(c.key)) || C.find(c => c.tier)
+            || (hpF < .4 && C.find(c => c.type === 'heal'))
             || C.find(c => c.type === 'passive') || C.find(c => c.type !== 'heal') || C[0]);
         }
         if (Game.state === 'dead' || Game.state === 'won') break;

@@ -3351,6 +3351,12 @@ function killEnemy(e, elem) {
       spawnGem(e.x, e.y, base / chance * Math.pow(chance / GEM_REF, .4));
     }
   }
+  /* 타락의 은혜 — 1단은 처치마다 1, 2단은 최대 체력의 0.4%. 죽일수록 산다. */
+  {
+    const fs = faithStep();
+    if (fs < 0 && player.hp > 0)
+      player.hp = Math.min(player.stats.maxHp, player.hp + (fs === -1 ? 1 : player.stats.maxHp * .004));
+  }
   if (e.sinMark) Sin.onKill(e);
   /* 무리를 다 잡으면 값을 준다. 안 그러면 「어차피 못 잡으니 도망」이 최선이 되는데,
      도망칠 수 없는 적에게 그건 막다른 길이다(2026-09-04 계측). */
@@ -3489,7 +3495,7 @@ const player = {
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
   dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
-  stillTime: 0, bulwark: 0, bulwarkT: 0, press: 0, skillCd: 0, channel: 0, meltTimer: 0, blocked: 0,
+  stillTime: 0, bulwark: 0, bulwarkT: 0, press: 0, skillCd: 0, faithGuard: 0, channel: 0, meltTimer: 0, blocked: 0,
   carnage: 0, carnageTimer: 0, leechBudget: 0,
   dash: 0, dashX: 1, dashY: 0, dashDmg: 0, dashHit: new Set(),
   // 스프라이트 동작 상태 — 무기가 나갈 때 actT, 스킬을 쓸 때 castT 를 채우고 흘려보낸다
@@ -3499,6 +3505,80 @@ const player = {
 /* ---------- 직업 자원 · 능동 스킬 ----------
    순수 오토배틀에 '언제 쓰느냐'의 판단을 하나 추가한다.
    자원이 차는 방식이 직업마다 달라서 플레이 리듬 자체가 갈린다. */
+/* ══════════ 신앙 ↔ 타락 ══════════ (docs/hook-spec.md A2)
+
+   "매 판 내가 성인이 되느냐 괴물이 되느냐를 고른다."
+
+   저울 하나가 -100(타락)에서 +100(신앙) 사이를 오간다. 레벨업에서 무엇을 골랐느냐가
+   저울을 밀고, 양 끝에서 큰 힘과 그만한 저주가 **함께** 온다.
+
+   ■ 무엇이 저울을 움직이나
+
+   `PASSIVES` 9종에는 속성이 없다 — 전부 중립 유틸이다. 그래서 능력을 고르면 저울이
+   안 움직인다. 대신 **무기에는 element 가 이미 있다.** 여덟 중 다섯이 기울므로
+   데이터를 한 줄도 안 늘리고 시작할 수 있다(hook-spec 안 ②).
+
+     신앙   신성(성역·수호 성서) · 냉기(마법 화살)
+     타락   피(피의 낫) · 화염(불꽃 파도)
+     중립   물리(투척 단검·쇠사슬 플레일) · 뇌전(천벌의 번개)
+
+   특성은 v1 에서 안 움직인다 — 특성에는 속성이 없고, 68갈래에 성향을 손으로 붙이는
+   것은 이 훅이 재미있는지 확인한 뒤에 할 일이다.
+
+   ■ 저주가 왜 그것인가
+
+   신앙의 대가는 **이동**이다. 이 게임에서 이동은 유일한 조작이므로 가장 무거운 값이다.
+   타락의 대가는 **시간에 비례하는 체력 감소**다. 고정 감소면 그냥 더 좋은 선택지가
+   된다 — 타락은 「지금 세지고 나중에 죽는다」여야 한다. */
+const FAITH_MAX = 100;
+const FAITH_T1 = 40, FAITH_T2 = 75;          // 1단 · 2단 문턱
+const FAITH_ELEM = { holy: 1, frost: 1, blood: -1, fire: -1, physical: 0, storm: 0 };
+const FAITH_DRAIN_EVERY = 30, FAITH_DRAIN_STEP = .02, FAITH_DRAIN_CAP = .40;
+
+/* 고른 것이 저울을 얼마나 미는가. 카드에 **고르기 전에** 보여주는 값이기도 하므로
+   여기 하나만 두고 화면과 적용이 같은 함수를 본다 — 둘이 갈리면 거짓말이 된다. */
+function faithOf(c) {
+  if (!c) return 0;
+  if (c.tier) {                               // 각성 — 주는 무기의 성향을 따른다
+    const g = c.grant && WEAPONS[c.grant];
+    return g ? (FAITH_ELEM[g.element] || 0) * 20 : 0;
+  }
+  if (c.type === "weapon" && WEAPONS[c.key])
+    return (FAITH_ELEM[WEAPONS[c.key].element] || 0) * (c.isNew ? 10 : 4);
+  return 0;
+}
+// -2(타락 2단) ~ +2(신앙 2단)
+function faithStep() {
+  const f = Game.faith;
+  return f >= FAITH_T2 ? 2 : f >= FAITH_T1 ? 1 : f <= -FAITH_T2 ? -2 : f <= -FAITH_T1 ? -1 : 0;
+}
+/* 2단의 이름은 한 낱말이다. 「타락 · 괴물」 은 240px 줄에서 막대를 덮었고,
+   무엇보다 이 훅의 문장이 「성인이 되느냐 괴물이 되느냐」다 — 그 낱말이 이름이어야 한다. */
+const FAITH_NAME = ["괴물", "타락", "", "신앙", "성인"];
+function faithName() { return FAITH_NAME[faithStep() + 2]; }
+
+/* 매 프레임 배수. dyn* 초기화 뒤, 자세 계산과 같은 자리에서 곱한다. */
+function applyFaithEffects(p, dt) {
+  const st = faithStep();
+  if (st === 1)       { p.dynArmor *= .92; p.dynSpeed *= .94; }
+  else if (st === 2)  { p.dynArmor *= .85; p.dynSpeed *= .82; }
+  else if (st === -1) { p.dynDmg *= 1.10; }
+  else if (st === -2) { p.dynDmg *= 1.22; }
+
+  /* 타락 2단 — 최대 체력이 30초마다 2% 씩 마른다(40% 에서 멈춘다).
+     recomputeStats 가 이 값을 보므로 계단이 오를 때만 다시 계산한다. */
+  if (st === -2) {
+    Game.faithDrainT += dt;
+    if (Game.faithDrainT >= FAITH_DRAIN_EVERY && Game.faithDrain < FAITH_DRAIN_CAP) {
+      Game.faithDrainT -= FAITH_DRAIN_EVERY;
+      Game.faithDrain = Math.min(FAITH_DRAIN_CAP, Game.faithDrain + FAITH_DRAIN_STEP);
+      recomputeStats();
+      Game.lmFlash = 2.2; Game.lmFlashText = "몸이 마른다 — 최대 체력 -" + Math.round(Game.faithDrain * 100) + "%";
+    }
+  } else Game.faithDrainT = 0;
+  if (p.faithGuard > 0) p.faithGuard -= dt;
+}
+
 const RES_MAX = 100;
 /* 방벽 회복의 규칙 (§성기사). 방벽은 버티게 해야지 이기게 하면 안 된다 —
    서서 스킬만 눌러도 15분이 클리어됐고 3:00~9:00 내내 체력이 100% 였다. */
@@ -3668,6 +3748,7 @@ function recomputeStats() {
   const s = {
     damage: 1, cooldown: 1, area: 1, speed: 1, armor: 1, projSpeed: 1,
     maxHp: player.base.maxHp + (player.level - 1) * 3, regen: 0, magnet: 1, xpGain: 1, crit: .10,
+    faithDrain: Game.faithDrain || 0,          // 타락 2단이 몸을 말린 몫 — 아래에서 마지막에 곱한다
     gemChance: player.cls ? player.cls.gemChance : .10,  // 직업마다 다르다
   };
   // 직업 보정을 먼저 적용하고, 그 위에 패시브를 곱한다
@@ -3717,6 +3798,9 @@ function recomputeStats() {
   s.speed  *= 1 + .04 * Meta.lv("swift");
   s.xpGain *= 1 + .06 * Meta.lv("avarice");
   s.gemChance = clamp(s.gemChance + .01 * Meta.lv("avarice"), .01, 1);
+  /* 타락이 몸을 말린 몫은 **맨 마지막**에 곱한다 — 앞에 두면 그 뒤의 더하기(직업·전직
+     maxHp)가 감소를 지나쳐 버려서 40% 를 깎아도 체력이 안 준다. */
+  s.maxHp *= 1 - (s.faithDrain || 0);
   player.stats = s;
   player.hp = Math.min(player.hp, s.maxHp);
 }
@@ -3894,6 +3978,7 @@ const Game = {
   padSel: 0, keyRow: 0, keyWait: false,
   codexCls: 0, codexFrom: "intro",
   houndPack: 0, houndLeft: 0, houndDone: true,
+  faith: 0, faithDrain: 0, faithDrainT: 0, faithFlash: 0,
   lmFlash: 0, lmFlashText: "", bandY: 0, advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
@@ -3976,6 +4061,8 @@ const Game = {
     player.monolith = null;
     lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0; Sin.clear();
     this.houndPack = 0; this.houndLeft = 0; this.houndDone = true;
+    this.faith = 0; this.faithDrain = 0; this.faithDrainT = 0; this.faithFlash = 0;
+    player.faithGuard = 0;
     player.stillTime = 0; player.bulwark = 0; player.bulwarkT = 0; player.press = 0; player.skillCd = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -4207,6 +4294,19 @@ const Game = {
   },
 
   applyChoice(c) {
+    /* 저울은 여기서만 움직인다 — 무기·능력·특성·각성이 전부 이 함수를 지난다.
+       두 군데에서 밀면 반드시 한쪽을 빠뜨린다. */
+    const tilt = faithOf(c);
+    if (tilt) {
+      const was = faithStep();
+      this.faith = clamp(this.faith + tilt, -FAITH_MAX, FAITH_MAX);
+      this.faithFlash = 2.2;
+      if (faithStep() !== was) {                 // 계단이 바뀌면 알린다 — 저주도 함께 온다
+        this.lmFlash = 2.8;
+        this.lmFlashText = faithStep() === 0 ? "저울이 가운데로 돌아왔다" : faithName() + "에 이르렀다";
+        Sfx.play(faithStep() > 0 ? 660 : 190, .4, "triangle", .8, faithStep() > 0 ? 320 : -90);
+      }
+    }
     if (c.tier) { applyAdvance(c); this.state = "playing"; if (player.xp >= player.xpNext) this.levelUp(); return; }
     if (c.type === "weapon") addWeapon(c.key);
     else if (c.type === "passive") addPassive(c.key);
@@ -4443,6 +4543,7 @@ function update(dt) {
   updateResource(dt);
   Mission.update(dt);
   Sin.update(dt);
+  applyFaithEffects(player, dt);
   // 음악은 상황을 따라간다 — 보스가 살아 있으면 두꺼워진다
   {
     let bossAlive = false;
@@ -5018,6 +5119,14 @@ function hurtPlayer(raw, tag) {
   // 위협은 '한 대'가 아니라 '계속 맞는 것'에서 나와야 한다.
   let dmg = Math.min(reduced, player.stats.maxHp * .28);
   const blocked = base - reduced;
+  /* 신앙 2단 — 큰 한 방을 무효화한다. 15초에 한 번.
+     이동을 18% 잃는 대가라 「도망 대신 버틴다」로 성립해야 한다. */
+  if (faithStep() === 2 && player.faithGuard <= 0 && dmg >= player.stats.maxHp * .20) {
+    player.faithGuard = 15;
+    dmg = 0;
+    spawnNumber(player.x, player.y - 30, "신앙!", "#ffd9a0", 20);
+    spawnWave({ x: player.x, y: player.y, maxR: 240, dmg: 0, life: .3, color: "#ffd9a0", element: "holy" });
+  }
   // 3차 각성의 방패 — 한 대를 통째로 무시한다
   if (player.shieldOn > 0) {
     player.shieldOn = 0;
@@ -9197,7 +9306,8 @@ function drawHUD() {
         + (tired ? "  지침" : capped ? "  회복 한계" : ""), 40, cy + 11);
       ctx.textAlign = "right";
       ctx.fillStyle = player.press > 0 ? "#ff9f6b" : "rgba(255,255,255,.3)";
-      ctx.fillText("접전 ×" + player.press + "  (+" + Math.round((player.dynDmg - 1) * 100) + "%)", 248, cy + 11);
+      // 240px 한 줄에 「방벽 -53% 지침」과 함께 들어가야 한다 — 괄호와 여백을 뺀다
+      ctx.fillText("접전 ×" + player.press + " +" + Math.round((player.dynDmg - 1) * 100) + "%", 248, cy + 11);
     } else {
       const st = Math.floor(player.channel), maxStage = 3 + traitLv("deepMana");
       ctx.font = "700 12px " + FONT;
@@ -9212,6 +9322,39 @@ function drawHUD() {
       ctx.fillText("피해 +" + Math.round((player.dynDmg - 1) * 100) + "%", 248, cy + 11);
     }
     cy += 26;
+  }
+
+  /* 신앙 ↔ 타락 저울. 지금 어느 쪽으로 얼마나 갔는지, 그리고 문턱이 어디인지가
+     보여야 한다 — 「고르면 어떻게 되는가」를 레벨업 카드가 말하고, 「지금 어디인가」를
+     여기가 말한다. 가운데(0)에서는 눈금만 옅게 둔다. */
+  {
+    const f = Game.faith, st = faithStep();
+    const bw = 240, bx = 14, bh = 18;
+    pxChip(bx, cy, bw, bh, "rgba(10,10,20,.62)", null, 5);
+    const mid = bx + bw / 2, half = bw / 2 - 62;   // 양옆 라벨 자리를 비워 둔다
+    // 문턱 눈금 넷
+    ctx.fillStyle = "rgba(255,255,255,.14)";
+    for (const t of [-FAITH_T2, -FAITH_T1, FAITH_T1, FAITH_T2])
+      ctx.fillRect(Math.round(mid + t / FAITH_MAX * half), cy + 4, 1, bh - 8);
+    ctx.fillStyle = "rgba(255,255,255,.28)"; ctx.fillRect(Math.round(mid), cy + 3, 1, bh - 6);
+    // 지금 자리 — 신앙은 금빛, 타락은 핏빛
+    const col = st > 0 ? "#ffd9a0" : st < 0 ? "#e0426a" : "rgba(255,255,255,.5)";
+    const px = Math.round(mid + f / FAITH_MAX * half);
+    ctx.fillStyle = col;
+    ctx.fillRect(Math.min(px, mid), cy + 8, Math.max(2, Math.abs(px - mid)), 3);
+    pxChip(px - 3, cy + 4, 6, bh - 8, col, null, 2);
+    /* 이름은 **활성인 쪽 라벨을 갈아 끼운다.** 가운데에 두었더니 막대와 반대쪽
+       라벨을 동시에 덮었다 — 240px 한 줄에 세 덩이는 안 들어간다. */
+    ctx.font = "700 10px " + FONT; ctx.textBaseline = "middle";
+    const drain = Game.faithDrain ? " -" + Math.round(Game.faithDrain * 100) + "%" : "";
+    ctx.textAlign = "left";
+    ctx.fillStyle = st < 0 ? "#e0426a" : "rgba(255,255,255,.22)";
+    ctx.fillText(st < 0 ? faithName() + drain : "타락", bx + 5, cy + bh / 2);
+    ctx.textAlign = "right";
+    ctx.fillStyle = st > 0 ? "#ffd9a0" : "rgba(255,255,255,.22)";
+    ctx.fillText(st > 0 ? faithName() : "신앙", bx + bw - 5, cy + bh / 2);
+    ctx.textAlign = "left";
+    cy += 22;
   }
 
   // 활성화된 속성 조합 — 지금 일하고 있는지가 보여야 한다
@@ -13465,6 +13608,21 @@ function drawLevelUp() {
 
     ctx.font = "800 23px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.name, x + cw / 2, y0 + 142 + oy);
+
+    /* 성향 — **고르기 전에** 보여야 선택이 된다. 사후 통보면 저울이 아니라 벌이다.
+       적용과 같은 함수(faithOf)를 보므로 화면과 실제가 갈릴 수 없다. */
+    {
+      const tl = faithOf(c);
+      if (tl) {
+        const fc = tl > 0 ? "#ffd9a0" : "#e0426a";
+        const txt = (tl > 0 ? "신앙 +" : "타락 ") + (tl > 0 ? tl : tl);
+        ctx.font = "700 11px " + FONT;
+        const tw2 = ctx.measureText(txt).width + 18;
+        pxChip(x + cw / 2 - tw2 / 2, y0 + 120 + oy, tw2, 17, "rgba(255,255,255,.06)", null, 5);
+        ctx.fillStyle = fc;
+        ctx.fillText(txt, x + cw / 2, y0 + 129 + oy);
+      }
+    }
 
     if (c.type !== "heal") {
       ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";

@@ -3495,7 +3495,7 @@ const player = {
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
   dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
-  stillTime: 0, bulwark: 0, bulwarkT: 0, press: 0, skillCd: 0, faithGuard: 0, channel: 0, meltTimer: 0, blocked: 0,
+  stillTime: 0, bulwark: 0, bulwarkT: 0, press: 0, skillCd: 0, faithGuard: 0, dashR: 34, channel: 0, meltTimer: 0, blocked: 0,
   carnage: 0, carnageTimer: 0, leechBudget: 0,
   dash: 0, dashX: 1, dashY: 0, dashDmg: 0, dashHit: new Set(),
   // 스프라이트 동작 상태 — 무기가 나갈 때 actT, 스킬을 쓸 때 castT 를 채우고 흘려보낸다
@@ -3579,6 +3579,7 @@ function applyFaithEffects(p, dt) {
   if (p.faithGuard > 0) p.faithGuard -= dt;
 }
 
+const LEECH_REFILL = .015;      // 흡혈 전환의 지속 회복 — 초당 최대 체력의 1.5%
 const RES_MAX = 100;
 /* 방벽 회복의 규칙 (§성기사). 방벽은 버티게 해야지 이기게 하면 안 된다 —
    서서 스킬만 눌러도 15분이 클리어됐고 3:00~9:00 내내 체력이 100% 였다. */
@@ -4622,8 +4623,19 @@ function update(dt) {
   }
   if (player.buffFury > 0) player.buffFury -= dt;
   if (player.buffWard > 0) player.buffWard -= dt;
-  // 흡혈은 초당 상한을 둬서 무한 회복이 되지 않게 한다
-  player.leechBudget = Math.min(s.maxHp * .05, player.leechBudget + s.maxHp * .05 * dt);
+  /* 흡혈 전환의 한도.
+
+     **한도가 흐름을 못 막고 있었다.** 초당 5% 로 차고 5% 에서 멈추면, 피해가 충분한
+     한 결국 **초당 5% 가 그대로 나간다** — 한도는 한 번에 터지는 양만 막고 지속 회복은
+     리필 속도가 정한다. 온 맵에 폭발이 깔린 판에서는 피해가 늘 충분하므로 최대 체력
+     766 기준 초당 38 이 무한히 들어왔다. 사람이 15분을 서서 클리어했다(2026-09-04).
+
+     지속 회복을 정하는 것은 **리필 속도**이므로 그쪽을 낮춘다. 담는 그릇(5%)은 그대로
+     둬서 한 번에 크게 빨아들이는 손맛은 남긴다.
+
+     통달(comboPower)은 **한 번에 빨아들이는 속도**만 올린다 — 지속 회복은 리필이 정하므로
+     통달해도 초당 1.5% 그대로다. 그게 이 구조의 요점이다. */
+  player.leechBudget = Math.min(s.maxHp * .05, player.leechBudget + s.maxHp * LEECH_REFILL * dt);
   if (player.carnageTimer > 0) player.carnageTimer -= dt;
   else if (player.carnage > 0) player.carnage = Math.max(0, player.carnage - dt * .12);
 
@@ -4815,7 +4827,7 @@ function update(dt) {
     for (let i = 0; i < found.length; i++) {
       const e = found[i];
       if (!e.active || player.dashHit.has(e.id)) continue;
-      const rr = 34 + e.r;
+      const rr = (player.dashR || 34) + e.r;
       if (dist2(e.x, e.y, player.x, player.y) < rr * rr) {
         player.dashHit.add(e.id);
         damageEnemy(e, player.dashDmg * (1 + .4 * traitLv("charge")), player.x, player.y, 420, "physical");
@@ -7932,6 +7944,11 @@ function skSlash(name, icon, cost, desc, o) {
 function skDash(name, icon, cost, desc, o) {
   return { name, icon, cost, desc, use(p) {
     p.dash = o.dur; p.dashX = p.faceX; p.dashY = p.faceY;
+    /* 돌진은 지나가는 복도만 때린다. 반경 34 면 복도 폭이 94px 이라, 반지름 380 짜리
+       파동(넓이 45만)의 10분의 1도 안 된다 — 스킬 한 방의 값을 재 보니 다섯 중 꼴찌였고
+       (51k 대 참수 160k), 사람은 「공격력이 거의 없다」며 15분을 도망 다녔다.
+       고칠 곳은 피해보다 **폭**이다. */
+    p.dashR = o.r || 34;
     p.dashDmg = (o.dmg + p.level * (o.perLv || 12)) * p.stats.damage * p.dynDmg;
     p.dashHit.clear();
     p.iframe = Math.max(p.iframe, o.dur + .2);
@@ -8505,7 +8522,7 @@ const ADVANCES = [
     mods: { maxHp: 120, damage: .24 },
     stanceMod: { bulwarkCap: .88, pressDmg: .09, moveBulwark: .5 },
     skill: skDash("성스러운 돌격", "🏇", 45, "적진을 꿰뚫고 지나간다.",
-      { dur: .5, dmg: 150, perLv: 16 }),
+      { dur: .5, dmg: 230, perLv: 24, r: 54 }),
     traits: [
       { key: "charge", name: "돌격 훈련", icon: "🎠", max: 3, desc: "돌진이 길어지고 강해진다.",
         detail: l => "돌진 피해 +" + (40 * l) + "%" },

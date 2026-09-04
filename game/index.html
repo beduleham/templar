@@ -3831,6 +3831,7 @@ function applyAdvance(a) {
   player.iframe = Math.max(player.iframe, 1.2 + a.tier * .6);
   player.res = RES_MAX;                 // 새 스킬을 즉시 써볼 수 있게
   Sfx.arp([523, 659, 784, 1046, 1318, 1568], 75, .2, "triangle", .95);
+  Meta.record(a);                       // 성전 기록 — 전직 획득은 이 함수 하나를 지난다
 }
 
 function addPassive(key) {
@@ -3852,6 +3853,7 @@ const Game = {
   usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0,
   optFrom: "intro", optRow: 0, wipeArm: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
   padSel: 0, keyRow: 0, keyWait: false,
+  codexCls: 0, codexFrom: "intro",
   lmFlash: 0, lmFlashText: "", bandY: 0, advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
@@ -3952,6 +3954,19 @@ const Game = {
     if (k === "m") { Sfx.on = !Sfx.on; Music.fade(Sfx.on ? Music.vol() : 0); return; }   // 빠른 전체 음소거
     if (k === "n") { Opt.names = Opt.names ? 0 : 1; Opt.save(); return; }   // 몬스터 이름표
     if (k === "o" && this.state !== "options") { this.optFrom = this.state; this.state = "options"; return; }
+    // 성전 기록 — 메뉴 어디서든 C. 판 안에서는 안 연다(멈추면 안 된다)
+    if (k === "c" && (this.state === "intro" || this.state === "title" || this.state === "altar"
+        || this.state === "dead" || this.state === "won")) {
+      this.codexFrom = this.state; this.state = "codex"; return;
+    }
+    if (this.state === "codex") {
+      if (k === "escape" || k === "tab" || k === "c") { this.state = this.codexFrom || "intro"; return; }
+      const ci = "1234".indexOf(k);
+      if (ci >= 0 && CLASSES[ci]) { this.codexCls = ci; return; }
+      if (k === "arrowleft" || k === "a") { this.codexCls = (this.codexCls + CLASSES.length - 1) % CLASSES.length; return; }
+      if (k === "arrowright" || k === "d") { this.codexCls = (this.codexCls + 1) % CLASSES.length; return; }
+      return;
+    }
     if (this.state === "intro") {
       if (k === "tab") { this.introFrom = "intro"; this.state = "altar"; return; }
       if (k === " " || k === "enter") { this.state = "title"; Sfx.play(520, .18, "triangle", .7, 260); return; }
@@ -4034,8 +4049,8 @@ const Game = {
   wipeAsk() {
     if (this.wipeArm > 0) {
       this.wipeArm = 0;
-      try { localStorage.removeItem("ts_souls"); localStorage.removeItem("ts_altar"); localStorage.removeItem("ts_best"); } catch (e) { /* 못 지워도 아래는 맞춘다 */ }
-      Meta.souls = 0; Meta.levels = {}; this.bestTime = 0; this.lastEarned = 0;
+      try { localStorage.removeItem("ts_souls"); localStorage.removeItem("ts_altar"); localStorage.removeItem("ts_best"); localStorage.removeItem("ts_codex"); } catch (e) { /* 못 지워도 아래는 맞춘다 */ }
+      Meta.souls = 0; Meta.levels = {}; Meta.codex = {}; this.bestTime = 0; this.lastEarned = 0;
       Sfx.play(180, .3, "sawtooth", .7, -60);
       return;
     }
@@ -7785,19 +7800,41 @@ const ALTAR = [
 ];
 
 const Meta = {
-  souls: 0, levels: {},
+  souls: 0, levels: {}, codex: {},
   load() {
     try {
       this.souls = Number(localStorage.getItem("ts_souls") || 0) || 0;
       this.levels = JSON.parse(localStorage.getItem("ts_altar") || "{}") || {};
-    } catch (e) { this.souls = 0; this.levels = {}; }
+      this.codex = JSON.parse(localStorage.getItem("ts_codex") || "{}") || {};
+    } catch (e) { this.souls = 0; this.levels = {}; this.codex = {}; }
   },
   save() {
     try {
       localStorage.setItem("ts_souls", String(this.souls));
       localStorage.setItem("ts_altar", JSON.stringify(this.levels));
+      localStorage.setItem("ts_codex", JSON.stringify(this.codex));
     } catch (e) { /* 저장 불가여도 게임은 돈다 */ }
   },
+
+  /* 성전 기록 — 전직 68갈래를 계보로 모은다 (docs/hook-spec.md C2).
+
+     초상 51장을 이미 그려 놓고도 한 판에 최대 네 번, 그것도 한 직업일 때만 보이고
+     사라지고 있었다. 도달한 갈래를 영구히 남겨 두면 그 그림이 모을 것이 된다.
+
+     **능력치 보상은 안 붙인다.** 수집이 세지면 안 모은 사람이 불리해지고, 이 장르에서
+     그건 신규 진입을 막는 벽이 된다. 붙인다면 수평으로만 — 예를 들어 한 혈통을
+     완성하면 그 시작 무기를 다른 직업에서도 고를 수 있게 하는 식. */
+  record(a) {
+    const c = this.codex[a.key] || (this.codex[a.key] = { n: 0, t: 0, d: "" });
+    c.n++;
+    if (!c.t) {                                   // 최초 도달만 남긴다
+      c.t = Math.round(Game.time);
+      c.d = new Date().toISOString().slice(0, 10);
+    }
+    this.save();
+  },
+  seen(k) { return !!this.codex[k]; },
+  found() { return Object.keys(this.codex).length; },
   lv(k) { return this.levels[k] || 0; },
   costOf(u) { return u.cost(this.lv(u.key)); },
   buy(k) {
@@ -12234,7 +12271,8 @@ function drawIntro() {
 
   ctx.font = "600 11px " + FONT;
   ctx.fillStyle = "rgba(255,255,255,.3)";
-  const foot = narrow() ? "O  설정" : "O 설정   ·   M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지";
+  const foot = narrow() ? "O  설정  ·  C 기록"
+    : "C 성전 기록   ·   O 설정   ·   M 음소거   ·   N 몬스터 이름표   ·   ESC 일시정지";
   fitFont("600", 11, foot, W - 32);
   ctx.fillText(foot, cx, H - 26);
 }
@@ -12729,6 +12767,161 @@ function drawAltarStone(cx, floorY, lit, hoard, k) {
   ctx.globalAlpha = 1;
 }
 
+/* ══════════ 성전 기록 ══════════
+   68갈래를 계보로 놓고, 도달한 것에 불을 켠다.
+
+   ■ 왜 한 직업씩 보여주나
+
+   68칸을 한 화면에 늘어놓으면 칸이 손톱만 해진다. 그런데 이 그림의 값은 초상에
+   있다 — 작게 만들면 모을 이유 자체가 사라진다. 그래서 직업 하나씩, 2 → 4 → 8 → 3
+   의 나무로 편다. 가장 넓은 줄이 여덟이라 1280 화면에 그대로 들어간다.
+
+   ■ 못 간 갈래도 이름을 보여준다
+
+   명세에는 「실루엣 + ???」 이라고 적었는데 바꿨다. 지금 이 게임에는 68갈래가
+   무엇인지 **볼 방법이 아예 없다** — 판 안에서 각성 화면에 뜨는 두세 개가 전부다.
+   이름을 가리면 기록이 전리품 상자는 되지만 길잡이는 못 된다. 둘 다 되는 편이 낫다.
+   도달 여부는 초상에 불이 켜지느냐로 충분히 갈린다.
+
+   ■ 마법사 17갈래는 초상이 아직 없다
+
+   없으면 실루엣만 그린다. 그래서 이 화면은 마법사 초상을 나중에 채워도 안 막힌다. */
+const codexCache = {};
+function codexTree(clsKey) {
+  if (codexCache[clsKey]) return codexCache[clsKey];
+  const t1 = ADVANCES.filter(a => a.tier === 1 && a.from === clsKey);
+  const t2 = ADVANCES.filter(a => a.tier === 2 && t1.some(p => p.key === a.from));
+  const t3 = ADVANCES.filter(a => a.tier === 3 && t2.some(p => p.key === a.from));
+  const t4 = ADVANCES.filter(a => a.tier === 4 && a.from === clsKey);
+  return (codexCache[clsKey] = [t1, t2, t3, t4]);
+}
+
+function drawCodex() {
+  menuScrim(.86);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const cx = W / 2;
+
+  const found = Meta.found();
+  fitFont("800", narrow() ? 26 : 34, "성전 기록", W - 40);
+  ctx.fillStyle = "#ffd36e";
+  ctx.fillText("성전 기록", cx, narrow() ? 28 : 40);
+  ctx.font = "700 13px " + FONT;
+  ctx.fillStyle = found >= ADVANCES.length ? "#ffd36e" : "rgba(255,255,255,.55)";
+  ctx.fillText("걸어 본 길 " + found + " / " + ADVANCES.length, cx, narrow() ? 54 : 64);
+
+  // ── 직업 탭
+  const tabW = Math.min(150, Math.floor((W - 40) / CLASSES.length)), tabH = 44;
+  const tx0 = cx - tabW * CLASSES.length / 2, ty = narrow() ? 72 : 84;
+  for (let i = 0; i < CLASSES.length; i++) {
+    const c = CLASSES[i], x = tx0 + i * tabW;
+    const on = Game.codexCls === i;
+    const hov = inRect(mouse.x, mouse.y, x, ty, tabW, tabH);
+    if (hov && mouse.clicked) { Game.codexCls = i; Sfx.play(520, .05, "square", .3); }
+    if (on || hov) {
+      ctx.fillStyle = on ? "rgba(255,211,110,.14)" : "rgba(255,255,255,.06)";
+      ctx.fillRect(x + 3, ty, tabW - 6, tabH);
+    }
+    uiArt("ui_crest_" + c.key, x + 24, ty + tabH / 2, 32, on ? 1 : .5);
+    ctx.textAlign = "left";
+    ctx.font = "700 14px " + FONT; ctx.fillStyle = on ? c.color : "rgba(255,255,255,.45)";
+    ctx.fillText(c.name, x + 44, ty + tabH / 2 - 6);
+    const tot = codexTree(c.key).reduce((n, r) => n + r.length, 0);
+    const got = codexTree(c.key).reduce((n, r) => n + r.filter(a => Meta.seen(a.key)).length, 0);
+    ctx.font = "700 10.5px " + FONT; ctx.fillStyle = got >= tot ? "#ffd36e" : "rgba(255,255,255,.35)";
+    ctx.fillText(got + "/" + tot, x + 44, ty + tabH / 2 + 10);
+    ctx.textAlign = "center";
+    if (on) { ctx.fillStyle = c.color; ctx.fillRect(x + 3, ty + tabH - 2, tabW - 6, 2); }
+  }
+
+  // ── 계보 나무
+  const cls = CLASSES[Game.codexCls] || CLASSES[0];
+  const rows = codexTree(cls.key);
+  const CW = 98, CH = 112, GAP = 8;
+  const wide = Math.max(...rows.map(r => r.length));
+  const need = wide * CW + (wide - 1) * GAP;
+  const treeH = rows.length * CH + (rows.length - 1) * GAP;
+  const y0 = ty + tabH + 18, avail = H - y0 - 46;
+  const gk = Math.min(1, (W - 28) / need, avail / treeH);
+  /* 세로로 남는 자리는 나눠 가진다. 세로 화면에서는 폭에 맞추느라 gk 가 0.42 까지
+     떨어져 나무가 위쪽에 몰리고 화면의 60% 가 빈다 — 가운데로 내린다. */
+  const top = y0 + Math.max(0, (avail - treeH * gk) / 2);
+  const amx = (mouse.x - cx) / gk + cx, amy = (mouse.y - top) / gk + top;
+
+  ctx.save();
+  if (gk < 1) { ctx.translate(cx, top); ctx.scale(gk, gk); ctx.translate(-cx, -top); }
+
+  const cellX = (row, i) => cx - (row.length * CW + (row.length - 1) * GAP) / 2 + i * (CW + GAP);
+  const rowY = r => top + r * (CH + GAP);
+
+  /* 잇는 선을 먼저 깐다 — 어느 갈래에서 나왔는지가 이 화면의 반이다.
+     4차는 부모가 갈래가 아니라 직업이라 선을 안 긋는다(다 이어져 보여 뜻이 없다). */
+  ctx.strokeStyle = "rgba(255,255,255,.13)"; ctx.lineWidth = 2;
+  for (let r = 1; r <= 2; r++) {
+    for (let i = 0; i < rows[r].length; i++) {
+      const pi = rows[r - 1].findIndex(p => p.key === rows[r][i].from);
+      if (pi < 0) continue;
+      const x0 = cellX(rows[r - 1], pi) + CW / 2, y0 = rowY(r - 1) + CH;
+      const x1 = cellX(rows[r], i) + CW / 2, y1 = rowY(r);
+      const lit = Meta.seen(rows[r][i].key) && Meta.seen(rows[r - 1][pi].key);
+      ctx.strokeStyle = lit ? "rgba(255,211,110,.4)" : "rgba(255,255,255,.11)";
+      ctx.beginPath();
+      ctx.moveTo(x0, y0); ctx.lineTo(x0, (y0 + y1) / 2);
+      ctx.lineTo(x1, (y0 + y1) / 2); ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+  }
+
+  let tip = null;
+  for (let r = 0; r < rows.length; r++) {
+    for (let i = 0; i < rows[r].length; i++) {
+      const a = rows[r][i], x = cellX(rows[r], i), y = rowY(r);
+      const got = Meta.seen(a.key);
+      const hov = inRect(amx, amy, x, y, CW, CH);
+      if (hov) tip = a;
+      panel(x, y, CW, CH, 10,
+        got ? (hov ? "rgba(38,32,20,.98)" : "rgba(22,19,14,.92)") : "rgba(12,12,20,.86)",
+        got ? (hov ? "#ffd36e" : a.color) : "rgba(255,255,255,.1)");
+      const f = Sprites.frames["adv_" + a.key];
+      const pcx = x + CW / 2, pcy = y + 46;
+      if (f && Sprites.atlas) {
+        ctx.save();
+        /* 못 간 갈래는 옅게. Sprites.draw 의 dark 겹은 알파를 무시하고 덮으므로
+           어두운 판 위에서는 통째로 사라진다 — 옅게 그리는 편이 유령처럼 읽힌다. */
+        if (!got) ctx.globalAlpha = .17;
+        Sprites.draw("adv_" + a.key, pcx, pcy + 22, 72 / 128, 0, false);
+        ctx.restore();
+      } else {
+        // 초상이 아직 없는 갈래(마법사 17) — 자리만 지킨다
+        ctx.globalAlpha = got ? .5 : .14;
+        drawMenuIcon("orb", pcx, pcy, a.color, 4);
+        ctx.globalAlpha = 1;
+      }
+      ctx.font = "700 11px " + FONT;
+      ctx.fillStyle = got ? a.color : "rgba(255,255,255,.42)";
+      fitFont("700", 11, a.name, CW - 10);
+      ctx.fillText(a.name, pcx, y + CH - 16);
+      if (got && Meta.codex[a.key].n > 1) {
+        ctx.font = "700 9px " + FONT; ctx.fillStyle = "rgba(255,211,110,.5)";
+        ctx.fillText("x" + Meta.codex[a.key].n, x + CW - 14, y + 11);
+      }
+    }
+  }
+  ctx.restore();
+
+  // ── 짚은 갈래 설명 — 화면 아래 한 줄
+  if (tip) {
+    const got = Meta.seen(tip.key);
+    ctx.font = "700 14px " + FONT; ctx.fillStyle = tip.color;
+    ctx.fillText(tip.name + (got ? "" : "  ·  아직"), cx, H - 44);
+    ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+    fitFont("600", 11.5, tip.tagline || tip.desc || "", W - 40);
+    ctx.fillText(tip.tagline || tip.desc || "", cx, H - 26);
+  } else {
+    ctx.font = "600 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+    ctx.fillText(narrow() ? "TAB / ESC 로 돌아가기" : "1~4 · A / D  직업 바꾸기   ·   TAB / ESC  돌아가기", cx, H - 26);
+  }
+}
+
 function drawAltar() {
   menuScrim(.7);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -12742,6 +12935,23 @@ function drawAltar() {
     /* 가름줄은 장식이 **가운데** 있으므로 삼등분해 늘리면 안 된다(§107).
        제목 아래 26px 자리에 통째로 눕힌다 — 잉크는 가운데 14px 남짓이다. */
     uiArtW("ui_divider", W / 2, 97, Math.min(500, W - 80));
+  }
+
+  /* 성전 기록으로 가는 문. C 키만 두면 폰에서는 못 연다.
+     제단이 판 밖의 허브이므로 여기에 붙이는 것이 맞다. */
+  {
+    const bw = narrow() ? 116 : 148, bh = 38;
+    const bx = W - bw - 20, by = narrow() ? 12 : 24;
+    const hov = inRect(mouse.x, mouse.y, bx, by, bw, bh);
+    if (!drawSliceH(hov ? "ui_btn_hover" : "ui_btn_short", bx, by, bw, bh, BTN_CAP))
+      panel(bx, by, bw, bh, 10, hov ? "rgba(255,211,110,.18)" : "rgba(16,14,26,.9)",
+        hov ? "#ffd36e" : "rgba(255,211,110,.3)");
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "700 13px " + FONT; ctx.fillStyle = hov ? "#ffd36e" : "rgba(255,211,110,.8)";
+    ctx.fillText("성전 기록", bx + bw / 2, by + bh / 2 - 6);
+    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
+    ctx.fillText(Meta.found() + " / " + ADVANCES.length + "  ·  C", bx + bw / 2, by + bh / 2 + 9);
+    if (hov && mouse.clicked) { Game.codexFrom = "altar"; Game.state = "codex"; return; }
   }
 
   /* 세 줄로 놓으면 1,184px 이 필요하다 — 세로 화면(520)에서는 가운데 한 줄만 보이고
@@ -13489,6 +13699,7 @@ function frame(now) {
 
   // 메뉴에서는 어트랙트 데모가, 판 중에는 진짜가 같은 고정 타임스텝으로 돈다
   const inMenu = Game.state === "intro" || Game.state === "title" || Game.state === "altar"
+    || Game.state === "codex"
     || ((Game.state === "options" || Game.state === "keys") && Game.optFrom !== "paused");
   if (inMenu) { if (!Attract.on) Attract.start(); }
   else if (Attract.on) Attract.stop();
@@ -13550,6 +13761,7 @@ function frame(now) {
   if (Game.state === "intro") drawIntro();
   else if (Game.state === "title") drawTitle();
   else if (Game.state === "altar") drawAltar();
+  else if (Game.state === "codex") drawCodex();
   else if (Game.state === "options") drawOptions();
   else if (Game.state === "keys") drawKeys();
   else if (Game.state === "advance") drawAdvance();

@@ -3489,7 +3489,7 @@ const player = {
   // 매 프레임 다시 계산되는 배수 (진영 / 영창처럼 상황에 따라 변하는 것)
   dynDmg: 1, dynCd: 1, dynArmor: 1, dynPierce: 0, dynSpeed: 1, dynMagnet: 1,
   dynCrit: 0, dynCritMul: 2, dynProjSpeed: 1, dynHoming: 0, dynBurnAmp: 1,
-  stillTime: 0, bulwark: 0, press: 0, channel: 0, meltTimer: 0, blocked: 0,
+  stillTime: 0, bulwark: 0, bulwarkT: 0, press: 0, skillCd: 0, channel: 0, meltTimer: 0, blocked: 0,
   carnage: 0, carnageTimer: 0, leechBudget: 0,
   dash: 0, dashX: 1, dashY: 0, dashDmg: 0, dashHit: new Set(),
   // 스프라이트 동작 상태 — 무기가 나갈 때 actT, 스킬을 쓸 때 castT 를 채우고 흘려보낸다
@@ -3500,6 +3500,11 @@ const player = {
    순수 오토배틀에 '언제 쓰느냐'의 판단을 하나 추가한다.
    자원이 차는 방식이 직업마다 달라서 플레이 리듬 자체가 갈린다. */
 const RES_MAX = 100;
+/* 방벽 회복의 규칙 (§성기사). 방벽은 버티게 해야지 이기게 하면 안 된다 —
+   서서 스킬만 눌러도 15분이 클리어됐고 3:00~9:00 내내 체력이 100% 였다. */
+const BULWARK_HEAL_CAP = .65;   // 방벽 회복만으로 찰 수 있는 최대 체력 비율
+const BULWARK_FRESH = 8;        // 이만큼은 온전히 회복한다 (초)
+const BULWARK_FADE = 8;         // 그 뒤 이만큼에 걸쳐 40% 까지 줄어든다 (초)
 
 player.onKill = function (e) {
   const R = player.cls && player.cls.resource;
@@ -3541,15 +3546,35 @@ function useItem() {
   spawnNumber(player.x, player.y - 30, C.name, C.color, 18);
 }
 
+/* 회복이 붙은 직업 스킬에만 최소 재사용 대기를 둔다.
+
+   성기사가 서서 스킬만 눌러 15분을 클리어한 진짜 이유가 여기였다(2026-09-04).
+   방벽이 아니라 **부동의 맹세**다 — 최대 체력의 45% 를 채우고 3초 무적을 주는데
+   재사용 대기가 없었다. 성기사의 자원(신앙)은 **맞으면** 차므로, 둘러싸일수록 빨리
+   차고 빨리 회복한다. 맞는 것이 회복의 연료인 고리라 끊기지 않는다.
+
+   피해만 주는 스킬은 안 건드린다 — 자원 값이 이미 그것을 조절하고 있고, 거기에
+   대기까지 걸면 안 재 본 직업들의 리듬이 통째로 바뀐다. 회복량에 비례해 거는 이유는
+   12% 짜리와 45% 짜리를 같은 자로 재면 둘 중 하나가 반드시 틀리기 때문이다. */
+function skillCd() {
+  const h = (curSkill() || {}).healPct || 0;
+  return h > 0 ? 8 + h * 24 : 0;         // 45% 회복이면 18.8초
+}
+
 function useSkill() {
   const C = player.cls;
   if (!C || Game.state !== "playing") return;
+  if (player.skillCd > 0) {
+    Sfx.throttled("nores", 260, () => Sfx.play(130, .09, "square", .3, -40));
+    return;
+  }
   if (player.res < curSkill().cost) {
     Sfx.throttled("nores", 260, () => Sfx.play(130, .09, "square", .3, -40));
     return;
   }
   const sk = curSkill();
   player.res -= sk.cost;
+  player.skillCd = skillCd();
   player.castT = CAST_DUR;
   sk.use(player);
   if (advVal("skillEcho", false)) { player.echoT = .45; player.echoSkill = sk; }
@@ -3951,7 +3976,7 @@ const Game = {
     player.monolith = null;
     lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0; Sin.clear();
     this.houndPack = 0; this.houndLeft = 0; this.houndDone = true;
-    player.stillTime = 0; player.bulwark = 0; player.press = 0;
+    player.stillTime = 0; player.bulwark = 0; player.bulwarkT = 0; player.press = 0; player.skillCd = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
     player.dynPierce = 0; player.dynSpeed = 1; player.dynMagnet = 1;
@@ -4412,6 +4437,7 @@ function update(dt) {
   player.actT = Math.max(0, player.actT - dt);
   player.swingCd = Math.max(0, player.swingCd - dt);
   player.castT = Math.max(0, player.castT - dt);
+  player.skillCd = Math.max(0, player.skillCd - dt);
   player.moving = moving;
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
   updateResource(dt);
@@ -7729,7 +7755,7 @@ function traitDef(clsKey, key) {   // 이전 호출부 호환
    전직마다 스킬이 바뀌어야 하는데 24개를 손으로 쓰면 관리가 안 된다.
    형태별로 만들어 쓰고, 수치만 전직 데이터에 둔다. */
 function skWave(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, use(p) {
+  return { name, icon, cost, desc, healPct: o.healPct || 0, use(p) {
     spawnWave({ x: p.x, y: p.y, maxR: o.r * p.stats.area,
       dmg: (o.dmg + p.level * (o.perLv || 10)) * p.stats.damage * p.dynDmg,
       life: o.life || .5, color: o.color, element: o.elem, heal: o.heal || 0 });
@@ -7922,6 +7948,8 @@ const CLASSES = [
         const need = Math.max(.12, advVal("bulwarkInstant", .6) - .15 * bl);
         const on = advVal("bulwarkAlways", false) || (!moving && p.stillTime >= need);
         p.bulwark = on ? Math.min(1, p.bulwark + dt * 6) : Math.max(0, p.bulwark - dt * 8);
+        // 연속으로 얼마나 서 있었나 — 풀면 두 배 속도로 돌아온다
+        p.bulwarkT = on ? p.bulwarkT + dt : Math.max(0, p.bulwarkT - dt * 2);
 
         // 접전: 곁에 붙은 적 수만큼 피해가 오른다 (p.press 는 공용 패스에서 계산됨)
         const R = 155 * p.stats.area;
@@ -7929,17 +7957,58 @@ const CLASSES = [
         const perPress = advVal("pressDmg", .06) + .025 * traitLv("crusade") + .025 * traitLv("zealotry");
         p.dynDmg *= 1 + perPress * p.press;
 
+        /* 지침 — 오래 서 있을수록 방벽이 약해진다.
+
+           처음에는 회복에만 걸었는데 불멸의 성벽 계보(방어 상한 93%)가 그것을 통째로
+           받아 냈다. 3판 중 2판이 여전히 서서 15분을 클리어했다. 93% 감소는 들어오는
+           피해를 7% 로 만들므로, 줄어든 회복으로도 충분히 상쇄된다.
+
+           그래서 **방어에도 같은 지침을 건다.** 8초까지는 온전하고, 16초에 걸쳐
+           막는 양이 70% 로 준다(93% → 65%). 「무너지지 않는다」는 것을 시간이
+           무너뜨린다 — 그것이 파고들기 → 버티기 → 회복의 리듬이다. */
+        const worn = clamp((p.bulwarkT - BULWARK_FRESH) / BULWARK_FADE, 0, 1);
+        /* 회복과 방어에 다르게 건다. 이기는 판을 뜯어보니 10분에 들어오는 피해가 초당
+           17 인데 회복이 26 이었다 — 방어는 이미 충분히 눌렸고 회복이 남아 있었다.
+           방어를 더 깎으면 「버틴다」가 사라지므로, **회복만 깊게** 깎는다. */
+        const fat = 1 - .85 * worn;        // 회복 — 16초 뒤 15%
+        const fatArmor = 1 - .3 * worn;    // 방어 — 16초 뒤 70%
+
         if (on) {
           // 방패벽은 밀집할수록 더 잘 막는다. '둘러싸일수록 강해진다'는 규칙이
           // 피해에만 걸리고 방어에는 안 걸리면, 파고들라는 설계가 그냥 자살 명령이 된다.
-          p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .08 * bl + .02 * p.press);
+          p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .08 * bl + .02 * p.press) * fatArmor;
           // 접전 보너스는 적이 몰려야 나오므로 초반엔 사실상 0이다.
           // 방벽 자체에 쿨다운 감소를 붙여 '자리를 지키면 꾸준히 때린다'는 기본값을 준다.
           p.dynCd *= .72;
-          // 자리를 지키면 체력이 돌아온다 — 파고들기 → 버티기 → 회복의 리듬
-          p.hp = Math.min(p.stats.maxHp,
-            p.hp + p.stats.maxHp * (.015 + advVal("regenBonus", 0) + .005 * bl
-              + .012 * traitLv("fortress") + .0018 * p.press) * dt);
+          /* 자리를 지키면 체력이 돌아온다 — 파고들기 → 버티기 → **회복**의 리듬.
+
+             주석은 처음부터 리듬이라고 적혀 있었는데 실제로는 리듬이 없었다. 떠날 이유가
+             없어서 세 단계가 한 단계로 뭉갰다(2026-09-04 사람 플레이). 성기사는 서서
+             직업 스킬만 눌러도 15분을 클리어했고, 잰 결과 3:00~9:00 내내 체력이 100%
+             였다. 방벽 하나가 방어(-52~93%) · 회복 · 쿨다운(-28%) · 접전 피해(+119%)를
+             동시에 주므로 트레이드오프가 아니라 순수 이득이었다.
+
+             **방벽은 버티게 해야지 이기게 하면 안 된다.** 셋을 건다.
+
+             A. 회복에 천장. 방벽만으로는 최대 체력의 65% 까지만 찬다. 그 위는 하트·물약
+                으로만. 버티는 것은 그대로고 무한 회복만 끊긴다 — 눌러앉으면 체력이 65%
+                로 수렴하므로 결국 나가야 한다. 이미 65% 위면 깎지는 않는다.
+
+             B. 접전이 회복을 늘리는 항(.0018 × 접전)을 **절반으로** 줄인다.
+                처음에는 통째로 뺐는데 재 보니 과했다 — 각성 전 성기사의 유지력은
+                사실상 그 항이었고(기본 회복 1.5%/s 는 초당 4 HP 다), 빼자 서 있는
+                성기사가 3:44 에 죽었다. 「둘러싸일수록 강해진다」는 이 직업의 정체성이고
+                파고들라는 설계가 자살 명령이 되면 안 된다. 무한 회복을 끊는 일은
+                A(천장)가 이미 확실히 하므로 여기서는 기울기만 눕힌다.
+
+             C. 오래 서 있으면 지친다. 방벽을 연속으로 8초 넘게 켜 두면 회복이 줄기
+                시작해 16초에 40% 가 된다. 방벽을 풀면 두 배 속도로 돌아온다 —
+                8초 버텼으면 4초 움직이면 된다. 이것이 리듬을 실제로 강제한다. */
+          const cap = p.stats.maxHp * BULWARK_HEAL_CAP;
+          if (p.hp < cap)
+            p.hp = Math.min(cap, p.hp + p.stats.maxHp * fat *
+              (.015 + advVal("regenBonus", 0) + .005 * bl + .012 * traitLv("fortress")
+               + .0009 * p.press) * dt);
           // 도발: 방벽 중에는 적을 끌어당긴다 — 더 둘러싸일수록 이득이라는 규칙과 맞물린다
           const tl = traitLv("taunt");
           if (tl > 0) {
@@ -7956,7 +8025,7 @@ const CLASSES = [
         }
         // 성전사: 달리면서도 방벽 효과의 일부가 남는다
         const mv = advVal("moveBulwark", 0);
-        if (!on && mv > 0) p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .02 * p.press) * mv;
+        if (!on && mv > 0) p.dynArmor *= 1 - Math.min(advVal("bulwarkCap", .88), .52 + .02 * p.press) * mv * fatArmor;
         // 대심문관: 접전 범위의 적이 상시 불탄다
         if (advVal("burnAura", false)) {
           for (let i = 0; i < found.length; i++) {
@@ -9121,7 +9190,11 @@ function drawHUD() {
       ctx.font = "700 12px " + FONT;
       ctx.fillStyle = on ? "#ffd36e" : "rgba(255,255,255,.35)";
       drawMenuIcon("shield", 26, cy + 7, on ? "#ffd36e" : "#8a8598", 2);
-    ctx.fillText("방벽 " + (on ? "-" + Math.round((1 - player.dynArmor) * 100) + "%" : "대기"), 40, cy + 11);
+      /* 지친 것을 안 보여주면 「왜 안 낫지」로만 남는다. 회복이 줄기 시작하면 말해 준다. */
+      const tired = on && player.bulwarkT > BULWARK_FRESH;   // 방어·회복이 함께 준다
+      const capped = on && player.hp >= player.stats.maxHp * BULWARK_HEAL_CAP;
+      ctx.fillText("방벽 " + (on ? "-" + Math.round((1 - player.dynArmor) * 100) + "%" : "대기")
+        + (tired ? "  지침" : capped ? "  회복 한계" : ""), 40, cy + 11);
       ctx.textAlign = "right";
       ctx.fillStyle = player.press > 0 ? "#ff9f6b" : "rgba(255,255,255,.3)";
       ctx.fillText("접전 ×" + player.press + "  (+" + Math.round((player.dynDmg - 1) * 100) + "%)", 248, cy + 11);
@@ -9573,7 +9646,10 @@ function drawHUD() {
 
   // 능동 스킬 — 터치에서는 오른쪽 아래 버튼이 같은 일을 하므로 그리지 않는다
   if (player.cls && !touch.seen) {
-    const C = player.cls, ready = player.res >= curSkill().cost;
+    /* 대기 중인 것을 안 보여주면 「자원은 찼는데 왜 안 나가지」로만 남는다.
+       회복 스킬에만 대기가 걸리므로(useSkill 주석), 걸린 동안 남은 초를 띄운다. */
+    const C = player.cls, cd = player.skillCd;
+    const ready = cd <= 0 && player.res >= curSkill().cost;
     const bw = 62, bx = W / 2 - bw / 2, by = H - 106;
     ctx.save();
     if (ready) { ctx.shadowColor = C.resource.color; ctx.shadowBlur = 16; }
@@ -9585,7 +9661,13 @@ function drawHUD() {
     drawMenuIcon("skill", bx + bw / 2, by + 26, C.color, 4);
     ctx.font = "700 11px " + FONT;
     ctx.fillStyle = ready ? C.resource.color : "rgba(255,255,255,.55)";
-    ctx.fillText(Math.min(100, Math.floor(player.res)) + " / " + curSkill().cost, bx + bw / 2, by + 50);
+    ctx.fillText(cd > 0 ? Math.ceil(cd) + "초" : Math.min(100, Math.floor(player.res)) + " / " + curSkill().cost,
+      bx + bw / 2, by + 50);
+    if (cd > 0) {                                  // 남은 대기를 칸 아래에 띠로
+      const w0 = bw - 12, f = 1 - cd / Math.max(1, skillCd());
+      ctx.fillStyle = "rgba(255,255,255,.12)"; ctx.fillRect(bx + 6, by + bw - 8, w0, 3);
+      ctx.fillStyle = C.resource.color; ctx.fillRect(bx + 6, by + bw - 8, w0 * f, 3);
+    }
     ctx.globalAlpha = 1;
     // 이름과 단축키는 박스 밖에 — 62px 안에 한글 이름은 들어가지 않는다
     ctx.font = "700 12px " + FONT;

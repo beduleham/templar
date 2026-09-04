@@ -1271,6 +1271,113 @@ const Mission = {
   guard(e) { return this.on && this.boss === e ? .18 : 1; },
 };
 
+/* 죄의 표식 — 무리가 아니라 표적을 사냥한다 (docs/hook-spec.md A3).
+
+   보스가 쓰는 「표식을 부숴라」를 판 전체로 일반화한 것이다. 그 구조는 보스전에서만
+   재미있었고, 나머지 15분 동안 무리는 균질한 벽이었다. 언제나 셋이 죄 표식을 달고
+   있으면 무리가 **표적이 있는 지형**이 된다.
+
+   ■ 징표는 주지 않는다
+
+   각성은 3:00 · 6:00 · 9:00 · 12:00 에 레벨과 징표(ADV_SIGILS 합 10개)를 함께
+   요구하도록 맞춰 둔 리듬이다. 표식이 징표를 흘리면 그 리듬이 통째로 무너진다.
+   여기서 나오는 것은 경험치 · 소모품 · 영혼뿐이다.
+
+   ■ 반경 340~900 의 근거
+
+   340 보다 가까우면 쫓지 않아도 우연히 죽는다 — 그러면 표적이 아니라 장식이다.
+   900 보다 멀면 화면 밖 표시에만 의존하게 되어 '찾아가는' 게 아니라 '끌려가는' 게
+   된다. 화면 반경이 가로 640 이므로 340 은 가장자리 안쪽, 900 은 한 화면 바깥이다.
+
+   ■ 숙주는 바뀌어도 표식은 남는다
+
+   30초 안에 못 잡거나 3,200 넘게 멀어지면 표식만 다른 적에게 옮긴다. 표식이 사라지면
+   '볼 곳'이 없어지고, 안 사라지면 못 잡는 적을 영영 쫓게 된다.
+
+   ■ 체력을 올렸으면 내릴 줄도 알아야 한다
+
+   적은 풀에서 돌려 쓴다. 표식을 붙이며 체력과 속도를 곱해 놓고 뗄 때 안 나누면
+   그 개체가 영영 단단해진 채로 남는다. mark/unmark 를 정확히 대칭으로 둔다. */
+const Sin = {
+  MAX: 3,                 // 동시 표식 수
+  HP: 2.2, SPD: .92,      // 찾아가서 때려야 하지만 벽은 아니다
+  XP: 6, SOULS: 3,        // 보상
+  NEAR: 340, FAR: 900,    // 고를 반경
+  SWAP_T: 30, SWAP_D: 3200,
+  souls: 0, killed: 0, flash: 0, fillT: 0,
+
+  /* active 를 안 본다. reset 은 적을 먼저 재우고 이 함수를 부르므로 `e.active &&`
+     를 걸면 잠든 개체에 표식이 그대로 남는다 — 풀에서 다시 꺼내 쓸 때까지 살아 있는
+     쓰레기다. spawnEnemy 도 지우지만(이중 방어) 여기서 확실히 끊는다. */
+  clear() {
+    for (const e of enemies) { e.sinMark = false; e.sinT = 0; }
+    this.souls = 0; this.killed = 0; this.flash = 0; this.fillT = 0;
+  },
+
+  mark(e) {
+    e.sinMark = true; e.sinT = 0;
+    e.maxHp *= this.HP; e.hp *= this.HP; e.spd *= this.SPD;
+  },
+  /* 죽어서 떼는 게 아니라 **살아 있는 채로** 뗄 때만 부른다 — 곱한 것을 되돌린다. */
+  unmark(e) {
+    e.sinMark = false;
+    e.maxHp /= this.HP; e.hp = Math.min(e.hp / this.HP, e.maxHp); e.spd /= this.SPD;
+  },
+
+  /* 표식을 붙일 적 하나. 이미 다친 적은 고르지 않는다 — 체력을 곱하면
+     '거의 죽은 적이 갑자기 튼튼해지는' 이상한 장면이 나온다. */
+  choose() {
+    let best = null, n = 0;
+    for (const e of enemies) {
+      if (!e.active || e.dying || e.boss || e.sigilKey || e.sinMark) continue;
+      if (e.type.sinSkip) continue;          // 스스로 움직이는 놈은 '그 자리에 선다'가 안 걸린다
+      if (e.hp < e.maxHp * .95) continue;
+      const d2 = dist2(e.x, e.y, player.x, player.y);
+      if (d2 < this.NEAR * this.NEAR || d2 > this.FAR * this.FAR) continue;
+      if (rnd(++n) < 1) best = e;          // 저수지 표집 — 배열을 안 만든다
+    }
+    return best;
+  },
+
+  update(dt) {
+    if (this.flash > 0) this.flash -= dt;
+    let n = 0;
+    for (const e of enemies) {
+      if (!e.active || !e.sinMark) continue;
+      e.sinT += dt;
+      if (e.sinT > this.SWAP_T || dist2(e.x, e.y, player.x, player.y) > this.SWAP_D * this.SWAP_D) {
+        this.unmark(e); continue;
+      }
+      n++;
+    }
+    // 후보가 없을 때 매 프레임 훑지 않는다 — 적 540 칸을 60번 도는 비용이 아깝다
+    this.fillT -= dt;
+    if (n >= this.MAX || this.fillT > 0) return;
+    this.fillT = .25;
+    while (n < this.MAX) {
+      const e = this.choose();
+      if (!e) break;
+      this.mark(e); n++;
+    }
+  },
+
+  /* 처치 보상. 여기서만 소모품 대기(ITEM_CD)를 무시한다 — 표식을 쫓아간 값이
+     '운이 좋으면 나온다' 면 쫓아갈 이유가 없다. */
+  onKill(e) {
+    e.sinMark = false;                       // 이미 죽었다. 되돌릴 것이 없다
+    this.killed++;
+    this.souls += this.SOULS;
+    const base = (e.xp !== undefined ? e.xp : e.type.xp) * (e.rank ? e.rank.xp : 1);
+    spawnGem(e.x, e.y, base * this.XP);
+    givePickupItem(pick(CONSUMABLE_KEYS), e.x + 42, e.y);
+    spawnParticles(e.x, e.y, 22, "#ff3b6b", 260, .8, 4);
+    cam.shake = 10;
+    this.flash = 1.6;
+    Sfx.at(e.x, e.y, 300, .18, "square", .7, 520);
+    Sfx.at(e.x, e.y, 900, .22, "triangle", .5, -240);
+  },
+};
+
 const OBS_KINDS = {
   //                        이동    발사체  반사   부술수  기본 크기      체력
   rock:    { name: "바위",     block: true,  stop: false, reflect: false, breakable: true,  r: [11, 30], hp: 200, color: "#6a6a7c" },
@@ -1835,7 +1942,10 @@ const ENEMY_TYPES = {
       return true;
     } },
 
-  charger: { name: "돌진자", r: 18, hp: 90, speed: 34, dmg: 22, xp: 5, color: "#ff7a4a", shape: "humanoid", sprite: "charger",
+  /* sinSkip — 죄의 표식을 안 붙인다. think 가 false 를 돌려주어 추격 코드를 통째로
+     건너뛰므로 「죄인은 그 자리에 선다」가 안 걸린다. 셋뿐인 표식 중 하나가 제 발로
+     걸어오면 규칙이 무너진다 — 다양성보다 규칙이 한결같은 편이 낫다. */
+  charger: { name: "돌진자", r: 18, hp: 90, speed: 34, dmg: 22, xp: 5, color: "#ff7a4a", shape: "humanoid", sprite: "charger", sinSkip: true,
     // 돌진자: 예비동작 뒤 직선으로 돌진한다. 예고를 보고 비켜야 한다
     /* 이 몹만은 4프레임이 도는 애니메이션이 아니라 **상태 하나에 한 장씩**이다.
        0·1 은 걷기 두 장, 2 는 예비동작(웅크림), 3 은 돌진(뻗음).
@@ -2480,7 +2590,7 @@ function allocEvict(pool, keep) {
   return far;
 }
 
-const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, anim: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0, dying: false }));
+const enemies    = makePool(540, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 10, hp: 1, maxHp: 1, spd: 0, dmg: 0, xp: 1, type: null, id: 0, flash: 0, kx: 0, ky: 0, wob: 0, anim: 0, boss: false, slow: 0, burn: 0, burnDps: 0, rank: null, t1: 0, state: 0, cx: 0, cy: 0, gen: 0, hasteT: 0, shieldHp: 0, shieldMax: 0, bossDef: null, phase: 0, dying: false, sinMark: false, sinT: 0 }));
 // 적이 쏘는 탄 — 원거리 몬스터와 보스 패턴에 쓰인다
 const eshots     = makePool(220, () => ({ x: 0, y: 0, vx: 0, vy: 0, r: 7, dmg: 0, life: 0, color: "#fff" }));
 // 바닥 장판 — 독 웅덩이, 폭발 흔적
@@ -3237,6 +3347,7 @@ function killEnemy(e, elem) {
       spawnGem(e.x, e.y, base / chance * Math.pow(chance / GEM_REF, .4));
     }
   }
+  if (e.sinMark) Sin.onKill(e);
   if (e.sigilKey) {
     // 제단의 파수꾼 — 봉인을 지키던 자
     lmState.set(e.sigilKey, "done");
@@ -3760,8 +3871,9 @@ const Game = {
     const st = Math.floor(this.time / 6);                       // 15분 완주 = 150
     const sk = Math.floor(60 * Math.sqrt(this.kills / 1000));
     const sw = this.state === "won" ? 200 : 0;
-    this.soulParts = { time: st, kills: sk, win: sw };
-    this.soulsEarned = st + sk + sw;
+    const sn = Sin.souls;                                       // 죄인 처형 — 판 밖으로 나가는 값
+    this.soulParts = { time: st, kills: sk, win: sw, sin: sn };
+    this.soulsEarned = st + sk + sw + sn;
     // reset 이 지우지 않는 자리에도 남긴다 — 제단에 들어서면 어트랙트 데모가 reset 을 부른다
     this.lastEarned = this.soulsEarned;
     Meta.souls += this.soulsEarned;
@@ -3820,7 +3932,7 @@ const Game = {
     player.tickA = 0; player.tickB = 0; player.shieldT = 0; player.shieldOn = 0;
     player.echoT = 0; player.echoSkill = null;
     player.monolith = null;
-    lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0;
+    lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0; Sin.clear();
     player.stillTime = 0; player.bulwark = 0; player.press = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
     player.dynDmg = 1; player.dynCd = 1; player.dynArmor = 1;
@@ -4120,6 +4232,7 @@ const Game = {
     e.telT = 0; e.telX = 0; e.telY = 0; e.telR = 0;   // 예고 범위기
     e.shieldMax = e.shieldHp = T.shieldHp ? T.shieldHp * rank.hp * d.hp : 0;
     e.flash = 0; e.wob = rnd(TAU); e.anim = rnd(0, 4); e.slow = 0; e.burn = 0; e.burnDps = 0; e.sigilKey = null;
+    e.sinMark = false; e.sinT = 0;
     e.dying = false;
     return e;
   },
@@ -4238,6 +4351,7 @@ function update(dt) {
   if (s.regen) player.hp = Math.min(s.maxHp, player.hp + s.regen * dt);
   updateResource(dt);
   Mission.update(dt);
+  Sin.update(dt);
   // 음악은 상황을 따라간다 — 보스가 살아 있으면 두꺼워진다
   {
     let bossAlive = false;
@@ -4579,6 +4693,24 @@ function update(dt) {
     const kmag = Math.hypot(e.kx, e.ky);
     const chase = kmag > 8 ? Math.max(.6, 1 - kmag / (spd * 2.2 + 40)) : 1;
     let vx = dx / d * spd * chase, vy = dy / d * spd * chase;
+
+    /* 죄인은 쫓아오지 않는다 — 그 자리에서 맴돈다.
+
+       처음엔 표식만 붙이고 행동은 그대로 뒀다. 8분 판을 재 보니 표식이 죽은
+       자리가 플레이어에게서 67 · 93 · 68px 이었다 — **찾아간 게 아니라 걸어온
+       것을 잡았다.** 이 게임의 적은 전부 플레이어에게 모이므로, 표식만 칠하면
+       어차피 다 죽는 무리 중 하나에 색을 입힌 것에 지나지 않는다.
+
+       그래서 죄인은 다가오지 않는다. 340~900 에 표식을 붙였으면 그 거리에 그대로
+       남고, 잡으려면 **안전한 자리를 떠나야 한다.** 이것이 이 훅의 전부다.
+
+       완전히 멈추면 고장 난 것처럼 보이므로 플레이어를 향한 방향의 수직으로
+       천천히 돈다 — 살아 있되 가까워지지 않는다.
+
+       성기사·마법사에게는 이것이 더 비싸다. 그 둘은 멈춰야 강해지는 직업이라
+       죄인을 잡으러 가는 것이 곧 자세를 버리는 것이다. 그게 맞는 대가인지는
+       사람이 해 봐야 안다(hook-spec 게이트). */
+    if (e.sinMark) { vx = -dy / d * spd * .35; vy = dx / d * spd * .35; }
 
     // 서로 겹치지 않도록 밀어내기
     const near = hash.query(e.x, e.y, sepR + e.r, scratch2);
@@ -5046,7 +5178,8 @@ function drawEnemyBody(e) {
     ctx.fill();
   }
   if (Sprites.draw(T.sprite, sx, sy + bob, e.r / 14 * CHAR_SCALE, e.anim, e.x > player.x, e.flash)) {
-    if (!Attract.on && (e.boss || e.sigilKey || e.rank === RANKS.rare)) drawEnemyHpBar(e, sx, sy);
+    if (!Attract.on && (e.boss || e.sigilKey || e.sinMark || e.rank === RANKS.rare)) drawEnemyHpBar(e, sx, sy);
+    if (!Attract.on && e.sinMark) drawSinMark(sx, sy - e.r - 26);
     return;
   }
   if (e.burn > 0) {
@@ -5230,7 +5363,8 @@ function drawEnemyBody(e) {
     ctx.restore();
   }
   // 보스/정예 체력바
-  if (e.boss || e.sigilKey || e.rank === RANKS.rare) drawEnemyHpBar(e, sx, sy);
+  if (e.boss || e.sigilKey || e.sinMark || e.rank === RANKS.rare) drawEnemyHpBar(e, sx, sy);
+  if (e.sinMark) drawSinMark(sx, sy - e.r - 26);
 }
 
 /* 몬스터 이름표.
@@ -5244,7 +5378,7 @@ function drawEnemyNames() {
   const pick = [];
   for (const e of enemies) {
     if (!e.active) continue;
-    if (e.boss || e.sigilKey || e.rank === RANKS.rare) continue;   // 이미 라벨이 있다
+    if (e.boss || e.sigilKey || e.sinMark || e.rank === RANKS.rare) continue;   // 이미 라벨이 있다
     const sx = e.x - cam.x, sy = e.y - cam.y;
     if (sx < 0 || sx > W || sy < 0 || sy > HT) continue;
     pick.push([dist2(e.x, e.y, player.x, player.y), e, sx, sy]);
@@ -5281,6 +5415,27 @@ function drawEnemyNames() {
     ctx.restore();
     drawn++;
   }
+  ctx.restore();
+}
+
+/* 죄의 표식 문양. 8분 화면은 이미 숫자와 고리로 포화 상태라(개발정리 평가 ②)
+   여기서 실패하면 훅이 아니라 소음이 된다. 셋을 지킨다.
+
+     어두운 받침을 먼저 깐다 — 밝은 갑주 위에서도 떠 보여야 한다
+     맥동한다        — 정지한 표시는 후반 화면에서 배경이 된다
+     아래를 가리킨다  — 「저 아래 있는 놈」이 한눈에 읽혀야 한다
+
+   화면에 셋뿐이므로 비싸도 된다. */
+function drawSinMark(sx, my) {
+  const P = PIX, a = .6 + Math.sin(performance.now() / 150) * .4;
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = "rgba(8,2,8,.8)";
+  ctx.fillRect(sx - 4 * P, my - 5 * P, 8 * P, 7 * P);
+  ctx.fillStyle = "#ff3b6b";
+  ctx.fillRect(sx - 3 * P, my - 4 * P, 6 * P, P);          // 가로 획
+  for (let i = 0; i < 3; i++)                              // 아래를 가리키는 쐐기
+    ctx.fillRect(sx - (3 - i) * P, my - 2 * P + i * P, (3 - i) * 2 * P, P);
   ctx.restore();
 }
 
@@ -6592,13 +6747,15 @@ function drawEnemyFast(e) {
     ctx.drawImage(fsrc, (f.x + idx * w) * fq, f.y * fq, w * fq, h * fq, dx, cy - dh / 2, dwS, dh);
     ctx.globalAlpha = 1;
   }
-  if (!Attract.on && (e.boss || e.sigilKey || e.rank === RANKS.rare)) {
+  if (!Attract.on && (e.boss || e.sigilKey || e.sinMark || e.rank === RANKS.rare)) {
     // 체력바도 같은 사상으로 — 안에서 (sy - r - 16) 높이 6 이던 것
     const bw = e.r * 2.4, hpf = clamp(e.hp / e.maxHp, 0, 1);
     const by = sy + (-e.r - 16) / TILT, bh = 6 / TILT;
     ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(sx - bw / 2, by, bw, bh);
     ctx.fillStyle = "#ff4d6d"; ctx.fillRect(sx - bw / 2, by, bw * hpf, bh);
   }
+  // 빠른 경로는 눕히기 밖이라 세로를 되돌려 준다 — 안 하면 문양만 납작해진다
+  if (!Attract.on && e.sinMark) drawSinMark(sx, sy + (-e.r - 26) / TILT);
   return true;
 }
 
@@ -9054,15 +9211,17 @@ function drawHUD() {
     // 보스·파수꾼 — 가장 크게, 맥동
     const bp = .6 + Math.sin(performance.now() / 180) * .4;
     for (const e of enemies) {
-      if (!e.active || (!e.boss && !e.sigilKey)) continue;
+      if (!e.active || (!e.boss && !e.sigilKey && !e.sinMark)) continue;
       const dx = clamp((e.x - player.x) * sc, -MM / 2 + 6, MM / 2 - 6);
       const dy = clamp((e.y - player.y) * sc, -MM / 2 + 6, MM / 2 - 6);
+      const col = e.boss ? "#ff3b6b" : e.sigilKey ? "#c9a3ff" : "#ff6b3b";
+      const rr = e.sinMark && !e.boss && !e.sigilKey ? 4 : 6;
       ctx.globalAlpha = bp;
-      ctx.fillStyle = e.boss ? "#ff3b6b" : "#c9a3ff";
-      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, 6, 0, TAU); ctx.fill();
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, rr, 0, TAU); ctx.fill();
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = e.boss ? "#ff3b6b" : "#c9a3ff"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, 9, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ccx + dx, ccy + dy, rr + 3, 0, TAU); ctx.stroke();
     }
     // 플레이어
     ctx.fillStyle = "#fff";
@@ -9127,9 +9286,9 @@ function drawHUD() {
     }
   } else Game.guideShrine = null;
 
-  // 화면 밖 보스·파수꾼 방향 — 지형지물보다 강하게
+  // 화면 밖 보스·파수꾼·죄인 방향 — 지형지물보다 강하게
   for (const e of enemies) {
-    if (!e.active || (!e.boss && !e.sigilKey)) continue;
+    if (!e.active || (!e.boss && !e.sigilKey && !e.sinMark)) continue;
     const sx = e.x - cam.x, sy = e.y - cam.y;
     const m = 58;
     if (sx > m && sx < W - m && sy > m && sy < H - m) continue;
@@ -9137,7 +9296,7 @@ function drawHUD() {
     dodgeHud(mk, 24, 42);                       // 보스 표지는 글자가 커서 더 넉넉히
     const ax = mk.x, ay = mk.y;
     const ang = Math.atan2(sy - player.sy, sx - player.sx);
-    const col = e.boss ? "#ff3b6b" : "#c9a3ff";
+    const col = e.boss ? "#ff3b6b" : e.sigilKey ? "#c9a3ff" : "#ff6b3b";
     ctx.save();
     ctx.globalAlpha = .7 + Math.sin(performance.now() / 170) * .3;
     ctx.translate(ax, ay); ctx.rotate(ang);
@@ -9146,7 +9305,7 @@ function drawHUD() {
     ctx.rotate(-ang);
     ctx.font = "800 12px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
     ctx.fillStyle = col;
-    ctx.fillText(e.boss ? (e.type.title || "보스") : "파수꾼", 0, -26);
+    ctx.fillText(e.boss ? (e.type.title || "보스") : e.sigilKey ? "파수꾼" : "죄인", 0, -26);
     ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.75)";
     ctx.fillText(Math.round(Math.hypot(e.x - player.x, e.y - player.y) / 10) + "m", 0, 26);
     ctx.restore();
@@ -13260,6 +13419,7 @@ function drawEnd(win) {
   if (sp) {
     const parts = ["버팀 " + fmtTime(Game.time) + " → +" + sp.time,
                    "처치 " + Game.kills.toLocaleString("ko-KR") + " → +" + sp.kills];
+    if (sp.sin) parts.push("처형 " + Sin.killed + " → +" + sp.sin);
     if (sp.win) parts.push("클리어 → +" + sp.win);
     ctx.font = "600 12.5px " + FONT;
     ctx.fillStyle = "rgba(255,255,255,.42)";

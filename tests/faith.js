@@ -16,6 +16,9 @@
      2-b. 문턱이 **닿는 거리**에 있다. 1차에서 값이 ±18 까지밖에 안 가는데 문턱이
         ±40 이라 계단이 한 번도 안 바뀌었다 — 켜진 적 없는 훅은 안 보이는 훅이다
      2-c. 계단마다 은혜와 저주가 **글로** 있다. 숫자만으로는 여파를 못 말한다
+     2-d. 각성 68갈래가 전부 저울을 말한다. v1 은 「주는 무기」만 읽어서 68 중 6만
+        말했다 — 한 판의 가장 큰 선택 넷이 침묵했다. 그리고 **모든 각성 화면이
+        갈림길**이어야 한다: 형제 중 하나는 신앙 쪽, 하나는 타락 쪽
      3. applyChoice 가 정확히 faithOf 만큼 민다 (화면과 실제가 같다)
      4. 문턱을 넘으면 은혜와 저주가 **함께** 걸린다
      5. 타락 2단의 체력 감소가 30초마다 2% 씩, 40% 에서 멈춘다
@@ -44,6 +47,37 @@ const { chromium } = require('playwright');
     for (const k in PASSIVES) o.pass[k] = [faithOf({ type: 'passive', key: k, isNew: true }),
                                           faithOf({ type: 'passive', key: k, level: 2 })];
     o.gate = [FAITH_T1, FAITH_T2, FAITH_MAX];
+
+    // 2-d. 각성 68갈래
+    const M = advFaithMap();
+    o.adv = { n: ADVANCES.length, miss: [], groups: [], grantBad: [] };
+    const g = {};
+    for (const a of ADVANCES) {
+      if (M[a.key] === undefined) o.adv.miss.push(a.name);
+      (g[a.tier + '/' + a.from] = g[a.tier + '/' + a.from] || []).push(a);
+      if (a.grant && WEAPONS[a.grant]) {
+        const e = FAITH_ELEM[WEAPONS[a.grant].element] || 0;
+        if (e && Math.sign(e) !== Math.sign(M[a.key] || 0))
+          o.adv.grantBad.push(`${a.name}(${WEAPONS[a.grant].element} 지급인데 ${M[a.key]})`);
+      }
+    }
+    for (const k in g)
+      o.adv.groups.push([k, g[k].map(a => M[a.key]), g[k].map(a => a.name).join('/')]);
+    // 각성만으로 어디까지 갈 수 있나 — 어느 직업으로도 양 끝에 닿아야 한다
+    o.reach = {};
+    for (const cls of ['warrior', 'rogue', 'mage', 'paladin']) {
+      const walk = (from, tier, acc) => {
+        if (tier > 3) return [acc];
+        let out = [];
+        for (const a of ADVANCES.filter(x => x.tier === tier && x.from === from))
+          out = out.concat(walk(a.key, tier + 1, acc + M[a.key]));
+        return out;
+      };
+      const t4 = ADVANCES.filter(a => a.tier === 4 && a.from === cls).map(a => M[a.key]);
+      const all = [];
+      for (const p of walk(cls, 1, 0)) for (const q of t4) all.push(p + q);
+      o.reach[cls] = [Math.min(...all), Math.max(...all)];
+    }
     o.words = {};
     for (const st of [-2, -1, 0, 1, 2]) o.words[st] = [faithBoon(st), faithCurse(st), FAITH_NAME[st + 2]];
     o.next = {}; for (const f of [0, 20, 40, 70, -20]) { Game.faith = f; o.next[f] = faithNext(); }
@@ -120,6 +154,21 @@ const { chromium } = require('playwright');
   out.push(`문턱   ${r.gate[0]} / ${r.gate[1]} (한계 ${r.gate[2]}) — 새 무기 ${Math.ceil(r.gate[0] / 12)}장이면 1단`);
   if (r.gate[0] > 12 * 3) fail.push(`1단 문턱 ${r.gate[0]} 이 멀다 — 새 무기 셋(36) 안에 닿아야 한다`);
   if (r.gate[1] > 12 * 7) fail.push(`2단 문턱 ${r.gate[1]} 이 멀다 — 한 판 안에 안 닿는다`);
+
+  /* 각성은 이 훅의 척추다. v1 은 68 중 6만 말했고 4차 12종은 전부 0이었다 —
+     한 판에서 가장 무거운 선택 넷이 저울에 대해 침묵하면 저울은 곁가지가 된다. */
+  if (r.adv.miss.length) fail.push('성향이 없는 각성: ' + r.adv.miss.join(', '));
+  let forkless = 0;
+  for (const [k, vs, names] of r.adv.groups) {
+    if (!vs.some(v => v > 0) || !vs.some(v => v < 0)) { forkless++; fail.push(`${k} (${names}) 이 갈림길이 아니다 — ${vs.join(',')}`); }
+  }
+  out.push(`각성   ${r.adv.n}종 · 갈림길 ${r.adv.groups.length}곳 중 ${r.adv.groups.length - forkless}곳`);
+  if (r.adv.grantBad.length) fail.push('지급 무기와 성향이 어긋난다: ' + r.adv.grantBad.join(', '));
+  out.push('닿는 곳 ' + Object.entries(r.reach).map(([c, v]) => `${c} ${v[0]}~${v[1]}`).join(' · '));
+  for (const [c, [lo, hi]] of Object.entries(r.reach)) {
+    if (hi < r.gate[1]) fail.push(`${c} 는 각성만으로 성인 문턱(${r.gate[1]})에 못 닿는다 (최대 ${hi})`);
+    if (lo > -r.gate[1]) fail.push(`${c} 는 각성만으로 괴물 문턱에 못 닿는다 (최소 ${lo})`);
+  }
 
   /* 「신앙 +12」는 방향만 말하고 결과를 안 말한다. 사람이 정확히 그 말을 했다 —
      「어떤 여파를 가져오게 될지 알려줘야 하는데」. 계단마다 글이 있어야 한다. */

@@ -16,6 +16,11 @@
      3. 죄인은 다가오지 않는다 — 10초 뒤에도 거리가 안 줄어든다
      4. 표식은 징표를 주지 않는다
      5. 처치 보상이 실제로 나온다 — 경험치·소모품·영혼
+     5-b. 그 보상이 **화면에 보인다.** 오래도록 값은 다 주면서 아무 말도 안 했다 —
+        `Sin.flash` 를 켜 두기만 하고 읽는 데가 없었고, 보석은 다른 처치에서도
+        쏟아지고 소모품은 42px 옆에 조용히 놓였다. 사람이 「죄인을 처형해도
+        아무것도 안 보인다」고 했다. 처치 지점의 말 · 알림 큐의 띠 · HUD 의
+        누적 수 셋이 다 살아 있어야 한다
      6. 화면 밖 표식도 방향과 거리가 보인다
      7. 판을 다시 시작하면 표식이 안 남는다 (풀을 돌려 쓴다)
 
@@ -85,9 +90,24 @@ const { BOT } = require('../tests/bot.js');
       const sig0 = player.sigils, sou0 = Sin.souls, kil0 = Sin.killed;
       const gem0 = gems.filter(g => g.active).length;
       const item0 = pickups.filter(p => p.active).length;
+      // 알림 큐를 비워 둔다 — 다른 알림이 서 있으면 처형 띠는 차례를 기다린다
+      Game.advanceFlash = 0; Game.houndWarn = 0; Game.comboFlash = 0; Game.lmFlash = 0;
+      Game.sinFlash = 0;
+      const lbl0 = numbers.filter(n => n.active && n.label).length;
       damageEnemy(victim, victim.hp + 1e6, player.x, player.y, 0, 'holy');
       o.kill = { sigil: player.sigils - sig0, souls: Sin.souls - sou0, killed: Sin.killed - kil0,
         gem: gems.filter(g => g.active).length - gem0, drop: pickups.filter(p => p.active).length - item0 };
+      // 5-b. 세 채널이 다 켜졌는가
+      Notice.tick(1 / 60);
+      o.say = {
+        labels: numbers.filter(n => n.active && n.label).map(n => n.text),
+        newLabels: numbers.filter(n => n.active && n.label).length - lbl0,
+        banner: Notice.current,
+        flash: +Game.sinFlash.toFixed(2),
+        hud: "처형 " + Sin.killed + "  ·  영혼 +" + Sin.souls,
+        counters: [Sin.killed, Sin.souls],
+        inOrder: Notice.order.indexOf("sinFlash"),
+      };
       step(1);
       o.refill = marked().length;
     }
@@ -121,6 +141,27 @@ const { BOT } = require('../tests/bot.js');
     if (r.kill.gem < 1) fail.push('처형에 경험치가 안 나온다');
     if (r.kill.drop < 1) fail.push('처형에 소모품이 안 나온다 (대기를 무시해야 한다)');
     if (r.refill !== 3) fail.push(`하나 죽인 뒤 ${r.refill}개로 안 채워진다`);
+  }
+  /* 값을 주는 것과 값을 **보여주는** 것은 다른 일이다. 아래 셋 중 하나라도 꺼지면
+     쫓아간 값이 안 보이고, 안 보이는 보상은 다음에 안 쫓아가게 만든다. */
+  if (!r.say) fail.push('처형 연출을 재지 못했다');
+  else {
+    console.log(`  말했나  지점 [${r.say.labels.join(' / ')}] · 띠 ${r.say.banner} (${r.say.flash}s) · HUD ${r.say.hud}`);
+    if (r.say.newLabels < 2)
+      fail.push(`처치 지점에 뜬 말이 ${r.say.newLabels}개 — 영혼과 경험치 둘 다 말해야 한다`);
+    if (!r.say.labels.some(t => t.indexOf('영혼') >= 0))
+      fail.push('처치 지점이 영혼을 말하지 않는다 — 판 밖으로 나가는 값이다');
+    if (r.say.inOrder < 0)
+      fail.push('처형 띠가 알림 큐에 없다 — 제 자리에 그리면 지형지물 토스트와 겹친다');
+    if (r.say.banner !== 'sinFlash')
+      fail.push(`알림 큐가 처형 대신 ${r.say.banner} 를 보여준다`);
+    if (!(r.say.flash > 0))
+      fail.push('처형 띠 타이머가 안 켜졌다 — 오래도록 켜기만 하고 아무도 안 읽던 값이다');
+    const [kn, sn] = r.say.counters;
+    if (!(kn > 0 && sn === kn * 3))
+      fail.push(`HUD 가 읽는 값이 어긋난다 — 처형 ${kn} · 영혼 ${sn} (처형당 3이어야 한다)`);
+    if (r.say.hud.indexOf(String(kn)) < 0 || r.say.hud.indexOf(String(sn)) < 0)
+      fail.push(`HUD 가 「${r.say.hud}」 — 처형 수와 번 영혼이 자라는 게 보여야 한다`);
   }
   if (r.afterReset) fail.push(`판을 다시 시작해도 표식이 ${r.afterReset}개 남았다 — 풀을 돌려 쓴다`);
 

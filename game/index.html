@@ -3530,8 +3530,23 @@ const player = {
    타락의 대가는 **시간에 비례하는 체력 감소**다. 고정 감소면 그냥 더 좋은 선택지가
    된다 — 타락은 「지금 세지고 나중에 죽는다」여야 한다. */
 const FAITH_MAX = 100;
-const FAITH_T1 = 40, FAITH_T2 = 75;          // 1단 · 2단 문턱
+const FAITH_T1 = 32, FAITH_T2 = 64;          // 1단 · 2단 문턱
 const FAITH_ELEM = { holy: 1, frost: 1, blood: -1, fire: -1, physical: 0, storm: 0 };
+/* 능력의 성향 — **지키는 것은 신앙, 죽이고 빼앗는 것은 타락.**
+
+   v1 에서는 무기만 저울을 밀었다. 그런데 재 보니 네 직업 모두 한 판에서 고른 19~25장
+   중 **1~5장(4~25%)만** 저울을 밀었고, 최종값이 ±10~18 로 문턱(당시 40)을 한 번도
+   못 넘었다. 은혜도 저주도 한 번도 안 걸렸고, 그래서 사람은 「저울이 있는지조차
+   몰랐다」고 했다. 안 보인 게 아니라 **아무 일도 안 일어났다.**
+
+   무기는 6칸이 차면 강화만 나오고 그것도 작다. 레벨업 카드의 대부분은 능력이다 —
+   그러니 능력이 저울을 밀어야 저울이 산다. 이름은 다 성스럽지만(템플러 게임이다)
+   **하는 일**로 가른다: 버티는 것이 신앙, 죽이고 빼앗는 것이 타락. 한 줄로 설명된다. */
+const FAITH_PASSIVE = {
+  armor: 1, regen: 1, vitality: 1,          // 지킨다
+  power: -1, haste: -1, greed: -1,          // 죽이고 빼앗는다
+  area: 0, boots: 0, magnet: 0,             // 어느 쪽도 아니다
+};
 const FAITH_DRAIN_EVERY = 30, FAITH_DRAIN_STEP = .02, FAITH_DRAIN_CAP = .40;
 
 /* 고른 것이 저울을 얼마나 미는가. 카드에 **고르기 전에** 보여주는 값이기도 하므로
@@ -3543,7 +3558,9 @@ function faithOf(c) {
     return g ? (FAITH_ELEM[g.element] || 0) * 20 : 0;
   }
   if (c.type === "weapon" && WEAPONS[c.key])
-    return (FAITH_ELEM[WEAPONS[c.key].element] || 0) * (c.isNew ? 10 : 4);
+    return (FAITH_ELEM[WEAPONS[c.key].element] || 0) * (c.isNew ? 12 : 6);
+  if (c.type === "passive" && FAITH_PASSIVE[c.key] !== undefined)
+    return FAITH_PASSIVE[c.key] * (c.isNew ? 8 : 4);
   return 0;
 }
 // -2(타락 2단) ~ +2(신앙 2단)
@@ -3553,7 +3570,23 @@ function faithStep() {
 }
 /* 2단의 이름은 한 낱말이다. 「타락 · 괴물」 은 240px 줄에서 막대를 덮었고,
    무엇보다 이 훅의 문장이 「성인이 되느냐 괴물이 되느냐」다 — 그 낱말이 이름이어야 한다. */
-const FAITH_NAME = ["괴물", "타락", "", "신앙", "성인"];
+const FAITH_NAME = ["괴물", "타락", "중립", "신앙", "성인"];
+/* 은혜와 저주를 **글로** 둔다. 「신앙 +12」만 보여줬더니 사람이 「어떤 여파를 가져올지
+   알려줘야 하는데」라고 했다 — 숫자는 방향만 말하고 결과를 안 말한다. 카드 · 문턱
+   배너 · HUD 가 전부 이 표를 읽으므로 셋이 갈릴 수 없다. */
+const FAITH_BOON = ["피해 +22% · 처치마다 크게 회복", "피해 +10% · 처치마다 회복", "",
+                    "받는 피해 -8%", "받는 피해 -15% · 큰 한 방 무효화"];
+const FAITH_CURSE = ["최대 체력이 30초마다 마른다", "최대 체력 -6%", "",
+                     "이동 -6%", "이동 -18%"];
+function faithBoon(st) { return FAITH_BOON[st + 2]; }
+function faithCurse(st) { return FAITH_CURSE[st + 2]; }
+// 지금 값에서 다음 문턱까지 얼마나 남았나 — [남은 거리, 그 문턱의 계단]
+function faithNext() {
+  const f = Game.faith, a = Math.abs(f), sg = f >= 0 ? 1 : -1;
+  if (a < FAITH_T1) return [FAITH_T1 - a, sg];
+  if (a < FAITH_T2) return [FAITH_T2 - a, sg * 2];
+  return [0, sg * 2];
+}
 function faithName() { return FAITH_NAME[faithStep() + 2]; }
 
 /* 매 프레임 배수. dyn* 초기화 뒤, 자세 계산과 같은 자리에서 곱한다. */
@@ -3576,6 +3609,7 @@ function applyFaithEffects(p, dt) {
     }
   } else Game.faithDrainT = 0;
   if (p.faithGuard > 0) p.faithGuard -= dt;
+  if (Game.faithBanner > 0) Game.faithBanner -= dt;
 }
 
 const LEECH_REFILL = .015;      // 흡혈 전환의 지속 회복 — 초당 최대 체력의 1.5%
@@ -3978,7 +4012,7 @@ const Game = {
   padSel: 0, keyRow: 0, keyWait: false,
   codexCls: 0, codexFrom: "intro",
   houndPack: 0, houndLeft: 0, houndDone: true,
-  faith: 0, faithDrain: 0, faithDrainT: 0, faithFlash: 0,
+  faith: 0, faithDrain: 0, faithDrainT: 0, faithFlash: 0, faithBanner: 0, faithBannerStep: 0,
   lmFlash: 0, lmFlashText: "", bandY: 0, advancePending: 0, advanceWaitT: 0, advanceWaitTier: 0, slowmo: 0, whiteFlash: 0,
   itemCd: 0, heartCd: 0,
   bestTime: Number(localStorage.getItem("ts_best") || 0),
@@ -4062,6 +4096,7 @@ const Game = {
     lmState.clear(); landmarks.length = 0; forcedLm.clear(); this.sigilForced = false; nearShrineCache.t = -9; structState.clear(); stActive.clear(); structures.length = 0; player.stRes = 1; obsState.clear(); obstacles.length = 0; decos.length = 0; this.lmFlash = 0; this.lmFlashText = ""; this.advancePending = 0; this.advanceWaitT = 0; this.shrinesOpened = 0; this.itemCd = 0; this.heartCd = 0; spawnedObs.length = 0; Mission.clear(); Mission.flash = 0; Sin.clear();
     this.houndPack = 0; this.houndLeft = 0; this.houndDone = true;
     this.faith = 0; this.faithDrain = 0; this.faithDrainT = 0; this.faithFlash = 0;
+    this.faithBanner = 0; this.faithBannerStep = 0;
     player.faithGuard = 0;
     player.stillTime = 0; player.bulwark = 0; player.bulwarkT = 0; player.press = 0; player.skillCd = 0;
     player.channel = 0; player.meltTimer = 0; player.frostVeil = 0; player.terrainSpeed = 1;
@@ -4301,10 +4336,15 @@ const Game = {
       const was = faithStep();
       this.faith = clamp(this.faith + tilt, -FAITH_MAX, FAITH_MAX);
       this.faithFlash = 2.2;
-      if (faithStep() !== was) {                 // 계단이 바뀌면 알린다 — 저주도 함께 온다
-        this.lmFlash = 2.8;
-        this.lmFlashText = faithStep() === 0 ? "저울이 가운데로 돌아왔다" : faithName() + "에 이르렀다";
-        Sfx.play(faithStep() > 0 ? 660 : 190, .4, "triangle", .8, faithStep() > 0 ? 320 : -90);
+      if (faithStep() !== was) {
+        /* 지형지물 알림(lmFlash)과 같은 채널을 쓰면 「전쟁 대장간 근처」와 구별이 안 되고
+           묻힌다. 판을 가르는 순간이므로 제 배너를 준다. */
+        this.faithBanner = 3.4;
+        this.faithBannerStep = faithStep();
+        cam.shake = 12;
+        this.slowmo = Math.max(this.slowmo, .5);
+        Sfx.arp(faithStep() > 0 ? [523, 659, 784, 1046] : [392, 330, 262, 196], 90, .26,
+                faithStep() > 0 ? "triangle" : "sawtooth", .95);
       }
     }
     if (c.tier) { applyAdvance(c); this.state = "playing"; if (player.xp >= player.xpNext) this.levelUp(); return; }
@@ -9236,6 +9276,31 @@ function hexRGB(h) {
          parseInt(h.substr(5, 2), 16);
 }
 
+/* 신앙·타락이 화면을 물들인다.
+
+   「템플러 서바이버인 만큼 이 부분이 강조되면 좋겠다」는 말에 대한 답이다. HUD 한 줄과
+   카드 띠는 **읽어야** 보이는데, 판이 도는 동안 사람은 그것을 안 읽는다. 가장자리
+   물들임은 읽지 않아도 보이고, 계단이 오르면 짙어진다.
+
+   가운데는 안 건드린다 — §101 에서 후반 가독성을 재며 얻은 규칙이다. 화면 한복판을
+   물들이면 그 위의 적과 숫자가 같이 죽는다. */
+function drawFaithTint() {
+  const st = faithStep();
+  const ban = Game.faithBanner > 0 ? clamp(Game.faithBanner / 3.4, 0, 1) : 0;
+  if (!st && ban <= 0) return;
+  const gold = st > 0 || (ban > 0 && Game.faithBannerStep > 0);
+  /* 2단은 「성인이거나 괴물이거나」다 — 가만히 있는 색으로는 판이 달라진 게 안 보였다.
+     테두리 색을 아주 느리게(3초 주기) 들이쉬고 내쉬게 한다. 가운데는 여전히 안 건드린다. */
+  const puls = 1 + Math.sin(Game.time * 2.1) * (Math.abs(st) === 2 ? .22 : .10);
+  const a = (st ? (Math.abs(st) === 2 ? .40 : .20) * puls : 0) + ban * .34;
+  const c0 = gold ? "255,217,160" : "224,66,106";
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .30,
+                                     W / 2, H / 2, Math.max(W, H) * .78);
+  g.addColorStop(0, "rgba(" + c0 + ",0)");
+  g.addColorStop(1, "rgba(" + c0 + "," + a.toFixed(3) + ")");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
 /* ---------- HUD ---------- */
 function fmtTime(t) {
   const m = Math.floor(t / 60), s = Math.floor(t % 60);
@@ -9359,8 +9424,6 @@ function drawHUD() {
     ctx.fillStyle = col;
     ctx.fillRect(Math.min(px, mid), cy + 8, Math.max(2, Math.abs(px - mid)), 3);
     pxChip(px - 3, cy + 4, 6, bh - 8, col, null, 2);
-    /* 이름은 **활성인 쪽 라벨을 갈아 끼운다.** 가운데에 두었더니 막대와 반대쪽
-       라벨을 동시에 덮었다 — 240px 한 줄에 세 덩이는 안 들어간다. */
     ctx.font = "700 10px " + FONT; ctx.textBaseline = "middle";
     const drain = Game.faithDrain ? " -" + Math.round(Game.faithDrain * 100) + "%" : "";
     ctx.textAlign = "left";
@@ -9369,8 +9432,25 @@ function drawHUD() {
     ctx.textAlign = "right";
     ctx.fillStyle = st > 0 ? "#ffd9a0" : "rgba(255,255,255,.22)";
     ctx.fillText(st > 0 ? faithName() : "신앙", bx + bw - 5, cy + bh / 2);
+
+    /* 지금 무엇을 얻고 무엇을 잃는지 — 저울만 보여주면 「그래서 뭐」로 끝난다.
+       가운데면 다음 문턱까지 얼마나 남았는지를 대신 말한다. */
+    /* 은혜와 저주를 240px 한 줄에 좌·우로 붙였더니 2단에서 두 문장이 맞닿아
+       한 문장처럼 읽혔다("…처치마다 크게 회복이 30초마다 마른다"). 줄을 나눈다 —
+       얻은 것 한 줄, 잃은 것 한 줄. 저울의 두 접시는 붙여 놓으면 안 된다. */
+    ctx.textAlign = "left"; ctx.font = "600 9.5px " + FONT;
+    if (st) {
+      ctx.fillStyle = col; ctx.fillText(faithBoon(st), bx + 4, cy + bh + 7);
+      ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.fillText("대가 · " + faithCurse(st), bx + 4, cy + bh + 19);
+      cy += 46;
+    } else {
+      const [left, to] = faithNext();
+      ctx.fillStyle = "rgba(255,255,255,.32)";
+      ctx.fillText(FAITH_NAME[to + 2] + "까지 " + left, bx + 4, cy + bh + 7);
+      cy += 34;
+    }
     ctx.textAlign = "left";
-    cy += 22;
   }
 
   // 활성화된 속성 조합 — 지금 일하고 있는지가 보여야 한다
@@ -9837,6 +9917,33 @@ function drawHUD() {
   }
 
   // 새 조합 해금 배너
+  /* 문턱 배너. 판을 가르는 순간이라 지형지물 알림과 같은 채널로는 묻힌다 —
+     제 배너를 주고, 얻은 것과 잃은 것을 **함께** 적는다. 은혜만 보여주면
+     저울이 아니라 상이 된다. */
+  if (Game.faithBanner > 0 && !overlay) {
+    const a = clamp(Game.faithBanner / 3.4, 0, 1);
+    const st = Game.faithBannerStep;
+    const gold = st > 0;
+    const col = st === 0 ? "#e8e5da" : gold ? "#ffd9a0" : "#e0426a";
+    /* HT 는 월드 세로(H/TILT)다 — 화면에 그리는 글자에 쓰면 화면 한복판, 곧
+       주인공 위에 앉는다. 위 띠(시계·보스·알림) 아래에 붙인다. */
+    const by = Math.max(H * .28, Game.bandY + 46);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, a * 1.6);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    fitFont("800", 40, FAITH_NAME[st + 2], W - 60);
+    embossText(st === 0 ? "저울이 가운데로" : FAITH_NAME[st + 2] + "에 이르렀다", W / 2, by,
+      gold ? "#4a3208" : "#3a0a16", gold ? "#8a6115" : "#7a1030",
+      gold ? "#fff3cc" : "#ffd0dc", col);
+    if (st) {
+      ctx.font = "700 15px " + FONT; ctx.fillStyle = col;
+      ctx.fillText(faithBoon(st), W / 2, by + 34);
+      ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.62)";
+      ctx.fillText("그 대가로  " + faithCurse(st), W / 2, by + 58);
+    }
+    ctx.restore();
+  }
+
   if (Notice.current === "comboFlash" && !overlay) {
     const a = clamp(Game.comboFlash / 2.6, 0, 1);
     ctx.globalAlpha = Math.min(1, a * 1.6);
@@ -13611,9 +13718,50 @@ function drawLevelUp() {
 
     /* 한 판에 스물몇 번 뜨는 화면의 한가운데다 — 여기가 마지막 이모지였다.
        직업 특성은 68종이라 판을 따로 뜨지 않고 각성 색을 입힌 문장으로 묶는다. */
+    /* ── 성향 띠. 카드 **맨 위**에 붙인다.
+
+       처음에는 이름 옆 작은 배지로 뒀는데 사람이 「저울이 있는지조차 몰랐다」고 했다.
+       카드 한복판의 작은 칩은 다른 글자들 사이에 묻힌다. 띠는 글자를 읽기 전에
+       「이 카드는 어느 편인가」를 말한다.
+
+       그리고 숫자만으로는 부족하다 — 「신앙 +12」는 방향만 말하고 결과를 안 말한다.
+       **이 카드가 문턱을 넘기면** 무엇이 되는지를 말하고(강조), 아니면 얼마나 남았는지를
+       말한다. 적용과 같은 함수(faithOf)를 보므로 화면과 실제가 갈릴 수 없다. */
+    {
+      const tl = faithOf(c);
+      if (tl) {
+        const fc = tl > 0 ? "#ffd9a0" : "#e0426a";
+        const after = clamp(Game.faith + tl, -FAITH_MAX, FAITH_MAX);
+        const aa = Math.abs(after), sg = after >= 0 ? 1 : -1;
+        const newS = sg * (aa >= FAITH_T2 ? 2 : aa >= FAITH_T1 ? 1 : 0);
+        const cross = newS !== faithStep();
+        const head = (tl > 0 ? "신앙 +" + tl : "타락 " + tl);
+        const sub = cross
+          ? (newS === 0 ? "저울이 가운데로 돌아온다" : FAITH_NAME[newS + 2] + "에 이른다")
+          : (aa >= FAITH_T2 ? faithBoon(newS)
+             : FAITH_NAME[sg * (aa < FAITH_T1 ? 1 : 2) + 2] + "까지 "
+               + (aa < FAITH_T1 ? FAITH_T1 - aa : FAITH_T2 - aa));
+        /* pxChip 은 테 색으로 칸 전체를 칠한 뒤 안쪽을 fill 로 덮는다 — 문턱을
+           넘는 카드에 불투명한 테와 반투명한 속을 줬더니 칸이 통째로 크림색
+           덩어리가 되고 같은 색 글자가 사라졌다. 넘는 칸은 **속을 짙게** 칠하고
+           테만 밝힌다. 밝은 건 테와 글자뿐이어야 읽힌다. */
+        const sh = 32, sx2 = x + PIX * 3, sw2 = cw - PIX * 6;
+        pxChip(sx2, y0 + oy + PIX * 3, sw2, sh,
+          cross ? (tl > 0 ? "rgba(72,52,14,.96)" : "rgba(66,14,32,.96)")
+                : (tl > 0 ? "rgba(255,217,160,.11)" : "rgba(224,66,106,.11)"),
+          cross ? fc : null, 5);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.font = "800 12.5px " + FONT; ctx.fillStyle = fc;
+        ctx.fillText(head, x + cw / 2, y0 + oy + 19);
+        fitFont("700", 10, sub, sw2 - 16);
+        ctx.fillStyle = cross ? fc : "rgba(255,255,255,.5)";
+        ctx.fillText(sub, x + cw / 2, y0 + oy + 33);
+      }
+    }
+
     const pxKey = c.type === "heal" ? "vigor" : isT ? "stance" : def.px || "gem";
     // 이 자리만 손그림을 쓴다(64px). 같은 표가 다른 데서는 다른 뜻이라 크기로 정하면 안 된다.
-    drawMenuIcon(pxKey, x + cw / 2, y0 + 62 + oy, tint, 8, true);
+    drawMenuIcon(pxKey, x + cw / 2, y0 + 70 + oy, tint, 8, true);
 
     /* 치유의 성물은 type 이 "heal" 이라 isNew 가 없다 — 그래서 오래도록
        「능력 강화」로 떠 있었다. 능력도 아니고 강화도 아니다. */
@@ -13624,21 +13772,6 @@ function drawLevelUp() {
 
     ctx.font = "800 23px " + FONT; ctx.fillStyle = "#fff";
     ctx.fillText(def.name, x + cw / 2, y0 + 142 + oy);
-
-    /* 성향 — **고르기 전에** 보여야 선택이 된다. 사후 통보면 저울이 아니라 벌이다.
-       적용과 같은 함수(faithOf)를 보므로 화면과 실제가 갈릴 수 없다. */
-    {
-      const tl = faithOf(c);
-      if (tl) {
-        const fc = tl > 0 ? "#ffd9a0" : "#e0426a";
-        const txt = (tl > 0 ? "신앙 +" : "타락 ") + (tl > 0 ? tl : tl);
-        ctx.font = "700 11px " + FONT;
-        const tw2 = ctx.measureText(txt).width + 18;
-        pxChip(x + cw / 2 - tw2 / 2, y0 + 120 + oy, tw2, 17, "rgba(255,255,255,.06)", null, 5);
-        ctx.fillStyle = fc;
-        ctx.fillText(txt, x + cw / 2, y0 + 129 + oy);
-      }
-    }
 
     if (c.type !== "heal") {
       ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
@@ -14039,6 +14172,8 @@ function frame(now) {
     drawScene();
     ctx.restore();
     drawLighting();
+    // 신앙·타락이 가장자리를 물들인다 — 읽지 않아도 보이는 자리
+    if (!inMenu) drawFaithTint();
   }
 
   // 메뉴에서는 HUD 를 그리지 않는다. 뒤에서 데모가 굴러가도 그건 '배경'이지 내 판이 아니다.

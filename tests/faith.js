@@ -12,7 +12,10 @@
    재는 것:
      1. 저울이 -100~100 을 안 벗어난다
      2. 미는 값이 무기의 속성을 따른다 — 신성·냉기 +, 피·화염 −, 물리·뇌전 0
-        능력과 특성은 v1 에서 안 민다 (속성이 없다)
+        능력은 「지키는 것은 신앙, 죽이고 빼앗는 것은 타락」을 따른다
+     2-b. 문턱이 **닿는 거리**에 있다. 1차에서 값이 ±18 까지밖에 안 가는데 문턱이
+        ±40 이라 계단이 한 번도 안 바뀌었다 — 켜진 적 없는 훅은 안 보이는 훅이다
+     2-c. 계단마다 은혜와 저주가 **글로** 있다. 숫자만으로는 여파를 못 말한다
      3. applyChoice 가 정확히 faithOf 만큼 민다 (화면과 실제가 같다)
      4. 문턱을 넘으면 은혜와 저주가 **함께** 걸린다
      5. 타락 2단의 체력 감소가 30초마다 2% 씩, 40% 에서 멈춘다
@@ -36,8 +39,14 @@ const { chromium } = require('playwright');
     o.tilt = {};
     for (const k in WEAPONS) o.tilt[k] = [WEAPONS[k].element, faithOf({ type: 'weapon', key: k, isNew: true })];
     o.upgrade = faithOf({ type: 'weapon', key: 'aura', level: 2 });
-    o.passive = faithOf({ type: 'passive', key: 'power', isNew: true });
     o.trait = faithOf({ type: 'trait', key: 'bulwark', level: 1 });
+    o.pass = {};
+    for (const k in PASSIVES) o.pass[k] = [faithOf({ type: 'passive', key: k, isNew: true }),
+                                          faithOf({ type: 'passive', key: k, level: 2 })];
+    o.gate = [FAITH_T1, FAITH_T2, FAITH_MAX];
+    o.words = {};
+    for (const st of [-2, -1, 0, 1, 2]) o.words[st] = [faithBoon(st), faithCurse(st), FAITH_NAME[st + 2]];
+    o.next = {}; for (const f of [0, 20, 40, 70, -20]) { Game.faith = f; o.next[f] = faithNext(); }
 
     // 3. 보여주는 값과 실제로 미는 값이 같다
     Game.faith = 0;
@@ -89,12 +98,44 @@ const { chromium } = require('playwright');
   });
 
   const fail = [], out = [];
-  const EXPECT = { holy: 10, frost: 10, blood: -10, fire: -10, physical: 0, storm: 0 };
+  const EXPECT = { holy: 12, frost: 12, blood: -12, fire: -12, physical: 0, storm: 0 };
+  // 「지키는 것은 신앙, 죽이고 빼앗는 것은 타락」 — 규칙이 한 줄로 말해지는 것만 붙인다
+  const PEXP = { armor: 8, regen: 8, vitality: 8, power: -8, haste: -8, greed: -8,
+                 area: 0, boots: 0, magnet: 0 };
   for (const [k, [el, v]] of Object.entries(r.tilt))
     if (v !== EXPECT[el]) fail.push(`${k}(${el})가 ${v} — ${EXPECT[el]} 이어야 한다`);
   out.push('무기   ' + Object.entries(r.tilt).map(([k, [el, v]]) => `${k} ${v > 0 ? '+' + v : v}`).join(' · '));
-  if (r.upgrade !== 4) fail.push(`무기 강화가 ${r.upgrade} — 4 여야 한다 (새로 얻기의 절반 아래)`);
-  if (r.passive !== 0 || r.trait !== 0) fail.push(`능력·특성이 저울을 민다 (${r.passive}, ${r.trait}) — v1 에서는 안 민다`);
+  if (r.upgrade !== 6) fail.push(`무기 강화가 ${r.upgrade} — 6 이어야 한다 (새로 얻기의 절반)`);
+  if (r.trait !== 0) fail.push(`직업 특성이 저울을 민다 (${r.trait}) — 특성은 각성(grant)으로만 민다`);
+  for (const [k, [n, up]] of Object.entries(r.pass)) {
+    if (PEXP[k] === undefined) { fail.push(`능력 ${k} 에 성향이 안 정해져 있다`); continue; }
+    if (n !== PEXP[k]) fail.push(`능력 ${k} 가 ${n} — ${PEXP[k]} 여야 한다`);
+    if (up !== PEXP[k] / 2) fail.push(`능력 ${k} 강화가 ${up} — ${PEXP[k] / 2} 여야 한다`);
+  }
+  out.push('능력   ' + Object.entries(r.pass).map(([k, [n]]) => `${k} ${n > 0 ? '+' + n : n}`).join(' · '));
+
+  /* 문턱이 닿는 거리에 있는가. 1차 실패의 진짜 원인이 여기였다 — 저울은 보였는데
+     한 번도 안 움직여서 은혜·저주·배너·물들임이 통째로 죽은 코드였다.
+     새 무기 셋이면 1단, 일곱이면 2단. 그보다 멀면 20분 안에 안 닿는다. */
+  out.push(`문턱   ${r.gate[0]} / ${r.gate[1]} (한계 ${r.gate[2]}) — 새 무기 ${Math.ceil(r.gate[0] / 12)}장이면 1단`);
+  if (r.gate[0] > 12 * 3) fail.push(`1단 문턱 ${r.gate[0]} 이 멀다 — 새 무기 셋(36) 안에 닿아야 한다`);
+  if (r.gate[1] > 12 * 7) fail.push(`2단 문턱 ${r.gate[1]} 이 멀다 — 한 판 안에 안 닿는다`);
+
+  /* 「신앙 +12」는 방향만 말하고 결과를 안 말한다. 사람이 정확히 그 말을 했다 —
+     「어떤 여파를 가져오게 될지 알려줘야 하는데」. 계단마다 글이 있어야 한다. */
+  for (const [st, [bo, cu, nm]] of Object.entries(r.words)) {
+    if (Number(st) === 0) continue;
+    if (!bo) fail.push(`${nm} 계단에 은혜 문구가 없다`);
+    if (!cu) fail.push(`${nm} 계단에 저주 문구가 없다`);
+    if (nm.length > 3) fail.push(`계단 이름 「${nm}」 이 길다 — 240px HUD 줄에서 막대를 덮는다`);
+  }
+  out.push('문구   ' + [1, 2, -1, -2].map(st => `${r.words[st][2]}: ${r.words[st][0]} / 대가 ${r.words[st][1]}`).join(' · '));
+  for (const [f, [left, to]] of Object.entries(r.next)) {
+    const a = Math.abs(Number(f));
+    const want = a < r.gate[0] ? r.gate[0] - a : a < r.gate[1] ? r.gate[1] - a : 0;
+    if (left !== want) fail.push(`저울 ${f} 에서 다음 문턱까지 ${left} — ${want} 여야 한다`);
+    if (Number(f) < 0 && to > 0) fail.push(`저울 ${f}(타락 쪽)인데 다음 문턱을 신앙 쪽으로 센다`);
+  }
   if (r.sync[0] !== r.sync[1]) fail.push(`보여준 값 ${r.sync[0]} 과 실제 ${r.sync[1]} 이 다르다 — 카드가 거짓말을 한다`);
   out.push(`동기화 카드가 말한 합 ${r.sync[0]} = 실제 ${r.sync[1]}`);
   if (r.hi !== 100 || r.lo !== -100) fail.push(`저울이 ${r.lo}~${r.hi} — -100~100 을 벗어났다`);

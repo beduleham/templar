@@ -19,6 +19,8 @@
      5. C 로 열리고 ESC 로 돌아온다. 판 안에서는 안 열린다
      6. 기록 지우기가 코덱스도 지운다
      7. localStorage 가 막혀도 게임이 돈다
+     8. 다음 판 길잡이가 거짓말을 안 한다 — 따라가면 실제로 열리고, 계속
+        따라가면 17칸이 다 찬다 (막다른 길잡이는 거짓말이다)
 
    실행: node tests/codex.js */
 const { chromium } = require('playwright');
@@ -127,6 +129,59 @@ const { chromium } = require('playwright');
 
      좁으면 차수 하나씩 보여주므로 한 판의 칸 수는 그 차수의 수다 — 넷을 돌면
      17이 다 나와야 한다. */
+  /* 5. 길잡이가 거짓말을 안 하는가
+
+     「동기부여가 되지 않는다」에 대한 답이 이 줄이다 — 68칸을 늘어놓는 대신
+     **다음 한 판에 무엇이 열리는지**를 말한다. 그러니 그 말이 맞아야 한다:
+     따라가면 실제로 그만큼 열리고, 계속 따라가면 언젠가 다 채워져야 한다.
+     막다른 곳이 있으면 길잡이가 아니라 거짓말이다. */
+  {
+    const p3 = await b.newPage({ viewport: { width: 1280, height: 720 } });
+    const e3 = []; p3.on('pageerror', e => e3.push('PAGEERROR(길잡이): ' + e.message));
+    await p3.goto('file:///home/user/templar/game/index.html');
+    await p3.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
+    const g = await p3.evaluate(() => {
+      const o = {};
+      Meta.codex = {};
+      const first = codexNext('paladin');
+      o.first = { gain: first.gain, path: first.path.map(a => a.name), t4: first.t4 && first.t4.name };
+      // 길잡이만 따라간다 — 몇 판이면 17칸이 다 차는가
+      o.runs = {};
+      for (const cls of ['paladin', 'warrior', 'rogue', 'mage']) {
+        Meta.codex = {};
+        const total = codexTree(cls).reduce((n, r) => n + r.length, 0);
+        let runs = 0, stuck = false;
+        while (Object.keys(Meta.codex).length < total && runs < 40) {
+          const nx = codexNext(cls);
+          const before = Object.keys(Meta.codex).length;
+          for (const a of nx.path) Meta.codex[a.key] = { n: 1, t: 1, d: "x" };
+          if (nx.t4) Meta.codex[nx.t4.key] = { n: 1, t: 1, d: "x" };
+          runs++;
+          if (Object.keys(Meta.codex).length === before) { stuck = true; break; }
+        }
+        o.runs[cls] = { runs, got: Object.keys(Meta.codex).length, total, stuck };
+      }
+      // 다 걸으면 길잡이가 「다 걸었다」라고 말한다
+      Meta.codex = {};
+      for (const a of codexTree('paladin').flat()) Meta.codex[a.key] = { n: 1, t: 1, d: "x" };
+      const donE = codexNext('paladin');
+      o.done = donE.gain === 0 && !donE.t4;
+      return o;
+    });
+    out.push(`길잡이 빈 기록에서 ${g.first.gain}칸 — ${g.first.path.join(' → ')} · ${g.first.t4}`);
+    out.push('      ' + Object.entries(g.runs).map(([c, v]) => `${c} ${v.runs}판에 ${v.got}/${v.total}`).join(' · '));
+    if (g.first.gain !== 3) fail.push(`빈 기록인데 길잡이가 ${g.first.gain}칸만 연다 — 한 판은 1·2·3차 한 줄이라 3이어야 한다`);
+    if (!g.first.t4) fail.push('길잡이가 4차를 안 짚는다 — 한 판에 4차도 하나 걷는다');
+    for (const [c, v] of Object.entries(g.runs)) {
+      if (v.stuck) fail.push(`${c}: 길잡이를 따라가다 막혔다 (${v.got}/${v.total}) — 막다른 길잡이는 거짓말이다`);
+      if (v.got !== v.total) fail.push(`${c}: 길잡이만 따라가면 ${v.got}/${v.total} 에서 멈춘다`);
+      if (v.runs > 10) fail.push(`${c}: 다 채우는 데 ${v.runs}판 — 길잡이가 먼 길로 돌린다`);
+    }
+    if (!g.done) fail.push('다 걸었는데도 길잡이가 갈 곳을 말한다');
+    fail.push(...e3);
+    await p3.close();
+  }
+
   const NAME_MIN = 9.5;
   for (const [tag, w, h] of [['가로', 1280, 720], ['세로', 420, 860], ['가로 폰', 844, 390]]) {
     const p2 = await b.newPage({ viewport: { width: w, height: h } });

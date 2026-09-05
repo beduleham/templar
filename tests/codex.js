@@ -14,7 +14,8 @@
      1. ADVANCES 68개가 계보 나무에 빠짐없이 한 번씩 들어간다 (2·4·8·3 x 4직업)
      2. 전직을 얻으면 기록되고, 판을 다시 시작해도 남는다
      3. 두 번째 도달은 횟수만 늘고 최초 시각은 안 바뀐다
-     4. 칸이 전부 화면 안에 있다 — 가로·세로 둘 다
+     4. 칸이 전부 화면 안에 있고 **이름이 사람 눈에 9.5px 이상으로 보인다**
+        (논리 px 가 아니라 css px — 가로 폰은 논리 폭 1410 을 844 로 줄여 그린다)
      5. C 로 열리고 ESC 로 돌아온다. 판 안에서는 안 열린다
      6. 기록 지우기가 코덱스도 지운다
      7. localStorage 가 막혀도 게임이 돈다
@@ -117,34 +118,57 @@ const { chromium } = require('playwright');
   fail.push(...errs);
   await pg.close();
 
-  // 4. 칸이 화면 안에 있다 — 그리는 순간의 변환까지 반영해서 잰다
-  for (const [tag, w, h] of [['가로', 1280, 720], ['세로', 420, 860]]) {
+  /* 4. 칸이 화면 안에 있고, **이름이 글자로 읽히는가**
+
+     사람이 「기록 화면이 별로다. 가독성이 떨어진다」고 했다. 재 보니 세로 폰에서
+     3차 여덟 칸을 가로에 다 넣느라 배율이 0.58 이 되고 이름이 6px 이 됐다 —
+     글자가 아니라 무늬였다. 그래서 「화면 안에 있다」만으로는 모자란다.
+     **사람 눈에 몇 px 로 보이는가**를 잰다(논리 px 가 아니라 css px).
+
+     좁으면 차수 하나씩 보여주므로 한 판의 칸 수는 그 차수의 수다 — 넷을 돌면
+     17이 다 나와야 한다. */
+  const NAME_MIN = 9.5;
+  for (const [tag, w, h] of [['가로', 1280, 720], ['세로', 420, 860], ['가로 폰', 844, 390]]) {
     const p2 = await b.newPage({ viewport: { width: w, height: h } });
     const e2 = []; p2.on('pageerror', e => e2.push(`PAGEERROR(${tag}): ` + e.message));
     await p2.goto('file:///home/user/templar/game/index.html');
     await p2.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
-    const r = await p2.evaluate(async (tag) => {
+    const r = await p2.evaluate(async () => {
       const wait = ms => new Promise(r => setTimeout(r, ms));
       Meta.codex = {}; Game.state = 'codex'; Game.codexCls = 0;
-      await wait(120);
-      const rects = [];
-      const P = window.panel;
+      const names = new Set(codexTree('paladin').flat().map(a => a.name));
+      const seen = new Set();
+      let outside = 0, cells = 0, minName = 1e9, frames = 0;
+      const cv = document.getElementById('game');
+      const dpr = cv.width / parseFloat(cv.style.width);
+      const P = window.panel, F = ctx.fillText.bind(ctx);
       window.panel = function (x, y, ww, hh, ...rest) {
         const m = ctx.getTransform();                  // 나무가 줄어든 만큼을 반영한다
-        rects.push([m.a * x + m.e, m.d * y + m.f, ww * m.a, hh * m.d]);
+        const rx = m.a * x + m.e, ry = m.d * y + m.f;
+        if (rx < -1 || ry < -1 || rx + ww * m.a > cv.width + 1 || ry + hh * m.d > cv.height + 1) outside++;
+        cells++;
         return P.call(this, x, y, ww, hh, ...rest);
       };
-      await wait(120);
-      window.panel = P;
-      const cv = document.getElementById('game');
-      const per = rects.length / Math.max(1, Math.round(rects.length / 17));
-      const outside = rects.filter(([x, y, ww, hh]) =>
-        x < -1 || y < -1 || x + ww > cv.width + 1 || y + hh > cv.height + 1);
-      return { n: rects.length, per, outside: outside.length, cw: cv.width, ch: cv.height };
-    }, tag);
-    out.push(`${tag} ${w}x${h}  칸 ${Math.round(r.n / Math.max(1, Math.round(r.n / 17)))}개/판 · 화면 밖 ${r.outside}`);
+      ctx.fillText = function (t, ...rest) {
+        if (names.has(t)) {
+          seen.add(t);
+          const px = parseFloat((ctx.font.match(/(\d+(?:\.\d+)?)px/) || [0, 0])[1]);
+          const m = ctx.getTransform();
+          minName = Math.min(minName, px * m.d / dpr);   // 사람 눈에 보이는 css px
+        }
+        return F(t, ...rest);
+      };
+      // 차수를 넷 다 돌아야 좁은 화면에서도 17이 다 나온다
+      for (let t = 0; t < 4; t++) { Game.codexTier = t; frames++; await wait(90); }
+      window.panel = P; ctx.fillText = F;
+      return { outside, cells: Math.round(cells / Math.max(1, frames * 3)), covered: seen.size,
+               minName: +minName.toFixed(1), paged: seen.size > 0 };
+    });
+    out.push(`${tag} ${w}x${h}  칸 ${r.covered}/17 · 화면 밖 ${r.outside} · 가장 작은 이름 ${r.minName}px`);
     if (r.outside) fail.push(`${tag}: 칸 ${r.outside}개가 화면 밖이다 — 못 보는 갈래가 생긴다`);
-    if (r.n < 17) fail.push(`${tag}: 한 판에 칸이 ${r.n}개만 그려진다 — 17이어야 한다`);
+    if (r.covered !== 17) fail.push(`${tag}: 차수를 다 돌아도 ${r.covered}칸만 나온다 — 17이어야 한다`);
+    if (!(r.minName >= NAME_MIN))
+      fail.push(`${tag}: 이름이 ${r.minName}px 로 보인다 — ${NAME_MIN}px 아래면 글자가 아니라 무늬다`);
     fail.push(...e2);
     await p2.close();
   }

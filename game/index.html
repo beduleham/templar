@@ -45,6 +45,7 @@ const VIEW_AREA = 1280 * 720;
 const PORTRAIT_W = 520;           // 세로 화면의 가로 폭 — 글자가 읽히는 한계에서 잡았다
 // 좁은 화면에서는 메뉴를 다른 배치로 그린다
 const narrow = () => W < 900;
+let cssK = 1;                        // 논리 px 하나가 화면에서 몇 px 인가 (resize 가 잡는다)
 const STEP = 1 / 60;              // 고정 타임스텝
 const RUN_TIME = 15 * 60;         // 15분 생존 = 클리어
 const MAX_WEAPONS = 6, MAX_PASSIVES = 6, MAX_LEVEL = 8;
@@ -90,7 +91,11 @@ function resize() {
     H = Math.round(clamp(W / a, 700, 1240) / 2) * 2;
   }
   HT = H / TILT;                       // 지면이 눕은 만큼 세로로 더 많이 보인다
+  /* 논리 크기(W·H)와 실제 화면 크기의 비. 기록 화면이 「이 글자가 사람 눈에
+     몇 px 인가」를 판단하는 데 쓴다 — 가로 폰은 논리 폭이 1410 이라 넓어 보이지만
+     실제로는 844px 로 줄여 그려서 11px 글자가 7px 이 된다. */
   const scale = Math.min(vw / W, vh / H);
+  cssK = scale;
   canvas.style.width = Math.floor(W * scale) + "px";
   canvas.style.height = Math.floor(H * scale) + "px";
   canvas.width = Math.floor(W * dpr);
@@ -4099,7 +4104,7 @@ const Game = {
   usedRebirth: false, soulsEarned: 0, soulParts: null, lastEarned: 0, houndWarn: 0,
   optFrom: "intro", optRow: 0, wipeArm: 0, traitPick: false, advanceFlash: 0, altarFlash: 0, quitArm: 0,
   padSel: 0, keyRow: 0, keyWait: false,
-  codexCls: 0, codexFrom: "intro",
+  codexCls: 0, codexFrom: "intro", codexTier: 0,
   houndPack: 0, houndLeft: 0, houndDone: true,
   faith: 0, faithDrain: 0, faithDrainT: 0, faithFlash: 0, faithBanner: 0, faithBannerStep: 0,
   sinFlash: 0,
@@ -4218,6 +4223,9 @@ const Game = {
       if (ci >= 0 && CLASSES[ci]) { this.codexCls = ci; return; }
       if (k === "arrowleft" || k === "a") { this.codexCls = (this.codexCls + CLASSES.length - 1) % CLASSES.length; return; }
       if (k === "arrowright" || k === "d") { this.codexCls = (this.codexCls + 1) % CLASSES.length; return; }
+      // 좁은 화면은 차수 하나씩 본다 — 위아래로 넘긴다
+      if (k === "arrowup" || k === "w") { this.codexTier = (this.codexTier + 3) % 4; return; }
+      if (k === "arrowdown" || k === "s") { this.codexTier = (this.codexTier + 1) % 4; return; }
       return;
     }
     if (this.state === "intro") {
@@ -13378,6 +13386,54 @@ function codexTree(clsKey) {
   return (codexCache[clsKey] = [t1, t2, t3, t4]);
 }
 
+/* 한 칸. 넓은 화면의 나무와 좁은 화면의 격자가 **같은 함수**를 쓴다 —
+   둘이 따로 그리면 한쪽만 고쳐지고 다른 쪽은 낡은 채로 남는다.
+
+   여기서 고친 가독성 셋:
+     · 이름이 초상 **위에** 앉아 있었다. 다리에 글자가 겹쳐 어느 쪽도 안 읽혔다.
+       이름은 제 판 위에 앉힌다(어두운 띠). 초상은 그 위에서 끝난다.
+     · 못 간 갈래가 알파 .17 에 회색 글자였다. 68갈래를 **보여주는** 화면인데
+       안 가 본 것이 안 보이면 길잡이가 못 된다. 옅되 읽히는 값으로 올린다.
+     · 「x2」가 테 위에 9px 로 얹혀 있었다. 제 칩을 준다. */
+function codexCell(a, x, y, cw, ch, got, hov) {
+  panel(x, y, cw, ch, 10,
+    got ? (hov ? "rgba(38,32,20,.98)" : "rgba(22,19,14,.92)") : "rgba(12,12,20,.86)",
+    got ? (hov ? "#ffd36e" : a.color) : "rgba(255,255,255,.14)");
+  /* `Sprites.draw` 의 sy 는 발밑이 아니라 **한가운데**다. 발밑으로 알고 놓았더니
+     좁은 화면(칸 190px)에서 다리가 판 밖으로 20px 삐져나왔다. 이름 띠 위의
+     빈 자리에 가운데를 맞추고, 그 높이만큼만 키운다. */
+  const pcx = x + cw / 2, plateH = Math.round(ch * .2);
+  const artH = ch - plateH - 10, pcy = y + 5 + artH / 2;
+  const f = Sprites.frames["adv_" + a.key];
+  if (f && Sprites.atlas) {
+    ctx.save();
+    /* 못 간 갈래는 옅게. Sprites.draw 의 dark 겹은 알파를 무시하고 덮으므로
+       어두운 판 위에서는 통째로 사라진다 — 옅게 그리는 편이 유령처럼 읽힌다. */
+    if (!got) ctx.globalAlpha = .26;
+    Sprites.draw("adv_" + a.key, pcx, pcy, artH / 128, 0, false);
+    ctx.restore();
+  } else {
+    // 초상이 아직 없는 갈래(마법사 17) — 자리만 지킨다
+    ctx.globalAlpha = got ? .45 : .18;
+    drawMenuIcon("orb", pcx, pcy, a.color, Math.round(artH * .22));
+    ctx.globalAlpha = 1;
+  }
+  // 이름은 제 판 위에 — 초상과 겹치지 않는다
+  pxChip(x + 4, y + ch - plateH - 3, cw - 8, plateH, "rgba(6,6,12,.92)", null, 4);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const fs = clamp(Math.round(ch * .108), 10, 17);
+  ctx.fillStyle = got ? a.color : "rgba(255,255,255,.62)";
+  fitFont("700", fs, a.name, cw - 12);
+  ctx.fillText(a.name, pcx, y + ch - plateH / 2 - 3);
+  if (got && Meta.codex[a.key].n > 1) {
+    const bw = Math.round(cw * .28), bh = Math.round(ch * .14);
+    pxChip(x + cw - bw - 4, y + 4, bw, bh, "rgba(6,6,12,.88)", "rgba(255,211,110,.45)", 3);
+    ctx.font = "700 " + clamp(Math.round(bh * .62), 8, 13) + "px " + FONT;
+    ctx.fillStyle = "#ffd36e";
+    ctx.fillText("×" + Meta.codex[a.key].n, x + cw - bw / 2 - 4, y + 4 + bh / 2);
+  }
+}
+
 function drawCodex() {
   menuScrim(.86);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -13415,82 +13471,131 @@ function drawCodex() {
     if (on) { ctx.fillStyle = c.color; ctx.fillRect(x + 3, ty + tabH - 2, tabW - 6, 2); }
   }
 
-  // ── 계보 나무
   const cls = CLASSES[Game.codexCls] || CLASSES[0];
   const rows = codexTree(cls.key);
   const CW = 98, CH = 112, GAP = 8;
-  const wide = Math.max(...rows.map(r => r.length));
-  const need = wide * CW + (wide - 1) * GAP;
-  const treeH = rows.length * CH + (rows.length - 1) * GAP;
-  const y0 = ty + tabH + 18, avail = H - y0 - 46;
-  const gk = Math.min(1, (W - 28) / need, avail / treeH);
-  /* 세로로 남는 자리는 나눠 가진다. 세로 화면에서는 폭에 맞추느라 gk 가 0.42 까지
-     떨어져 나무가 위쪽에 몰리고 화면의 60% 가 빈다 — 가운데로 내린다. */
-  const top = y0 + Math.max(0, (avail - treeH * gk) / 2);
-  const amx = (mouse.x - cx) / gk + cx, amy = (mouse.y - top) / gk + top;
-
-  ctx.save();
-  if (gk < 1) { ctx.translate(cx, top); ctx.scale(gk, gk); ctx.translate(-cx, -top); }
-
-  const cellX = (row, i) => cx - (row.length * CW + (row.length - 1) * GAP) / 2 + i * (CW + GAP);
-  const rowY = r => top + r * (CH + GAP);
-
-  /* 잇는 선을 먼저 깐다 — 어느 갈래에서 나왔는지가 이 화면의 반이다.
-     4차는 부모가 갈래가 아니라 직업이라 선을 안 긋는다(다 이어져 보여 뜻이 없다). */
-  ctx.strokeStyle = "rgba(255,255,255,.13)"; ctx.lineWidth = 2;
-  for (let r = 1; r <= 2; r++) {
-    for (let i = 0; i < rows[r].length; i++) {
-      const pi = rows[r - 1].findIndex(p => p.key === rows[r][i].from);
-      if (pi < 0) continue;
-      const x0 = cellX(rows[r - 1], pi) + CW / 2, y0 = rowY(r - 1) + CH;
-      const x1 = cellX(rows[r], i) + CW / 2, y1 = rowY(r);
-      const lit = Meta.seen(rows[r][i].key) && Meta.seen(rows[r - 1][pi].key);
-      ctx.strokeStyle = lit ? "rgba(255,211,110,.4)" : "rgba(255,255,255,.11)";
-      ctx.beginPath();
-      ctx.moveTo(x0, y0); ctx.lineTo(x0, (y0 + y1) / 2);
-      ctx.lineTo(x1, (y0 + y1) / 2); ctx.lineTo(x1, y1);
-      ctx.stroke();
-    }
-  }
-
   let tip = null;
-  for (let r = 0; r < rows.length; r++) {
-    for (let i = 0; i < rows[r].length; i++) {
-      const a = rows[r][i], x = cellX(rows[r], i), y = rowY(r);
-      const got = Meta.seen(a.key);
+
+  /* 나무로 갈지 차수 하나씩 갈지는 **글자가 사람 눈에 몇 px 로 보이는가**로 정한다.
+     폭으로 정하면 안 된다 — 가로 폰은 논리 폭이 1410 이라 「넓은 화면」으로 잡히지만
+     실제로는 844px 로 줄여 그려서 이름이 7px 이 된다. 논리 크기가 아니라 눈이 기준이다. */
+  const treeWide = Math.max(...rows.map(r => r.length));
+  const treeH = rows.length * CH + (rows.length - 1) * GAP;
+  const treeY0 = ty + tabH + 18, treeAvail = H - treeY0 - 46;
+  const treeK = Math.min(1.7, (W - 28) / (treeWide * CW + (treeWide - 1) * GAP), treeAvail / treeH);
+  const NAME_MIN = 9.5;                       // 이보다 작아지면 이름이 글자가 아니라 무늬다
+  const paged = clamp(Math.round(CH * .108), 10, 17) * treeK * cssK < NAME_MIN;
+
+  /* ── 좁은 화면: 한 차수씩 본다
+
+     나무를 통째로 넣으려면 3차 여덟 칸이 가로에 다 들어가야 한다. 520px 화면에서
+     그러면 배율이 0.58 이 되고 칸이 57px, 이름이 6px 이 된다 — **글자가 아니라
+     무늬가 된다.** 68갈래를 보여주려고 만든 화면에서 이름을 못 읽으면 아무것도 아니다.
+
+     그래서 좁으면 나무를 접고 차수 하나를 두 줄로 편다. 여덟 칸이 2열 4행이면
+     배율이 1.7 까지 올라 칸이 167px 가 된다. 잇는 선 대신 **부모 이름**을 칸에
+     적는다 — 손가락 화면에서는 선보다 글자가 낫다. */
+  if (paged) {
+    const T = clamp(Game.codexTier | 0, 0, rows.length - 1);
+    const chipW = Math.min(96, Math.floor((W - 32) / rows.length)), chipH = 30;
+    const cy0 = ty + tabH + 10, cx0 = cx - chipW * rows.length / 2;
+    for (let t = 0; t < rows.length; t++) {
+      const x = cx0 + t * chipW, on = T === t;
+      const hov = inRect(mouse.x, mouse.y, x, cy0, chipW, chipH);
+      if (hov && mouse.clicked) { Game.codexTier = t; Sfx.play(520, .05, "square", .3); }
+      pxChip(x + 2, cy0, chipW - 4, chipH,
+        on ? "rgba(255,211,110,.16)" : hov ? "rgba(255,255,255,.07)" : "rgba(255,255,255,.03)",
+        on ? "rgba(255,211,110,.5)" : null, 5);
+      const g = rows[t].filter(a => Meta.seen(a.key)).length;
+      ctx.font = "700 12px " + FONT;
+      ctx.fillStyle = on ? "#ffd36e" : "rgba(255,255,255,.45)";
+      ctx.fillText((t + 1) + "차", x + chipW / 2, cy0 + 11);
+      ctx.font = "700 9.5px " + FONT;
+      ctx.fillStyle = g >= rows[t].length ? "#ffd36e"
+                    : on ? "rgba(255,255,255,.6)" : "rgba(255,255,255,.32)";
+      ctx.fillText(g + "/" + rows[t].length, x + chipW / 2, cy0 + 23);
+    }
+
+    const list = rows[T];
+    const gy0 = cy0 + chipH + 14, avail = H - gy0 - 52;
+    /* 열 수를 2로 못박으면 가로 화면에서 위아래가 모자라 도로 작아진다.
+       칸이 가장 커지는 열 수를 고른다 — 세로 폰은 2열, 가로 폰은 4열이 된다. */
+    let cols = 1, gk = 0;
+    for (let c = 1; c <= list.length; c++) {
+      const ln = Math.ceil(list.length / c);
+      const k = Math.min(1.7, (W - 28) / (c * CW + (c - 1) * GAP),
+                              avail / (ln * CH + (ln - 1) * GAP + 14));
+      if (k > gk) { gk = k; cols = c; }
+    }
+    const lines = Math.ceil(list.length / cols);
+    const gh = lines * CH + (lines - 1) * GAP;
+    const top = gy0 + Math.max(0, (avail - gh * gk) / 2);
+    const amx = (mouse.x - cx) / gk + cx, amy = (mouse.y - top) / gk + top;
+    ctx.save();
+    ctx.translate(cx, top); ctx.scale(gk, gk); ctx.translate(-cx, -top);
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i], r = Math.floor(i / cols), c = i % cols;
+      const n = Math.min(cols, list.length - r * cols);
+      const x = cx - (n * CW + (n - 1) * GAP) / 2 + c * (CW + GAP), y = top + r * (CH + GAP);
       const hov = inRect(amx, amy, x, y, CW, CH);
       if (hov) tip = a;
-      panel(x, y, CW, CH, 10,
-        got ? (hov ? "rgba(38,32,20,.98)" : "rgba(22,19,14,.92)") : "rgba(12,12,20,.86)",
-        got ? (hov ? "#ffd36e" : a.color) : "rgba(255,255,255,.1)");
-      const f = Sprites.frames["adv_" + a.key];
-      const pcx = x + CW / 2, pcy = y + 46;
-      if (f && Sprites.atlas) {
-        ctx.save();
-        /* 못 간 갈래는 옅게. Sprites.draw 의 dark 겹은 알파를 무시하고 덮으므로
-           어두운 판 위에서는 통째로 사라진다 — 옅게 그리는 편이 유령처럼 읽힌다. */
-        if (!got) ctx.globalAlpha = .17;
-        Sprites.draw("adv_" + a.key, pcx, pcy + 22, 72 / 128, 0, false);
-        ctx.restore();
-      } else {
-        // 초상이 아직 없는 갈래(마법사 17) — 자리만 지킨다
-        ctx.globalAlpha = got ? .5 : .14;
-        drawMenuIcon("orb", pcx, pcy, a.color, 4);
-        ctx.globalAlpha = 1;
-      }
-      ctx.font = "700 11px " + FONT;
-      ctx.fillStyle = got ? a.color : "rgba(255,255,255,.42)";
-      fitFont("700", 11, a.name, CW - 10);
-      ctx.fillText(a.name, pcx, y + CH - 16);
-      if (got && Meta.codex[a.key].n > 1) {
-        ctx.font = "700 9px " + FONT; ctx.fillStyle = "rgba(255,211,110,.5)";
-        ctx.fillText("x" + Meta.codex[a.key].n, x + CW - 14, y + 11);
+      codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov);
+      // 선 대신 부모 이름 — 좁은 화면에서는 선보다 글자가 낫다
+      const par = T === 0 || T === 3 ? cls
+                : rows[T - 1].find(q => q.key === a.from);
+      if (par) {
+        ctx.font = "700 9px " + FONT;
+        ctx.fillStyle = Meta.seen(a.from) || T === 0 || T === 3
+          ? "rgba(255,255,255,.4)" : "rgba(255,255,255,.22)";
+        ctx.fillText(par.name + "에서", x + CW / 2, y - 7);
       }
     }
+    ctx.restore();
+  } else {
+    /* ── 넓은 화면: 계보 나무
+       예전에는 배율 상한이 1 이었다. 1280x720 에서 나무가 필요한 폭이 840 뿐이라
+       화면의 3분의 1이 비고 칸은 98px 에 이름은 11px 로 남았다 — **자리가 남는데
+       작게 그리고 있었다.** 남는 자리만큼 키운다(위에서 잰 treeK). */
+    const gk = treeK, top = treeY0 + Math.max(0, (treeAvail - treeH * gk) / 2);
+    const amx = (mouse.x - cx) / gk + cx, amy = (mouse.y - top) / gk + top;
+
+    ctx.save();
+    ctx.translate(cx, top); ctx.scale(gk, gk); ctx.translate(-cx, -top);
+
+    const cellX = (row, i) => cx - (row.length * CW + (row.length - 1) * GAP) / 2 + i * (CW + GAP);
+    const rowY = r => top + r * (CH + GAP);
+
+    /* 잇는 선을 먼저 깐다 — 어느 갈래에서 나왔는지가 이 화면의 반이다.
+       4차는 부모가 갈래가 아니라 직업이라 선을 안 긋는다(다 이어져 보여 뜻이 없다). */
+    ctx.lineWidth = 2;
+    for (let r = 1; r <= 2; r++) {
+      for (let i = 0; i < rows[r].length; i++) {
+        const pi = rows[r - 1].findIndex(p => p.key === rows[r][i].from);
+        if (pi < 0) continue;
+        const x0 = cellX(rows[r - 1], pi) + CW / 2, py = rowY(r - 1) + CH;
+        const x1 = cellX(rows[r], i) + CW / 2, y1 = rowY(r);
+        const lit = Meta.seen(rows[r][i].key) && Meta.seen(rows[r - 1][pi].key);
+        ctx.strokeStyle = lit ? "rgba(255,211,110,.45)" : "rgba(255,255,255,.13)";
+        ctx.beginPath();
+        ctx.moveTo(x0, py); ctx.lineTo(x0, (py + y1) / 2);
+        ctx.lineTo(x1, (py + y1) / 2); ctx.lineTo(x1, y1);
+        ctx.stroke();
+      }
+    }
+
+    for (let r = 0; r < rows.length; r++) {
+      for (let i = 0; i < rows[r].length; i++) {
+        const a = rows[r][i], x = cellX(rows[r], i), y = rowY(r);
+        const hov = inRect(amx, amy, x, y, CW, CH);
+        if (hov) tip = a;
+        codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov);
+      }
+    }
+    ctx.restore();
   }
-  ctx.restore();
 
   // ── 짚은 갈래 설명 — 화면 아래 한 줄
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
   if (tip) {
     const got = Meta.seen(tip.key);
     ctx.font = "700 14px " + FONT; ctx.fillStyle = tip.color;
@@ -13500,7 +13605,8 @@ function drawCodex() {
     ctx.fillText(tip.tagline || tip.desc || "", cx, H - 26);
   } else {
     ctx.font = "600 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-    ctx.fillText(narrow() ? "TAB / ESC 로 돌아가기" : "1~4 · A / D  직업 바꾸기   ·   TAB / ESC  돌아가기", cx, H - 26);
+    ctx.fillText(paged ? "차수를 눌러 넘긴다   ·   A / D  직업   ·   TAB / ESC  돌아가기"
+                       : "1~4 · A / D  직업 바꾸기   ·   TAB / ESC  돌아가기", cx, H - 26);
   }
 }
 

@@ -68,10 +68,22 @@ const { BOT } = require('../tests/bot.js');
     /* 3. 죄인은 다가오지 않는다 — 플레이어를 세워 두고 10초.
        먼저 표식을 새로 붙인다. 앞 단계에서 오래 산 표식은 30초 교체 시한에 걸려
        10초 안에 저절로 옮겨 가고, 그러면 「다가왔는가」가 아니라 「살아남았는가」를
-       재게 된다. */
+       재게 된다.
+
+       ■ 문턱은 60 이 아니라 150 이다 — 재서 정했다
+
+       처음엔 60px 였는데 같은 코드가 이따금 떨어졌다. 죄인은 제자리를 돌 뿐이지만
+       무리에 밀려 조금씩 안으로 들어온다. 두 상태를 각각 재 보니 이랬다.
+
+           제자리를 돌 때(정상)   n=21, 가장 많이 가까워진 것이 59px
+           쫓아올 때(고장)        n=12, 열둘 중 열이 270~433px
+
+       60 은 잡음의 천장에 딱 붙어 있었다. 150 이면 두 무리가 안 겹친다 —
+       느슨하게 만든 게 아니라 **잡음과 신호를 재서 가른 것**이다. */
     for (const e of marked()) Sin.unmark(e);
     Sin.fillT = 0; step(.5);
     const before = marked().map(e => [e.id, Math.hypot(e.x - player.x, e.y - player.y)]);
+    const APPROACH = 150;                                      // 아래 주석의 실측으로 정한 값
     const BT = botTick; botTick = () => {};                    // 플레이어를 세운다
     step(10);
     botTick = BT;
@@ -80,7 +92,7 @@ const { BOT } = require('../tests/bot.js');
       const e = enemies.find(x => x.active && x.id === id && x.sinMark);
       if (!e) continue;
       kept++;
-      if (Math.hypot(e.x - player.x, e.y - player.y) < d0 - 60) closed++;
+      if (Math.hypot(e.x - player.x, e.y - player.y) < d0 - APPROACH) closed++;
     }
     o.approach = { kept, closed };
 

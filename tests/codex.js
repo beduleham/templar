@@ -19,7 +19,9 @@
      5. C 로 열리고 ESC 로 돌아온다. 판 안에서는 안 열린다
      6. 기록 지우기가 코덱스도 지운다
      7. localStorage 가 막혀도 게임이 돈다
-     8. 다음 판 길잡이가 거짓말을 안 한다 — 따라가면 실제로 열리고, 계속
+     8. 개전 무기(수평 보상) — 완주해야 열리고, 더함이 아니라 바꿈이고,
+        고름은 직업마다 따로 남는다
+     9. 다음 판 길잡이가 거짓말을 안 한다 — 따라가면 실제로 열리고, 계속
         따라가면 17칸이 다 찬다 (막다른 길잡이는 거짓말이다)
 
    실행: node tests/codex.js */
@@ -180,6 +182,89 @@ const { chromium } = require('playwright');
     if (!g.done) fail.push('다 걸었는데도 길잡이가 갈 곳을 말한다');
     fail.push(...e3);
     await p3.close();
+  }
+
+  /* 6. 수평 보상 — 개전 무기
+
+     기록에 능력치를 붙이면 안 모은 사람이 불리해진다(README 의 약속). 대신 **바꿔
+     준다**: 한 직업의 17칸을 다 걸으면 그 직업의 개전 무기를 다른 직업도 들고 시작한다.
+     더 얹는 게 아니라 자기 것을 내주고 바꾸는 것이라 천장이 안 올라간다.
+
+     이 성질이 조용히 깨질 수 있는 자리가 셋이다.
+       · 「바꿈」이 「더함」이 되면(무기를 둘 들고 시작하면) 수평이 아니라 수직이 된다
+       · 안 연 무기를 저장소에 손으로 써 넣으면 잠금이 뚫린다
+       · 고름이 직업마다 따로 안 남으면 네 장이 전부 같은 무기를 든 화면이 된다 */
+  {
+    const p4 = await b.newPage({ viewport: { width: 1280, height: 720 } });
+    const e4 = []; p4.on('pageerror', e => e4.push('PAGEERROR(개전): ' + e.message));
+    await p4.goto('file:///home/user/templar/game/index.html');
+    await p4.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
+    const w = await p4.evaluate(() => {
+      const o = {};
+      Meta.codex = {}; Meta.opens = {};
+      o.lockedN = CLASSES.map(c => openChoices(c).length);
+      o.lockedStart = CLASSES.every(c => openStart(c) === c.start);
+      for (const a of codexTree('paladin').flat()) Meta.codex[a.key] = { n: 1, t: 1, d: "x" };
+      o.doneP = Meta.classDone('paladin');
+      o.doneW = Meta.classDone('warrior');
+      o.afterN = CLASSES.map(c => openChoices(c).length);
+      // 바꿈이지 더함이 아니다
+      Meta.opens = { mage: 'aura' };
+      selectedClass = 3; Game.reset();
+      o.mage = player.weapons.map(x => x.key);
+      // 안 고른 직업은 그대로다
+      selectedClass = 1; Game.reset();
+      o.warrior = player.weapons.map(x => x.key);
+      // 안 연 무기는 무시한다
+      Meta.opens = { mage: 'scythe' };
+      selectedClass = 3; Game.reset();
+      o.bogus = player.weapons.map(x => x.key);
+      // 기록을 지우면 고름도 지워진다
+      o.starts = CLASSES.map(c => c.start);
+      return o;
+    });
+    out.push(`개전   잠김 ${w.lockedN.join('/')}칸 → 성기사 완주 뒤 ${w.afterN.join('/')}칸 · 마법사 개전 ${w.mage.join(',')}`);
+    if (w.lockedN.some(n => n !== 1)) fail.push(`아무것도 안 걸었는데 고를 무기가 ${w.lockedN.join('/')} 개다`);
+    if (!w.lockedStart) fail.push('안 열었는데 개전 무기가 제 직업 것이 아니다');
+    if (!w.doneP || w.doneW) fail.push(`완주 판정이 틀렸다 (성기사 ${w.doneP} · 전사 ${w.doneW})`);
+    if (w.afterN.join() !== '1,2,2,2')
+      fail.push(`성기사 완주 뒤 고를 수 ${w.afterN.join('/')} — 자기 직업 1, 나머지 2 여야 한다`);
+    if (w.mage.length !== 1 || w.mage[0] !== 'aura')
+      fail.push(`마법사가 ${w.mage.join(',')} 로 시작한다 — 성역 하나(바꿈)여야 한다. 둘이면 수평이 아니라 수직이다`);
+    if (w.warrior.length !== 1 || w.warrior[0] !== w.starts[1])
+      fail.push(`안 고른 직업(전사)의 개전이 ${w.warrior.join(',')} 로 바뀌었다 — 고름은 직업마다 따로다`);
+    if (w.bogus.length !== 1 || w.bogus[0] !== w.starts[3])
+      fail.push(`안 연 무기(${w.bogus.join(',')})로 시작된다 — 저장소를 고치면 잠금이 뚫린다`);
+    /* 화살표는 카드 **안**에 있고 카드는 아무 데나 누르면 판이 시작된다.
+       누른 것을 안 먹어 치우면 무기를 바꾸는 순간 판이 시작된다 — 실제로 눌러 본다. */
+    await p4.evaluate(() => {
+      Meta.codex = {}; Meta.opens = {};
+      for (const a of codexTree('paladin').flat()) Meta.codex[a.key] = { n: 1, t: 1, d: "x" };
+      Game.state = 'title'; selectedClass = 3;
+    });
+    await new Promise(r => setTimeout(r, 250));
+    const pt = await p4.evaluate(() => {
+      const cols = W >= 1180 ? 4 : 2, gap = 16;
+      const cw = Math.min(268, Math.floor((W - (cols + 1) * gap) / cols));
+      const rows = Math.ceil(CLASSES.length / cols), tall = rows === 1;
+      const ch = tall ? 406 : 392, total = cols * cw + (cols - 1) * gap;
+      const x0 = (W - total) / 2, y0 = tall ? 182 : 134;
+      const stageH = tall ? 104 : 92;
+      return { x: x0 + 3 * (cw + gap) + cw - 16 - 9, y: y0 + 62 + stageH + 16 - 6, W, H };
+    });
+    const bx = await (await p4.$('#game')).boundingBox();
+    const sx = bx.x + pt.x * (bx.width / pt.W), sy = bx.y + pt.y * (bx.height / pt.H);
+    await p4.mouse.move(sx, sy);
+    await new Promise(r => setTimeout(r, 140));
+    await p4.mouse.click(sx, sy);
+    await new Promise(r => setTimeout(r, 250));
+    const click = await p4.evaluate(() => ({ state: Game.state, open: Meta.opens.mage }));
+    out.push(`       화살표를 누르면 ${click.open || "그대로"} · 화면 ${click.state}`);
+    if (click.open !== 'aura') fail.push(`화살표를 눌러도 개전 무기가 안 바뀐다 (${click.open})`);
+    if (click.state !== 'title')
+      fail.push('무기를 바꾸는 순간 판이 시작된다 — 화살표가 카드 안에 있는데 누른 것을 안 먹었다');
+    fail.push(...e4);
+    await p4.close();
   }
 
   const NAME_MIN = 9.5;

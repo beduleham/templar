@@ -4201,7 +4201,7 @@ const Game = {
     player.cls = CLASSES[clsIdx != null ? clsIdx : selectedClass];
     recomputeStats();
     player.hp = player.stats.maxHp;
-    addWeapon(player.cls.start);
+    addWeapon(openStart(player.cls));
     cam.x = player.x - W / 2; cam.y = player.y - HT / 2; cam.shake = 0;
     this.state = "playing";
   },
@@ -4310,8 +4310,8 @@ const Game = {
   wipeAsk() {
     if (this.wipeArm > 0) {
       this.wipeArm = 0;
-      try { localStorage.removeItem("ts_souls"); localStorage.removeItem("ts_altar"); localStorage.removeItem("ts_best"); localStorage.removeItem("ts_codex"); } catch (e) { /* 못 지워도 아래는 맞춘다 */ }
-      Meta.souls = 0; Meta.levels = {}; Meta.codex = {}; this.bestTime = 0; this.lastEarned = 0;
+      try { localStorage.removeItem("ts_souls"); localStorage.removeItem("ts_altar"); localStorage.removeItem("ts_best"); localStorage.removeItem("ts_codex"); localStorage.removeItem("ts_open"); } catch (e) { /* 못 지워도 아래는 맞춘다 */ }
+      Meta.souls = 0; Meta.levels = {}; Meta.codex = {}; Meta.opens = {}; this.bestTime = 0; this.lastEarned = 0;
       Sfx.play(180, .3, "sawtooth", .7, -60);
       return;
     }
@@ -8139,20 +8139,41 @@ const ALTAR = [
 ];
 
 const Meta = {
-  souls: 0, levels: {}, codex: {},
+  souls: 0, levels: {}, codex: {}, opens: {},
   load() {
     try {
       this.souls = Number(localStorage.getItem("ts_souls") || 0) || 0;
       this.levels = JSON.parse(localStorage.getItem("ts_altar") || "{}") || {};
       this.codex = JSON.parse(localStorage.getItem("ts_codex") || "{}") || {};
-    } catch (e) { this.souls = 0; this.levels = {}; this.codex = {}; }
+      this.opens = JSON.parse(localStorage.getItem("ts_open") || "{}") || {};
+    } catch (e) { this.souls = 0; this.levels = {}; this.codex = {}; this.opens = {}; }
   },
   save() {
     try {
       localStorage.setItem("ts_souls", String(this.souls));
       localStorage.setItem("ts_altar", JSON.stringify(this.levels));
       localStorage.setItem("ts_codex", JSON.stringify(this.codex));
+      localStorage.setItem("ts_open", JSON.stringify(this.opens));
     } catch (e) { /* 저장 불가여도 게임은 돈다 */ }
+  },
+
+  /* ── 수평 보상: 개전 무기
+
+     기록이 「어디로 갈지」는 말하게 됐는데 「왜」가 없었다. 능력치는 여전히 안 준다 —
+     수집이 세지면 안 모은 사람이 불리해지고 그건 신규 진입을 막는 벽이다.
+
+     대신 **바꿔 준다.** 한 직업의 계보 17칸을 다 걸으면 그 직업의 개전 무기를 다른
+     직업도 들고 시작할 수 있다. 더 얹는 게 아니라 **자기 것을 내주고 바꾸는** 것이라
+     천장이 안 올라간다 — 마법사가 마법 화살(후반 100배 성장) 대신 쇠사슬 플레일을
+     들면 초반이 편해지는 만큼 후반을 잃는다. 6칸은 그대로고, 여는 수는 여전히 하나다.
+
+     그래서 이건 「더 세짐」이 아니라 **「다르게 시작함」**이다. 안 모은 사람은 제 직업의
+     무기로 시작하고, 그건 지금까지와 정확히 같다. */
+  classDone(k) { return codexTree(k).every(r => r.every(a => this.seen(a.key))); },
+  openWeapons() {
+    const out = [];
+    for (const c of CLASSES) if (this.classDone(c.key)) out.push(c.start);
+    return out;
   },
 
   /* 성전 기록 — 전직 68갈래를 계보로 모은다 (docs/hook-spec.md C2).
@@ -9233,6 +9254,21 @@ function advColor() {
 }
 
 let selectedClass = 0;
+
+/* 이 직업이 실제로 들고 시작하는 무기. 화면(카드·무대·이름표)과 판 시작이 **같은
+   함수**를 본다 — 갈리면 카드가 거짓말을 한다(레벨업 카드의 faithOf 와 같은 규칙). */
+function openChoices(cls) {
+  const out = [cls.start];
+  for (const k of Meta.openWeapons()) if (out.indexOf(k) < 0) out.push(k);
+  return out;
+}
+/* 고름은 **직업마다 따로** 남는다. 하나로 두면 마법사에서 성역을 고른 순간
+   전사도 추적자도 성역으로 열려 네 장이 전부 같은 무기를 든 화면이 됐다 —
+   직업을 고르는 화면에서 그건 고를 거리를 지우는 것이다. */
+function openStart(cls) {
+  const w = Meta.opens[cls.key];
+  return w && openChoices(cls).indexOf(w) >= 0 ? w : cls.start;
+}
 
 /* ---------- 빛 ----------
    여기까지 오면서 그림은 조밀해졌는데 화면은 여전히 '전부 같은 밝기'였다.
@@ -12883,8 +12919,9 @@ const STAGE = {
 };
 const STAGE_CYCLE = 1.55;                      // 한 바퀴. 무기마다 실제 쿨다운은 다르지만 카드는 리듬만 보여준다
 
-function drawWeaponStage(c, x, y, w, h, t) {
-  const WP = WEAPONS[c.start], S = STAGE[c.start] || STAGE.dagger;
+function drawWeaponStage(c, x, y, w, h, t, wkey) {
+  const K = wkey || c.start;
+  const WP = WEAPONS[K], S = STAGE[K] || STAGE.dagger;
   const cols = pxPal(ELEMENTS[WP.element].color);
   const u = (t % STAGE_CYCLE) / STAGE_CYCLE;
   const hx = Math.round(x + w * S.hx), hy = Math.round(y + h * S.hy);
@@ -12922,7 +12959,7 @@ function drawWeaponStage(c, x, y, w, h, t) {
   // ── 무기. 게임이 쓰는 픽셀 함수를 그대로 부른다 ──
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
-  if (c.start === "aura") {
+  if (K === "aura") {
     // 성역은 상시 결계다. 주기마다 밝아지고, 그때 안에 든 적이 탄다.
     const R = 46, ph = (u * 3) % 1, pulse = Math.max(0, 1 - ph / .38);
     ctx.globalCompositeOperation = "source-over";
@@ -12935,7 +12972,7 @@ function drawWeaponStage(c, x, y, w, h, t) {
     for (let k = 0; k < 3; k++)
       if (Math.hypot(S.mobs[k][1], S.mobs[k][2]) < R + S.mobs[k][3])
         hitAt[k] = Math.floor(u * 3) / 3;
-  } else if (c.start === "whip") {
+  } else if (K === "whip") {
     // 부채꼴 참격 — 사거리 안이고 각도 안이면 맞는다(판정과 같은 규칙)
     const len = 88, SW = .2;
     if (u < SW) {
@@ -12950,7 +12987,7 @@ function drawWeaponStage(c, x, y, w, h, t) {
       const tt = ((d - m[3]) / len - .55) / .5;
       if (tt >= 0 && tt <= 1) hitAt[k] = tt * SW;
     }
-  } else if (c.start === "dagger") {
+  } else if (K === "dagger") {
     // 단검은 관통한다 — 첫 적을 지나 계속 난다
     const m = S.mobs[1], ang = Math.atan2(m[2], m[1]), reach = Math.hypot(m[1], m[2]);
     const fly = (u - .06) / .34;
@@ -13110,21 +13147,47 @@ function drawTitle() {
        주인공은 무대 안에서 실제로 싸우므로 따로 세워 둘 이유가 없다.
        카드마다 위상을 어긋나게 해 네 장이 한꺼번에 번쩍이지 않게 한다. */
     const stageH = tall ? 104 : 92;
+    const opts = openChoices(c), okey = openStart(c);
     drawWeaponStage(c, x + 14, yRow + 58 + oy, cw - 28, stageH,
-      performance.now() / 1000 + i * .47);
+      performance.now() / 1000 + i * .47, okey);
 
-    // 무대 아래 이름표 — 무엇을 들고 있었는지
-    const WP = WEAPONS[c.start], E = ELEMENTS[WP.element];
+    // 무대 아래 이름표 — 무엇을 들고 시작하는지
+    const WP = WEAPONS[okey], E = ELEMENTS[WP.element];
     ctx.font = "700 12.5px " + FONT;
     const nw = ctx.measureText(WP.name).width;
     ctx.font = "600 11px " + FONT;
     const ew = ctx.measureText(" · " + E.name).width;
-    let tx = x + cw / 2 - (16 + nw + ew) / 2;
+    /* 바꿀 수 있으면 이름표가 곧 고르는 자리가 된다. 줄을 따로 만들지 않는다 —
+       이 화면은 세로가 이미 빠듯해서(넘치면 「화면이 너무 작습니다」로 빠진다)
+       한 줄을 더 얹으면 작은 기기에서 카드를 통째로 못 그린다. */
+    const swap = opts.length > 1 && sel;
+    let tx = x + cw / 2 - (16 + nw + ew) / 2 - (swap ? 2 : 0);
     const capY = yRow + 62 + stageH + 16 + oy;
+    if (swap) {
+      const aw = 18, ay = capY - 9;
+      for (const [dir, ax] of [[-1, x + 16], [1, x + cw - 16 - aw]]) {
+        const hv = inRect(mouse.x, mouse.y, ax, ay, aw, 18);
+        pxChip(ax, ay, aw, 18, hv ? "rgba(255,211,110,.22)" : "rgba(255,255,255,.06)",
+          hv ? "rgba(255,211,110,.6)" : null, 4);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.font = "700 11px " + FONT;
+        ctx.fillStyle = hv ? "#ffd36e" : "rgba(255,255,255,.55)";
+        ctx.fillText(dir < 0 ? "<" : ">", ax + aw / 2, capY);
+        if (hv && mouse.clicked) {
+          const at = opts.indexOf(okey);
+          Meta.opens[c.key] = opts[(at + dir + opts.length) % opts.length];
+          Meta.save(); Sfx.play(620, .05, "square", .3);
+          /* 이 화살표는 카드 **안**에 있고 카드는 아무 데나 누르면 판이 시작된다.
+             누른 것을 안 먹어 치우면 무기를 바꾸는 순간 판이 시작된다. */
+          mouse.clicked = false;
+        }
+      }
+    }
     drawMenuIcon(E.px, tx + 6, capY, E.color, 2);
     tx += 16;
     ctx.textAlign = "left";
-    ctx.font = "700 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.92)";
+    ctx.font = "700 12.5px " + FONT;
+    ctx.fillStyle = okey === c.start ? "rgba(255,255,255,.92)" : "#ffd36e";
     ctx.fillText(WP.name, tx, capY);
     ctx.font = "600 11px " + FONT; ctx.fillStyle = E.color;
     ctx.fillText(" · " + E.name, tx + nw, capY);
@@ -13511,7 +13574,7 @@ function drawCodex() {
     const tot = codexTree(c.key).reduce((n, r) => n + r.length, 0);
     const got = codexTree(c.key).reduce((n, r) => n + r.filter(a => Meta.seen(a.key)).length, 0);
     ctx.font = "700 10.5px " + FONT; ctx.fillStyle = got >= tot ? "#ffd36e" : "rgba(255,255,255,.35)";
-    ctx.fillText(got + "/" + tot, x + 44, ty + tabH / 2 + 10);
+    ctx.fillText((got >= tot ? "★ " : "") + got + "/" + tot, x + 44, ty + tabH / 2 + 10);
     ctx.textAlign = "center";
     if (on) { ctx.fillStyle = c.color; ctx.fillRect(x + 3, ty + tabH - 2, tabW - 6, 2); }
   }
@@ -13552,8 +13615,11 @@ function drawCodex() {
     ctx.textBaseline = "middle";
     ctx.font = "700 " + gpx.toFixed(1) + "px " + FONT;
     if (done) {
+      /* 다 걸었으면 **무엇을 얻었는지**를 말한다. 「다 걸었다」로 끝나면 상이 아니라
+         통보다 — 이 화면의 유일한 보상이 여기 한 줄에 걸려 있다. */
       ctx.textAlign = "center"; ctx.fillStyle = "#ffd36e";
-      ctx.fillText("★ " + cls.name + "의 길을 다 걸었다", cx, gy);
+      ctx.fillText("★ " + cls.name + "의 길을 다 걸었다  —  개전 무기 「"
+        + WEAPONS[cls.start].name + "」을 어느 직업으로도 들 수 있다", cx, gy);
     } else {
       /* 이미 걸어 본 마디도 길에는 들어간다(거기를 지나야 하니까). 그런데 그것까지
          금색으로 쓰면 「N칸이 새로 열린다」와 이름 수가 어긋나 보인다 —
@@ -13579,6 +13645,16 @@ function drawCodex() {
         line(r2, gy + gpx + 3);
         gBot = gy + gpx * 1.5 + 3;
       }
+    }
+    /* 「어디로」 밑에 「그래서 무엇이 되는가」. 이 줄이 없으면 길잡이는 심부름표다. */
+    if (!done) {
+      const rp = Math.max(10, 8.5 / cssK);
+      ctx.font = "700 " + rp.toFixed(1) + "px " + FONT;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(255,255,255,.3)";
+      ctx.fillText("17칸을 다 걸으면 개전 무기 「" + WEAPONS[cls.start].name
+                   + "」을 다른 직업도 들 수 있다", cx, gBot + rp * .8);
+      gBot += rp * 1.6;
     }
   }
 

@@ -110,12 +110,42 @@ const { BOT } = require('./bot.js');
     spawnNumber(player.x, player.y, 55, '#fff', 14, 7);
     o.merged = before ? before.val : 0;
     o.budget = NUM_BUDGET;
+    /* ④ 신앙·타락의 시각 언어 — 성광 ↔ 핏빛.
+
+       규칙 둘을 함께 잰다. **물들되 밝아지면 안 되고**(§103 을 되돌리는 것이다),
+       이펙트 그림은 안 건드린다(§28 형태=속성 · 색맹인 사람에게는 색이 정보가 아니다).
+       그래서 색이 바뀌는 곳은 **어두운 픽셀**이어야 한다 — 어둠을 물들이는 것이라
+       화면이 밝아질 수가 없다. */
+    const scene = (f) => {
+      Game.faith = f;
+      clearAll();
+      for (let i = 0; i < 12; i++)
+        spawnFx('fx_boom_physical', player.x + (i % 4 - 2) * 90, player.y + ((i / 4 | 0) - 1) * 80, 110, 0);
+      for (let i = 0; i < 8; i++) update(1 / 60);
+      wait();
+      const d = ctx.getImageData(0, 0, W, H).data;
+      let hit = 0, n = 0, dr = 0, dg = 0, db = 0, dn = 0;
+      for (let y = H * .2; y < H * .8; y += 2) for (let x = W * .2; x < W * .8; x += 2) {
+        const i = ((y | 0) * W + (x | 0)) << 2; n++;
+        const L = d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114;
+        if (L > 170) hit++;
+        else if (L < 90) { dr += d[i]; dg += d[i + 1]; db += d[i + 2]; dn++; }
+      }
+      return { pct: +(hit / n * 100).toFixed(2),
+               warm: dn ? +((dr - db) / dn).toFixed(1) : 0,      // 붉은기 — R 에서 B 를 뺀다
+               red: dn ? +((dr - dg) / dn).toFixed(1) : 0 };     // 핏기 — R 에서 G 를 뺀다
+    };
+    o.hue = { mid: scene(0), saint: scene(90), monster: scene(-90) };
+    Game.faith = 0;
     clearAll();
     return o;
   });
   console.log(`예산: 폭발 8발 ${bud.boom8}% → 40발 ${bud.boom40}% (${bud.boomRatio}배)`
     + ` · 고리 세기 40/90/160/240/400 = ${bud.ink.join(' ')}`
     + ` · 숫자 일반 ${bud.plain} / 치명타 ${bud.crit} (예산 ${bud.budget}) · 붙기 ${bud.merged}`);
+  console.log(`저울색: 중립 밝기 ${bud.hue.mid.pct}% 붉은기 ${bud.hue.mid.warm} 핏기 ${bud.hue.mid.red}`
+    + ` · 성인 ${bud.hue.saint.pct}% ${bud.hue.saint.warm} ${bud.hue.saint.red}`
+    + ` · 괴물 ${bud.hue.monster.pct}% ${bud.hue.monster.warm} ${bud.hue.monster.red}`);
   console.log(`10분: 적 ${r.enemies} · 등급 ${r.ranked} (${(r.ratio * 100).toFixed(0)}%) · 체력바 ${r.bars} · 밝은 픽셀 ${r.bright}% · 입자 ${r.particles} · 파동 ${r.waves} · 폭발 최대 ${r.boomMax}px · lv${r.lv}`);
   let bad = 0;
   if (!(bud.boom40 > bud.boom8)) { console.log(`!! 폭발 40발이 8발보다 안 밝다 — 장면이 안 만들어졌다`); bad++; }
@@ -124,6 +154,16 @@ const { BOT } = require('./bot.js');
   if (!(bud.ink[2] < .8 && bud.ink[3] < .5 && bud.ink[4] <= .2)) { console.log(`!! 큰 고리가 안 흐려진다 (${bud.ink.join(' ')})`); bad++; }
   if (bud.plain > bud.budget + 2) { console.log(`!! 일반 숫자 ${bud.plain}개 — 예산 ${bud.budget} 이 안 먹는다`); bad++; }
   if (bud.crit <= bud.plain || bud.crit > bud.budget * 2 + 2) { console.log(`!! 치명타 ${bud.crit}개 — 일반보다 넉넉하되 천장은 있어야 한다`); bad++; }
+  /* 문턱은 **가장자리 비네트만 있던 때**와 갈리게 잡았다. 처음엔 느슨하게 뒀는데
+     어둠 물들이기를 통째로 빼도 검사가 통과했다 — 예전부터 있던 화면 가장자리
+     비네트(drawFaithTint)만으로 그 폭이 나왔기 때문이다. 값이 안 움직이는 검사는
+     검사가 아니다. 비네트만 있을 때 성인 -11.7 · 괴물 11.4, 지금은 -4.1 · 16.4. */
+  if (!(bud.hue.saint.warm > -8)) { console.log(`!! 성인인데 그늘이 안 따뜻해진다 (${bud.hue.mid.warm} → ${bud.hue.saint.warm}, -8 위여야 한다)`); bad++; }
+  if (!(bud.hue.monster.red > 14)) { console.log(`!! 괴물인데 그늘에 핏기가 안 돈다 (${bud.hue.mid.red} → ${bud.hue.monster.red}, 14 위여야 한다)`); bad++; }
+  if (!(bud.hue.monster.red > bud.hue.saint.red + 8)) { console.log(`!! 성인과 괴물의 그늘이 안 갈린다`); bad++; }
+  /* 물들되 밝아지면 안 된다 — §103 을 되돌리는 것이다. 여유는 잡음만큼만(0.6%p). */
+  for (const k of ['saint', 'monster'])
+    if (bud.hue[k].pct > bud.hue.mid.pct + .6) { console.log(`!! ${k} 에서 화면이 밝아졌다 (${bud.hue.mid.pct}% → ${bud.hue[k].pct}%) — 색을 옮기는 것이지 빛을 더하는 게 아니다`); bad++; }
   if (bud.merged !== 155) { console.log(`!! 예산이 걸린 뒤 같은 적의 숫자가 안 자란다 (${bud.merged}) — 막히면 피해가 사라진다`); bad++; }
   if (r.ratio > .22) { console.log(`!! 등급 적 비율 ${(r.ratio * 100).toFixed(0)}% — 22% 를 넘는다(고치기 전 31~35%)`); bad++; }
   if (r.bars > 25) { console.log(`!! 체력바 ${r.bars}개 — 25 를 넘는다(고치기 전 62~91)`); bad++; }

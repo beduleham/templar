@@ -3330,7 +3330,7 @@ function killEnemy(e, elem) {
      다만 개수를 넉넉히 잡으면 안 된다. 후반에는 초당 수십 마리가 죽어서
      파티클 풀(500)이 포화되고, 그러면 정작 타격 불티가 자리를 못 얻는다 —
      계측해 보니 467/500 이었다. 셋으로, 짧게. */
-  spawnParticles(e.x, e.y, 3, e.type.color, 200, .3, 4, { g: 380, streak: 7, drag: .93 });
+  spawnParticles(e.x, e.y, 3, faithHue(e.type.color), 200, .3, 4, { g: 380, streak: 7, drag: .93 });
   Game.kills++;
   if (e.type.onDeath) e.type.onDeath(e);
   // 등급 보상 — 정예·희귀는 눈에 띄게 돌려준다
@@ -6860,7 +6860,7 @@ function drawWorld() {
        픽셀이었다 — 앞날(부딪히는 자리)만 남기고 채움·뒷테는 힌트로 내린다. */
     if (wv.r <= 160) {                                  // 큰 원판(.08)은 안 보이고 비싸다 — 작을 때만(§102)
       ctx.globalAlpha = (1 - t) * .08;
-      ctx.fillStyle = wv.color;
+      ctx.fillStyle = faithHue(wv.color);
       ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
     }
     ctx.globalCompositeOperation = "lighter";
@@ -6868,7 +6868,8 @@ function drawWorld() {
        120 을 넘으면 격자 테두리 없이 몸통만 — 격자 칸은 앞날(흰 줄)이 이미 그린다. */
     // 앞날(흰 줄)만이 아니라 몸통도 함께 깎는다 — 밝기를 만드는 것은 몸통이다
     ctx.globalAlpha = (1 - t) * .4 * near;
-    pxRing(sx, sy, wv.r, 4 + (1 - t) * 5, pxPal(wv.color), wv.r > 120);
+    // 색은 **그릴 때** 옮긴다 — 저울은 판 도중에 바뀌고, 이미 날아가는 고리도 같이 물들어야 한다
+    pxRing(sx, sy, wv.r, 4 + (1 - t) * 5, pxPal(faithHue(wv.color)), wv.r > 120);
     // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다. 큰 고리는 몸통만(§102)
     ctx.globalAlpha = (1 - t) * .7 * near;
     pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120);
@@ -9376,12 +9377,26 @@ function drawLighting() {
   g2.setTransform(1, 0, 0, 1, 0, 0);
   g2.globalCompositeOperation = "source-over";
   g2.clearRect(0, 0, lw, lh);
-  g2.fillStyle = "rgba(8,6,22," + (.34 * str).toFixed(3) + ")";
+  /* 어둠의 **색**이 저울을 말한다 — 성광 ↔ 핏빛.
+
+     빛과 먼지의 색만 옮겼더니 너무 옅었다(밝은 곳 평균 RGB 가 140,141,159 →
+     154,132,151). 이펙트 그림 자체는 안 건드린다는 규칙(§28 형태=속성)을 지키면서
+     화면 전체를 물들일 수 있는 자리는 **어둠**뿐이다. 그리고 여기가 가장 싸다 —
+     칠하는 횟수도 밝기도 안 늘고 문자열 하나만 바뀐다. 어둠을 물들이는 것이라
+     화면이 밝아질 수도 없다(§103).
+
+     성인이면 그늘이 촛불처럼 따뜻해지고, 괴물이면 핏기가 돈다. */
+  const fst = faithStep();
+  const fdk = fst === 2 ? [26, 17, 6] : fst === 1 ? [15, 11, 14]
+            : fst === -2 ? [30, 4, 12] : fst === -1 ? [17, 5, 18] : [8, 6, 22];
+  const fvg = fst === 2 ? [22, 14, 4] : fst === 1 ? [12, 8, 11]
+            : fst === -2 ? [26, 3, 9] : fst === -1 ? [14, 4, 14] : [6, 4, 16];
+  g2.fillStyle = "rgba(" + fdk.join(",") + "," + (.34 * str).toFixed(3) + ")";
   g2.fillRect(0, 0, lw, lh);
   // 가장자리를 더 어둡게 — 시선이 가운데로 모인다
   const vg = g2.createRadialGradient(lw / 2, lh / 2, lh * .32, lw / 2, lh / 2, lh * .95);
-  vg.addColorStop(0, "rgba(6,4,16,0)");
-  vg.addColorStop(1, "rgba(6,4,16," + (.30 * str).toFixed(3) + ")");
+  vg.addColorStop(0, "rgba(" + fvg.join(",") + ",0)");
+  vg.addColorStop(1, "rgba(" + fvg.join(",") + "," + (.30 * str).toFixed(3) + ")");
   g2.fillStyle = vg; g2.fillRect(0, 0, lw, lh);
 
   g2.globalCompositeOperation = "destination-out";
@@ -9476,7 +9491,7 @@ function drawLighting() {
     const t = clamp(f.life / f.maxLife, 0, 1);
     const el = f.key.split("_")[2];
     if (!el || !ELEMENTS[el]) continue;
-    glow(f.x, f.y, ATLAS_FRAMES[f.key].w * f.scale * 1.6, ELEMENTS[el].color, .2 * t);
+    glow(f.x, f.y, ATLAS_FRAMES[f.key].w * f.scale * 1.6, faithHue(ELEMENTS[el].color), .2 * t);
     if (++gfx >= 8) break;
   }
   if (warm) {
@@ -9490,6 +9505,30 @@ function drawLighting() {
 function hexRGB(h) {
   return parseInt(h.substr(1, 2), 16) + "," + parseInt(h.substr(3, 2), 16) + "," +
          parseInt(h.substr(5, 2), 16);
+}
+
+/* ---------- 신앙·타락의 시각 언어 — 성광 ↔ 핏빛 ----------
+
+   저울은 화면 가장자리 비네트와 HUD 로만 말하고 있었다. 훅이 「매 판 성인이 되느냐
+   괴물이 되느냐」인데 **전투 안에서는 아무 색도 안 바뀌었다.**
+
+   바꾸는 것은 **빛과 먼지의 색뿐**이다. 지키는 규칙이 둘이다.
+
+   ① **이펙트 그림은 안 건드린다.** 형태가 속성을 말하고(§28), 색맹인 사람에게는
+      색이 아예 정보가 아니다. 신성 십자를 핏빛으로 칠하는 것은 되지만 십자를
+      튄 자국으로 바꾸면 「무엇에 맞았나」가 사라진다.
+
+   ② **층을 더 얹지 않는다(§103).** 방금 후반 화면의 밝기를 9.4% 에서 5% 대로
+      내려놓고 그 위에 빛을 더 얹으면 되돌리는 것이다. 그래서 새로 그리지 않고
+      **있는 빛의 색만 옮긴다** — 폭발이 바닥에 뿌리는 빛, 처치 파편, 파동 고리.
+      칠하는 횟수도 밝기도 그대로다.
+
+   1단은 살짝(.38), 2단은 뚜렷하게(.72). 중립에서는 함수가 원래 색을 그대로 돌려준다. */
+const FAITH_HUE = ["#ff2440", "#ff5a70", "", "#ffd9a0", "#fff0c8"];
+function faithHue(base) {
+  const st = faithStep();
+  if (!st) return base;
+  return mixHex(base, FAITH_HUE[st + 2], Math.abs(st) === 2 ? .72 : .38);
 }
 
 /* 신앙·타락이 화면을 물들인다.

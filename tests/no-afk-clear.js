@@ -12,6 +12,8 @@
                   맞는 것이 회복의 연료인 고리라 끊기지 않았다. 이쪽이 진짜였다.
 
    이 자는 「서서 이기는가」 하나만 본다. 숫자를 어떻게 조정하든 그 답은 아니오여야 한다.
+   그리고 서 있는 값을 매기는 **기전**을 함께 잰다 — 생존 시간은 잡음이 효과보다 커서
+   그것만으로는 고쳤는지 못 가른다(아래 주석).
 
    ■ 느리다 (15분 판 × 3)
 
@@ -71,7 +73,60 @@ const { chromium } = require('playwright');
     return out;
   });
 
+  /* ■ 서 있는 값은 **연출이 아니라 기전**으로 잰다
+
+     서 있는 판과 움직이는 판의 생존 시간을 견주려 했는데 잡음이 효과보다 컸다 —
+     같은 코드로 여덟 판씩 돌린 중앙값이 서 있음 2:16~6:19, 움직임 6:38~12:12 로
+     흔들렸다. 그래서 「고친 뒤 오래 못 산다」를 여기서 주장하지 않는다.
+     대신 **손댄 그 값**을 직접 잰다 — 잡음이 없다.
+
+     재는 것: 오래 서 있으면 스킬 회복이 절반이 되고, 한 걸음이면 돌아오고,
+     다른 직업(멈춰야 강한 마법사)은 안 건드린다. */
+  const mech = await pg.evaluate(() => {
+    const o = {};
+    selectedClass = 0; Game.reset();
+    const at = (t) => { player.stillTime = t; return +skillHealScale(player).toFixed(3); };
+    o.pal = { s0: at(0), s20: at(20), s32: at(32), s45: at(45), s90: at(90) };
+    // 한 걸음이면 돌아온다 — update 한 번에 stillTime 이 0 이 된다
+    player.stillTime = 90; keys.add("d"); update(1 / 60); keys.delete("d");
+    o.afterStep = +skillHealScale(player).toFixed(3);
+    /* 실제로 덜 낫는가. 성기사의 기본 스킬(심판의 빛)은 회복이 없다 —
+       회복은 2차 부동의 맹세(45%)부터다. 그 계보를 태우고 잰다. */
+    for (const k of ['guardian', 'everwall']) {
+      const a = ADVANCES.find(x => x.key === k);
+      player.level = Math.max(player.level, a.tier * 12); player.sigils = 9;
+      Game.applyChoice(a);
+    }
+    const heal = (t) => {
+      player.stillTime = t; player.skillCd = 0; player.res = 100;
+      player.hp = player.stats.maxHp * .3;
+      const h0 = player.hp; useSkill();
+      return Math.round(player.hp - h0);
+    };
+    o.healFresh = heal(0); o.healWorn = heal(90);
+    // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
+    selectedClass = 3; Game.reset();
+    player.stillTime = 200;
+    o.mage = +skillHealScale(player).toFixed(3);
+    return o;
+  });
+  console.log(`  회복 배수  성기사 0초 ${mech.pal.s0} · 20초 ${mech.pal.s20} · 32초 ${mech.pal.s32} · 45초 ${mech.pal.s45}`
+    + ` · 한 걸음 뒤 ${mech.afterStep} | 실제 회복 ${mech.healFresh} → ${mech.healWorn} | 마법사 ${mech.mage}`);
+
   const fail = [];
+  if (mech.pal.s0 !== 1 || mech.pal.s20 !== 1)
+    fail.push(`20초까지는 온전해야 한다 (0초 ${mech.pal.s0} · 20초 ${mech.pal.s20}) — 잠깐 버티는 것은 공짜다`);
+  if (!(mech.pal.s32 < .95 && mech.pal.s32 > mech.pal.s45))
+    fail.push(`32초에 ${mech.pal.s32} · 45초에 ${mech.pal.s45} — 시간에 따라 줄어야 한다`);
+  if (Math.abs(mech.pal.s90 - .5) > .01)
+    fail.push(`끝까지 서 있으면 ${mech.pal.s90} — 절반에서 멈춰야 한다`);
+  if (mech.afterStep !== 1)
+    fail.push(`한 걸음 옮겨도 ${mech.afterStep} — 되돌릴 길이 없으면 벌이지 리듬이 아니다`);
+  if (!(mech.healWorn > 0 && mech.healWorn < mech.healFresh * .6))
+    fail.push(`실제 회복이 ${mech.healFresh} → ${mech.healWorn} — 배수가 회복에 안 걸린다`);
+  if (mech.mage !== 1)
+    fail.push(`마법사도 값을 문다 (${mech.mage}) — 멈춰야 강한 직업이다`);
+
   for (const r of runs)
     console.log(`  ${r.end === 'won' ? '★ 클리어' : '  죽음  '} ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')} · Lv${r.lv} · ${r.adv}`);
   const won = runs.filter(r => r.end === 'won');

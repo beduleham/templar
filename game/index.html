@@ -3769,6 +3769,35 @@ function skillCd() {
   return h > 0 ? 8 + h * 24 : 0;         // 45% 회복이면 18.8초
 }
 
+/* ---------- 회복은 자리를 옮긴 값이다 ----------
+
+   재고 나서 정했다. 서 있는 성기사가 8분을 버틴 판에서 회복 4,609 중 **스킬이
+   2,449(53%)** 였다 — 방벽도 기본 재생도 아니었다. 부동의 맹세는 최대 체력의 45% 를
+   18.8초마다 채우고, 성기사의 자원(신앙)은 **맞으면 찬다.** 둘러싸여 서 있는 것이
+   회복의 연료인 고리라, 쿨다운을 붙여도 고리 자체는 안 끊긴다.
+
+   그래서 회복을 **한 자리에서 안 움직인 시간**으로 깎는다. 문턱은 재서 정했다.
+
+       프레임 중 stillTime 이 그만큼 넘은 비율      8초    20초   45초
+       카이팅 봇(제대로 노는 판)                  55%    33%    19%
+       가만히 선 판                              98%    94%    86%
+
+   깨끗이 갈리는 문턱은 **없다** — 카이팅 봇도 안전할 땐 한참 선다(한 번에 275초).
+   그래서 8초로 잡으면 제대로 노는 판에도 값을 물린다. 20초부터 벌어지기 시작해
+   45초에서 19% 대 86% 로 가장 크게 갈린다. 20초까지 온전하고 45초에 걸쳐 절반이
+   된다 — 잠깐 버티는 것은 공짜고, **한 번도 안 옮기는 판**만 값을 문다.
+
+   방벽의 지침(bulwarkT)이 아니라 stillTime 을 보는 이유가 둘이다.
+     · 영원의 방벽은 bulwarkAlways 라 움직여도 방벽이 켜져 있다 — bulwarkT 로 재면
+       그 계보만 늘 벌을 받는다
+     · 마법사도 멈추면 강해지는 직업이다. 자세가 진영일 때만 건다. */
+const SKILL_HEAL_FRESH = 20, SKILL_HEAL_FADE = 25, SKILL_HEAL_DROP = .5;
+function skillHealScale(p) {
+  if (!p.cls || p.cls.key !== "paladin") return 1;
+  const worn = clamp((p.stillTime - SKILL_HEAL_FRESH) / SKILL_HEAL_FADE, 0, 1);
+  return 1 - SKILL_HEAL_DROP * worn;
+}
+
 function useSkill() {
   const C = player.cls;
   if (!C || Game.state !== "playing") return;
@@ -8018,7 +8047,8 @@ function skWave(name, icon, cost, desc, o) {
       dmg: (o.dmg + p.level * (o.perLv || 10)) * p.stats.damage * p.dynDmg,
       life: o.life || .5, color: o.color, element: o.elem, heal: o.heal || 0 });
     if (o.iframe) p.iframe = Math.max(p.iframe, o.iframe);
-    if (o.healPct) p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * o.healPct);
+    if (o.healPct)
+      p.hp = Math.min(p.stats.maxHp, p.hp + p.stats.maxHp * o.healPct * skillHealScale(p));
     cam.shake = o.shake || 12;
     spawnParticles(p.x, p.y, 34, o.color, 320, .8, 5);
     Sfx.play(o.freq || 320, .45, "triangle", 1, o.slide || 500);
@@ -10140,8 +10170,17 @@ function drawHUD() {
     ctx.font = "700 12px " + FONT;
     ctx.fillStyle = ready ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.4)";
     ctx.fillText(curSkill().name, bx + bw / 2, by + bw + 12);
-    ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-    ctx.fillText("스페이스", bx + bw / 2, by + bw + 27);
+    /* 회복이 줄었으면 그 자리에서 말한다. 안 말하면 「왜 덜 낫지」로만 남고,
+       무엇보다 **어떻게 되돌리는지**를 모른다 — 한 걸음이면 원래대로다. */
+    const hs = curSkill().healPct > 0 ? skillHealScale(player) : 1;
+    if (hs < .99) {
+      ctx.font = "700 10px " + FONT; ctx.fillStyle = "#ff9f6b";
+      ctx.fillText("회복 -" + Math.round((1 - hs) * 100) + "%  ·  움직이면 돌아온다",
+        bx + bw / 2, by + bw + 27);
+    } else {
+      ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
+      ctx.fillText("스페이스", bx + bw / 2, by + bw + 27);
+    }
   }
 
   // 새 조합 해금 배너

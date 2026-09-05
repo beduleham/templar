@@ -2956,6 +2956,17 @@ function pxHazardEdge(cx, cy, r, seed) {
 }
 
 // 픽셀 고리 — 퍼져 나가는 파동
+/* 파동 고리의 세기 — 반지름으로 깎는다.
+
+   13분 화면을 층별로 꺼 보니 밝기의 25% 가 파동이었다(고리 16개). 값이 큰 게 아니라
+   **크기**가 문제다 — 작은 고리는 「지금 여기서 부딪힌다」를 말하지만 반지름 240짜리
+   원은 화면을 가로지르는 줄일 뿐 아무것도 안 말한다. 그런데 알파는 둘이 같았다.
+
+   함수로 빼 둔 이유: 화면 픽셀로 재려다 세 번 헛짚었다(퍼지는 중이라 반지름이
+   maxR 이 아니고, 띠에 주인공의 방벽이 걸리고…). 모양은 여기서 재고, 실제로
+   조용해졌는지는 눈으로 본다(art/out/fx-pal-13.png). */
+function waveInk(r) { return clamp(1 - (r - 90) / 220, .14, 1); }
+
 function pxRing(cx, cy, R, thick, cols, noEdge) {
   for (let layer = 0; layer < (noEdge ? 1 : 2); layer++) {   // 테두리를 뺀 큰 고리는 한 겹만 — arc 채움 하나가 0.1ms 다(§102)
     const w = thick * (layer ? .5 : 1);
@@ -3032,6 +3043,9 @@ function spawnBolt(x, y) {
 /* 이펙트 한 발. px 는 화면에 그려질 크기(픽셀)다 —
    프레임 크기가 종류마다 달라서 배수로 받으면 호출부가 매번 계산해야 한다. */
 let fxLive = 0;
+/* 살아 있는 피해 숫자. 매 프레임 numbers 를 도는 김에 센다(§101 예산). */
+let numLive = 0;
+const NUM_BUDGET = 28;
 function spawnFx(key, x, y, px, rot) {
   const fr = ATLAS_FRAMES[key]; if (!fr) return;
   const f = allocEvict(fxs, null); if (!f) return;
@@ -3096,7 +3110,15 @@ function spawnNumber(x, y, val, color, size = 14, eid) {
       return;
     }
   }
+  /* 후반에는 숫자가 화면을 덮는다 — 13분 화면에 118개가 살아 주인공을 가렸다.
+     이미 뜬 것에 **붙는 것**(같은 적)은 그대로 두고 **새로 뜨는 것**만 막는다.
+     그래서 막혀도 피해가 사라지지 않는다 — 보이는 스물여덟 개가 계속 자란다.
+     치명타는 언제나 뜬다. 큰 한 방이 안 보이면 무기를 고른 값이 안 보인다. */
+  /* 치명타에도 천장은 있다. 처음엔 치명타를 아예 빼 줬는데, 치명타 확률이 높은
+     빌드에서는 뜨는 숫자가 거의 다 치명타라 예산이 통째로 새 나갔다(100개). */
+  if (numLive >= (size >= 19 ? NUM_BUDGET * 2 : NUM_BUDGET)) return;
   const n = alloc(numbers); if (!n) return;
+  numLive++;
   n.active = true; n.x = x + rnd(-6, 6); n.y = y;
   n.vx = rnd(-34, 34); n.vy = -46 + rnd(-12, 12);
   n.life = .7; n.pop = 0;
@@ -5250,6 +5272,7 @@ function update(dt) {
        실제 물리가 아니라 눈이 그렇게 읽는다. */
     if (p.g) p.vy += p.g * dt;
   }
+  numLive = 0;
   for (const n of numbers) {
     if (!n.active) continue;
     n.life -= dt;
@@ -5257,6 +5280,7 @@ function update(dt) {
     n.x += n.vx * dt; n.vx *= .90;
     n.y += n.vy * dt; n.vy *= .93;
     if (n.pop > 0) n.pop -= dt;
+    numLive++;
   }
   for (const f of fxs) {
     if (!f.active) continue;
@@ -6622,36 +6646,51 @@ function drawScene() {
 }
 
 function drawWorld() {
-  // 보석 — 화면에 수백 개가 깔리므로 티어별로 한 패스에 몰아 그린다
+  /* 보석 — 화면에 수백 개가 깔리므로 티어별로 한 패스에 몰아 그린다.
+
+     13분 화면을 층별로 꺼 보니 **보석이 밝기의 20%** 였다(272개). 목록에 없던 것이다 —
+     자석 반경(92) 밖의 보석은 사실상 안 줍는데도 가까운 것과 똑같이 빛나고 있었다.
+     주울 수 있는 것과 아닌 것이 같은 밝기면, 화면은 「주우러 갈 곳」을 말하지 않는다.
+
+     그래서 **먼 것만 흐리게** 그린다. 값도 자석도 안 건드린다 — 눈에만 걸리는 일이다.
+     티어마다 가까운 무리·먼 무리로 나눠 두 번 칠한다(패스가 셋에서 여섯으로 는다). */
+  const GEM_NEAR = 300;
   for (let tier = 0; tier < 3; tier++) {
     const col = GEM_COLOR[tier], br = GEM_R[tier];
-    // 격자 마름모 — 위가 밝고 아래가 어둡다. 수백 개라 색깔별로 한 패스에 몰아 그린다.
-    let any = false;
-    ctx.beginPath();
-    for (const g of gems) {
-      if (!g.active || g.tier !== tier) continue;
-      const sx = g.x - cam.x, sy = g.y - cam.y;
-      if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
-      const r = br + Math.sin(g.bob) * .6;
-      const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
-      const rows = Math.max(1, Math.round(r / PIX));
-      for (let i = -rows; i <= rows; i++) {
-        const w = Math.max(PIX, Math.round((r - Math.abs(i * PIX)) * .8 / PIX) * PIX);
-        ctx.rect(gx - w, gy + i * PIX, w * 2, PIX);
+    for (const band of [0, 1]) {                      // 0 = 가까운 것, 1 = 먼 것
+      let any = false;
+      ctx.beginPath();
+      for (const g of gems) {
+        if (!g.active || g.tier !== tier) continue;
+        const far = dist2(g.x, g.y, player.x, player.y) > GEM_NEAR * GEM_NEAR ? 1 : 0;
+        if (far !== band) continue;
+        const sx = g.x - cam.x, sy = g.y - cam.y;
+        if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
+        const r = br + Math.sin(g.bob) * .6;
+        const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
+        const rows = Math.max(1, Math.round(r / PIX));
+        for (let i = -rows; i <= rows; i++) {
+          const w = Math.max(PIX, Math.round((r - Math.abs(i * PIX)) * .8 / PIX) * PIX);
+          ctx.rect(gx - w, gy + i * PIX, w * 2, PIX);
+        }
+        any = true;
       }
-      any = true;
+      if (!any) continue;
+      ctx.globalAlpha = band ? .42 : 1;
+      ctx.fillStyle = col; ctx.fill();
+      ctx.beginPath();                                  // 윗면 광택
+      for (const g of gems) {
+        if (!g.active || g.tier !== tier) continue;
+        const far = dist2(g.x, g.y, player.x, player.y) > GEM_NEAR * GEM_NEAR ? 1 : 0;
+        if (far !== band) continue;
+        const sx = g.x - cam.x, sy = g.y - cam.y;
+        if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
+        const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
+        ctx.rect(gx - PIX, gy - PIX, PIX, PIX);
+      }
+      ctx.fillStyle = "#ffffff"; ctx.globalAlpha = band ? .3 : .8; ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    if (!any) continue;
-    ctx.fillStyle = col; ctx.fill();
-    ctx.beginPath();                                    // 윗면 광택
-    for (const g of gems) {
-      if (!g.active || g.tier !== tier) continue;
-      const sx = g.x - cam.x, sy = g.y - cam.y;
-      if (sx < -20 || sx > W + 20 || sy < -20 || sy > HT + 20) continue;
-      const gx = Math.round(sx / PIX) * PIX, gy = Math.round(sy / PIX) * PIX;
-      ctx.rect(gx - PIX, gy - PIX, PIX, PIX);
-    }
-    ctx.fillStyle = "#ffffff"; ctx.globalAlpha = .8; ctx.fill(); ctx.globalAlpha = 1;
   }
   // 아이템
   for (const pk of pickups) {
@@ -6809,8 +6848,11 @@ function drawWorld() {
     if (sx < -wv.r - 60 || sx > W + wv.r + 60 || sy < -wv.r - 60 || sy > HT + wv.r + 60) continue;
     /* 화면에 파동이 여섯을 넘으면 그 뒤는 앞날 한 줄만 그린다(§101). 연쇄 폭발 빌드는
        한 프레임에 파동 13~19개를 살려 두는데, 채움과 뒷테가 겹치면 바닥이 통째로 밝아진다. */
+    const near = waveInk(wv.r);
     if (++wvDrawn > 6) {
-      ctx.save(); ctx.globalAlpha = (1 - t) * .5; pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120); ctx.restore();
+      if (wv.r > 240) continue;                       // 일곱 번째부터는 큰 고리를 아예 뺀다
+      ctx.save(); ctx.globalAlpha = (1 - t) * .5 * near;
+      pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120); ctx.restore();
       continue;
     }
     ctx.save();
@@ -6824,10 +6866,11 @@ function drawWorld() {
     ctx.globalCompositeOperation = "lighter";
     /* 뒷테(.82 고리)는 뺐다(§102) — 알파 .15 로는 안 보였고 칸만 545개였다. 본테는 반지름
        120 을 넘으면 격자 테두리 없이 몸통만 — 격자 칸은 앞날(흰 줄)이 이미 그린다. */
-    ctx.globalAlpha = (1 - t) * .4;
+    // 앞날(흰 줄)만이 아니라 몸통도 함께 깎는다 — 밝기를 만드는 것은 몸통이다
+    ctx.globalAlpha = (1 - t) * .4 * near;
     pxRing(sx, sy, wv.r, 4 + (1 - t) * 5, pxPal(wv.color), wv.r > 120);
     // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다. 큰 고리는 몸통만(§102)
-    ctx.globalAlpha = (1 - t) * .7;
+    ctx.globalAlpha = (1 - t) * .7 * near;
     pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120);
     ctx.restore();
   }
@@ -6937,14 +6980,23 @@ function drawWorld() {
   }
 
   /* 이펙트 — 가산 합성(lighter)이라 여러 발이 겹치면 흰빛으로 타오른다.
-     알파를 수명보다 빠르게 떨어뜨려 잔상이 남지 않게 한다. */
+     알파를 수명보다 빠르게 떨어뜨려 잔상이 남지 않게 한다.
+
+     ■ 수가 늘면 하나씩은 조용해진다
+
+     13분 화면을 층별로 꺼 보니 **밝기의 53% 가 이 층**이었다(이펙트 40개).
+     예산(fxLive 70 · 적 하나당 0.12초)은 **수**를 막았지 **겹침**을 안 막았다 —
+     가산 합성에서 마흔 발이 겹치면 한 발의 마흔 배로 탄다. 입자에 이미 쓰는 규칙을
+     여기도 쓴다(적이 많을수록 하나가 작아진다): 열넷까지는 온전하고 그 위로는 반씩
+     묽어진다. 한두 발 터질 때는 아무것도 안 바뀐다. */
+  const fxDim = clamp(14 / Math.max(1, fxLive), .45, 1);
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   for (const f of fxs) {
     if (!f.active) continue;
     const sx = f.x - cam.x, sy = f.y - cam.y;
     if (sx < -90 || sx > W + 90 || sy < -90 || sy > HT + 90) continue;
-    ctx.globalAlpha = Math.min(1, f.life / f.maxLife * 1.7);
+    ctx.globalAlpha = Math.min(1, f.life / f.maxLife * 1.7) * fxDim;
     if (f.rot) {
       ctx.save(); ctx.translate(sx, sy); ctx.rotate(f.rot);
       Sprites.draw(f.key, 0, 0, f.scale, f.maxLife - f.life, false);

@@ -13396,10 +13396,21 @@ function codexTree(clsKey) {
      · 못 간 갈래가 알파 .17 에 회색 글자였다. 68갈래를 **보여주는** 화면인데
        안 가 본 것이 안 보이면 길잡이가 못 된다. 옅되 읽히는 값으로 올린다.
      · 「x2」가 테 위에 9px 로 얹혀 있었다. 제 칩을 준다. */
-function codexCell(a, x, y, cw, ch, got, hov) {
+function codexCell(a, x, y, cw, ch, got, hov, next) {
+  /* 길잡이가 고른 칸은 못 간 칸들 사이에서 **한눈에** 달라야 한다 — 안 그러면
+     길잡이 줄이 이름 셋을 읊는 것으로 끝나고 눈이 그것을 못 찾는다. */
+  if (next) {
+    const p = .55 + Math.sin(performance.now() / 420) * .35;
+    ctx.strokeStyle = "rgba(255,211,110," + p.toFixed(2) + ")";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 5]);
+    ctx.strokeRect(x - 5, y - 5, cw + 10, ch + 10);
+    ctx.setLineDash([]);
+  }
   panel(x, y, cw, ch, 10,
-    got ? (hov ? "rgba(38,32,20,.98)" : "rgba(22,19,14,.92)") : "rgba(12,12,20,.86)",
-    got ? (hov ? "#ffd36e" : a.color) : "rgba(255,255,255,.14)");
+    got ? (hov ? "rgba(38,32,20,.98)" : "rgba(22,19,14,.92)")
+        : next ? "rgba(26,21,10,.92)" : "rgba(12,12,20,.86)",
+    got ? (hov ? "#ffd36e" : a.color) : next ? "rgba(255,211,110,.5)" : "rgba(255,255,255,.14)");
   /* `Sprites.draw` 의 sy 는 발밑이 아니라 **한가운데**다. 발밑으로 알고 놓았더니
      좁은 화면(칸 190px)에서 다리가 판 밖으로 20px 삐져나왔다. 이름 띠 위의
      빈 자리에 가운데를 맞추고, 그 높이만큼만 키운다. */
@@ -13426,6 +13437,13 @@ function codexCell(a, x, y, cw, ch, got, hov) {
   ctx.fillStyle = got ? a.color : "rgba(255,255,255,.62)";
   fitFont("700", fs, a.name, cw - 12);
   ctx.fillText(a.name, pcx, y + ch - plateH / 2 - 3);
+  if (next && !got) {
+    const bw = Math.round(cw * .34), bh = Math.round(ch * .14);
+    pxChip(x + 4, y + 4, bw, bh, "rgba(60,44,10,.92)", "rgba(255,211,110,.55)", 3);
+    ctx.font = "700 " + clamp(Math.round(bh * .6), 8, 13) + "px " + FONT;
+    ctx.fillStyle = "#ffd36e";
+    ctx.fillText("다음", x + 4 + bw / 2, y + 4 + bh / 2);
+  }
   if (got && Meta.codex[a.key].n > 1) {
     const bw = Math.round(cw * .28), bh = Math.round(ch * .14);
     pxChip(x + cw - bw - 4, y + 4, bw, bh, "rgba(6,6,12,.88)", "rgba(255,211,110,.45)", 3);
@@ -13433,6 +13451,33 @@ function codexCell(a, x, y, cw, ch, got, hov) {
     ctx.fillStyle = "#ffd36e";
     ctx.fillText("×" + Meta.codex[a.key].n, x + cw - bw / 2 - 4, y + 4 + bh / 2);
   }
+}
+
+/* 다음 한 판으로 무엇을 새로 볼 수 있는가.
+
+   사람이 「기록 화면이 동기부여가 되지 않는다」고 했다. 화면은 **가진 것**만
+   보여주고 **다음에 할 것**은 한 번도 말하지 않았다. 68칸을 늘어놓으면 그건 목표가
+   아니라 벽이다.
+
+   그런데 이 화면은 답을 이미 알고 있다. 한 판은 1→2→3차 한 줄과 4차 하나를 걷는다
+   (직업마다 줄이 여덟, 4차가 셋). 안 걸어 본 칸이 가장 많은 줄을 고르면 그게 곧
+   **다음 판의 목표**다. 「68 중 30」이 아니라 「이 줄로 가면 셋이 새로 열린다」다.
+
+   능력치는 아무것도 안 준다(README 의 약속) — 주는 것은 「어디로 갈지」뿐이다. */
+function codexNext(clsKey) {
+  const [t1, t2, t3, t4] = codexTree(clsKey);
+  let path = null, gain = -1;
+  for (const a of t1)
+    for (const c of t2) {
+      if (c.from !== a.key) continue;
+      for (const d of t3) {
+        if (d.from !== c.key) continue;
+        const g = [a, c, d].filter(x => !Meta.seen(x.key)).length;
+        if (g > gain) { gain = g; path = [a, c, d]; }
+      }
+    }
+  const t4n = t4.filter(x => !Meta.seen(x.key));
+  return { path: path || [], gain: Math.max(0, gain), t4: t4n[0] || null, left: t4n.length };
 }
 
 function drawCodex() {
@@ -13480,9 +13525,69 @@ function drawCodex() {
   /* 나무로 갈지 차수 하나씩 갈지는 **글자가 사람 눈에 몇 px 로 보이는가**로 정한다.
      폭으로 정하면 안 된다 — 가로 폰은 논리 폭이 1410 이라 「넓은 화면」으로 잡히지만
      실제로는 844px 로 줄여 그려서 이름이 7px 이 된다. 논리 크기가 아니라 눈이 기준이다. */
+  /* ── 다음 판 길잡이. 탭 바로 아래, 나무 위. 「가진 것」과 「할 것」 사이다.
+
+     글자 크기는 **css px 로 정한다.** 논리 px 로 11.5 를 박아 뒀더니 가로 폰에서
+     6.9px 로 보였다 — 칸 이름을 9.5px 위로 올려 놓고 길잡이만 7px 로 두면 앞뒤가
+     안 맞고, 무엇보다 안 읽힌다. 이 화면의 규칙은 하나다: **갈래 이름은 어디에
+     적히든 사람 눈에 9.5px 이상.** */
+  const nx = codexNext(cls.key);
+  const NEXT = new Set();
+  /* 이 화면의 규칙 하나: **갈래 이름은 어디에 적히든 사람 눈에 9.5px 이상.**
+     칸 · 길잡이 · 아래 설명이 각자 논리 px 를 박아 두면 화면마다 다른 데가 무너진다. */
+  const NAME_CSS = 9.5;
+  const cpx = (base) => Math.max(base, (NAME_CSS + .5) / cssK);
+  const gpx = cpx(11.5);
+  const wid = (parts) => { let w = 0; for (const v of parts) w += ctx.measureText(v[0]).width; return w; };
+  const line = (parts, yy) => {
+    ctx.textAlign = "left";
+    let lx = cx - wid(parts) / 2;
+    for (const v of parts) { ctx.fillStyle = v[1]; ctx.fillText(v[0], lx, yy); lx += ctx.measureText(v[0]).width; }
+    ctx.textAlign = "center";
+  };
+  const done = nx.gain === 0 && !nx.t4;
+  for (const a of nx.path) if (!Meta.seen(a.key)) NEXT.add(a.key);
+  if (nx.t4) NEXT.add(nx.t4.key);
+  let gy = ty + tabH + 10 + gpx / 2, gBot = gy + gpx / 2;
+  {
+    ctx.textBaseline = "middle";
+    ctx.font = "700 " + gpx.toFixed(1) + "px " + FONT;
+    if (done) {
+      ctx.textAlign = "center"; ctx.fillStyle = "#ffd36e";
+      ctx.fillText("★ " + cls.name + "의 길을 다 걸었다", cx, gy);
+    } else {
+      /* 이미 걸어 본 마디도 길에는 들어간다(거기를 지나야 하니까). 그런데 그것까지
+         금색으로 쓰면 「N칸이 새로 열린다」와 이름 수가 어긋나 보인다 —
+         **새로 열리는 것만 금색**, 지나가는 곳은 흐리게. */
+      const head = [["다음 판에 " + NEXT.size + "칸이 새로 열린다", "rgba(255,255,255,.45)"]];
+      const rest = [];
+      nx.path.forEach((a, i) => {
+        if (i) rest.push([" → ", "rgba(255,255,255,.25)"]);
+        rest.push([a.name, NEXT.has(a.key) ? "#ffd36e" : "rgba(255,255,255,.34)"]);
+      });
+      if (nx.t4) { rest.push(["  ·  ", "rgba(255,255,255,.25)"]); rest.push([nx.t4.name, "#ffd36e"]); }
+      const one = head.concat([["  —  ", "rgba(255,255,255,.25)"]], rest);
+      if (wid(one) <= W - 40) {
+        line(one, gy);
+      } else {
+        /* 한 줄에 안 들어가면 **줄여서 우겨넣지 않는다** — 줄을 나눈다.
+           그래도 넘치면 걸어 본 마디를 빼고 새로 열리는 것만 남긴다. */
+        let r2 = rest;
+        if (wid(r2) > W - 40)
+          r2 = rest.filter(v => v[1] === "#ffd36e")
+                   .flatMap((v, i) => i ? [["  ·  ", "rgba(255,255,255,.25)"], v] : [v]);
+        line(head, gy);
+        line(r2, gy + gpx + 3);
+        gBot = gy + gpx * 1.5 + 3;
+      }
+    }
+  }
+
   const treeWide = Math.max(...rows.map(r => r.length));
   const treeH = rows.length * CH + (rows.length - 1) * GAP;
-  const treeY0 = ty + tabH + 18, treeAvail = H - treeY0 - 46;
+  /* 아래 62px 은 짚은 칸 설명 자리다. 예전엔 두 줄(46)이었는데 기록 한 줄이
+     늘어 세 줄이 됐다 — 자리를 안 늘렸더니 4차 줄과 글자가 겹쳤다. */
+  const treeY0 = gBot + 14, treeAvail = H - treeY0 - 62;
   const treeK = Math.min(1.7, (W - 28) / (treeWide * CW + (treeWide - 1) * GAP), treeAvail / treeH);
   const NAME_MIN = 9.5;                       // 이보다 작아지면 이름이 글자가 아니라 무늬다
   const paged = clamp(Math.round(CH * .108), 10, 17) * treeK * cssK < NAME_MIN;
@@ -13499,7 +13604,7 @@ function drawCodex() {
   if (paged) {
     const T = clamp(Game.codexTier | 0, 0, rows.length - 1);
     const chipW = Math.min(96, Math.floor((W - 32) / rows.length)), chipH = 30;
-    const cy0 = ty + tabH + 10, cx0 = cx - chipW * rows.length / 2;
+    const cy0 = gBot + 10, cx0 = cx - chipW * rows.length / 2;
     for (let t = 0; t < rows.length; t++) {
       const x = cx0 + t * chipW, on = T === t;
       const hov = inRect(mouse.x, mouse.y, x, cy0, chipW, chipH);
@@ -13518,7 +13623,7 @@ function drawCodex() {
     }
 
     const list = rows[T];
-    const gy0 = cy0 + chipH + 14, avail = H - gy0 - 52;
+    const gy0 = cy0 + chipH + 14, avail = H - gy0 - 68;
     /* 열 수를 2로 못박으면 가로 화면에서 위아래가 모자라 도로 작아진다.
        칸이 가장 커지는 열 수를 고른다 — 세로 폰은 2열, 가로 폰은 4열이 된다. */
     let cols = 1, gk = 0;
@@ -13540,7 +13645,7 @@ function drawCodex() {
       const x = cx - (n * CW + (n - 1) * GAP) / 2 + c * (CW + GAP), y = top + r * (CH + GAP);
       const hov = inRect(amx, amy, x, y, CW, CH);
       if (hov) tip = a;
-      codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov);
+      codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov, NEXT.has(a.key));
       // 선 대신 부모 이름 — 좁은 화면에서는 선보다 글자가 낫다
       const par = T === 0 || T === 3 ? cls
                 : rows[T - 1].find(q => q.key === a.from);
@@ -13589,7 +13694,7 @@ function drawCodex() {
         const a = rows[r][i], x = cellX(rows[r], i), y = rowY(r);
         const hov = inRect(amx, amy, x, y, CW, CH);
         if (hov) tip = a;
-        codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov);
+        codexCell(a, x, y, CW, CH, Meta.seen(a.key), hov, NEXT.has(a.key));
       }
     }
     ctx.restore();
@@ -13599,11 +13704,24 @@ function drawCodex() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   if (tip) {
     const got = Meta.seen(tip.key);
-    ctx.font = "700 14px " + FONT; ctx.fillStyle = tip.color;
-    ctx.fillText(tip.name + (got ? "" : "  ·  아직"), cx, H - 44);
-    ctx.font = "600 11.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-    fitFont("600", 11.5, tip.tagline || tip.desc || "", W - 40);
-    ctx.fillText(tip.tagline || tip.desc || "", cx, H - 26);
+    /* 최초 도달 시각과 날짜는 처음부터 적고 있었는데 **읽는 데가 없었다**
+       (Sin.flash 와 같은 함정이다). 「언제 처음 걸었나」가 있으면 칸이 체크 표시가
+       아니라 기억이 된다. */
+    const c = got && Meta.codex[tip.key];
+    const stamp = c
+      ? "처음 걸은 날 " + (c.d || "?") + "  ·  " + fmtTime(c.t || 0)
+        + (c.n > 1 ? "  ·  " + c.n + "번" : "")
+      : NEXT.has(tip.key) ? "다음 판의 목표 — 아직 안 걸었다" : "아직 안 걸었다";
+    const tp = cpx(14), sp = Math.max(11.5, 9 / cssK), mp = Math.max(10.5, 8.5 / cssK);
+    ctx.font = "700 " + tp.toFixed(1) + "px " + FONT;
+    ctx.fillStyle = got ? tip.color : "rgba(255,255,255,.6)";
+    ctx.fillText(tip.name, cx, H - 22 - sp - mp);
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    fitFont("600", sp, tip.tagline || tip.desc || "", W - 40);
+    ctx.fillText(tip.tagline || tip.desc || "", cx, H - 18 - mp);
+    ctx.font = "700 " + mp.toFixed(1) + "px " + FONT;
+    ctx.fillStyle = got ? "rgba(255,211,110,.72)" : "rgba(255,255,255,.32)";
+    ctx.fillText(stamp, cx, H - 14);
   } else {
     ctx.font = "600 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
     ctx.fillText(paged ? "차수를 눌러 넘긴다   ·   A / D  직업   ·   TAB / ESC  돌아가기"

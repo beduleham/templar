@@ -112,7 +112,7 @@ const { BOT } = require('./bot.js');
     o.budget = NUM_BUDGET;
     /* ④ 신앙·타락의 시각 언어 — 성광 ↔ 핏빛.
 
-       규칙 둘을 함께 잰다. **물들되 밝아지면 안 되고**(§103 을 되돌리는 것이다),
+       규칙 둘을 함께 잰다. **물들되 밝아지면 안 되고**(§112 을 되돌리는 것이다),
        이펙트 그림은 안 건드린다(§28 형태=속성 · 색맹인 사람에게는 색이 정보가 아니다).
        그래서 색이 바뀌는 곳은 **어두운 픽셀**이어야 한다 — 어둠을 물들이는 것이라
        화면이 밝아질 수가 없다. */
@@ -161,7 +161,7 @@ const { BOT } = require('./bot.js');
   if (!(bud.hue.saint.warm > -8)) { console.log(`!! 성인인데 그늘이 안 따뜻해진다 (${bud.hue.mid.warm} → ${bud.hue.saint.warm}, -8 위여야 한다)`); bad++; }
   if (!(bud.hue.monster.red > 14)) { console.log(`!! 괴물인데 그늘에 핏기가 안 돈다 (${bud.hue.mid.red} → ${bud.hue.monster.red}, 14 위여야 한다)`); bad++; }
   if (!(bud.hue.monster.red > bud.hue.saint.red + 8)) { console.log(`!! 성인과 괴물의 그늘이 안 갈린다`); bad++; }
-  /* 물들되 밝아지면 안 된다 — §103 을 되돌리는 것이다. 여유는 잡음만큼만(0.6%p). */
+  /* 물들되 밝아지면 안 된다 — §112 을 되돌리는 것이다. 여유는 잡음만큼만(0.6%p). */
   for (const k of ['saint', 'monster'])
     if (bud.hue[k].pct > bud.hue.mid.pct + .6) { console.log(`!! ${k} 에서 화면이 밝아졌다 (${bud.hue.mid.pct}% → ${bud.hue[k].pct}%) — 색을 옮기는 것이지 빛을 더하는 게 아니다`); bad++; }
   if (bud.merged !== 155) { console.log(`!! 예산이 걸린 뒤 같은 적의 숫자가 안 자란다 (${bud.merged}) — 막히면 피해가 사라진다`); bad++; }

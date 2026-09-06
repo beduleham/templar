@@ -13,8 +13,10 @@
        전사     46~52    6px   사실상 없다 — 서 있는 그림 넷이다
        마법사   51~54    3px   없다. 게다가 로브가 발목을 덮어 보일 자리도 없다
 
-   전사·마법사는 **새 그림이 필요하다**(art-spec §107). 그때까지 이 자는 「있는
-   것을 잃지 않는가」를 지킨다 — 추적자·성기사의 보폭이 줄면 잡는다.
+   전사·마법사는 **새 그림이 필요하다**(art-spec §111 에 카드가 있다). 받아들이는
+   기준은 전사 25px · 마법사 18px 이고, 그 아래면 문턱을 내리는 게 아니라 시트를 다시
+   받는다. 그때까지 이 자는 「있는 것을 잃지 않는가」를 지킨다 — 추적자·성기사의
+   보폭이 줄면 잡는다.
 
    ■ 몸의 오르내림 — 코드가 만든다
 
@@ -24,6 +26,13 @@
    **그림자가 같이 안 올라가는 것이 요점이다.** 그림자는 몸 변환 밖에서 바닥에
    그려지므로 몸만 뜨고 그림자는 남아 「발이 땅을 밀었다」로 읽힌다. 둘이 같이
    움직이면 그냥 그림이 흔들리는 것이다 — 그래서 그림자의 y 도 함께 잰다.
+
+   **몸과 그림자는 같은 프레임 것끼리 봐야 한다.** 처음엔 둘을 각각 배열에 담아
+   같은 번째끼리 뺐는데, 판을 새로 깔면 주인공이 걷는 그림으로 그려지기까지 스무 몇
+   프레임이 걸린다(그동안은 대기다). 그래서 몸은 뒤쪽 열 장, 그림자는 앞쪽 열 장이
+   짝지어졌고 그 사이 **카메라가 아직 따라붙는 중**이라 그림자의 y 가 달랐다 —
+   마법사만 2.52 대신 1.87 이 나왔다. 값이 그럴듯해서 세 직업은 맞는 줄 알았다.
+   지금은 몸을 그리는 순간의 **직전 그림자**를 짝으로 잡는다.
 
    실행: node tests/walk-feel.js */
 const { chromium } = require('playwright');
@@ -69,18 +78,23 @@ const { chromium } = require('playwright');
       /* 무기를 뺀다. 안 그러면 자동 공격이 걸려 그림이 walk 가 아니라 attack 이 된다 —
          추적자·마법사는 아예 한 장도 안 잡혔다(전사 4장). 재려는 것은 걷기다. */
       player.weapons.length = 0;
-      const body = [], shadow = [];
+      const rel = [], shadow = [];
+      let lastShadow = null;                                  // 이 프레임 주인공 그림자
       Sprites.draw = function (key, sx, sy, ...rest) {
-        if (key === 'hero_' + cls + '_walk') body.push(sy);
+        if (key === 'hero_' + cls + '_walk' && lastShadow !== null) {
+          rel.push(sy - lastShadow); shadow.push(lastShadow);
+        }
         return S0(key, sx, sy, ...rest);
       };
-      window.drawShadow = function (sx, sy, ...rest) { shadow.push(sy); return D0(sx, sy, ...rest); };
+      window.drawShadow = function (sx, sy, ...rest) { lastShadow = sy; return D0(sx, sy, ...rest); };
       /* 실제로 걷게 한다. player.moving 을 손으로 켜 봐야 frame() 안의 update() 가
          입력을 다시 읽어 꺼 버린다 — 키를 잡아 두는 게 맞다.
          그리고 frame() 은 실시간 델타를 쓰므로 시각을 손으로 먹인다(1/60씩). */
       keys.add('d');
       const t0 = performance.now();
-      for (let i = 0; i < 34; i++) {
+      /* 64 프레임. 판을 깐 뒤 걷는 그림이 나오기까지 서른 몇 장이 대기라서, 34 로는
+         한 바퀴(12 프레임)를 겨우 채웠다 — 마루를 못 밟으면 폭이 작게 나온다. */
+      for (let i = 0; i < 64; i++) {
         for (const e of enemies) e.active = false;
         Game.state = 'playing';
         player.actT = 0; player.castT = 0; player.dash = 0;
@@ -88,9 +102,8 @@ const { chromium } = require('playwright');
       }
       keys.delete('d');
       Sprites.draw = S0; window.drawShadow = D0;
-      const rel = body.map((y, i) => y - shadow[i]);          // 그림자 기준 몸의 높이
       out.bob[cls] = {
-        n: body.length,
+        n: rel.length,
         span: +((Math.max(...rel) - Math.min(...rel)) * HERO_GROW).toFixed(2),
         shadowMoved: +(Math.max(...shadow) - Math.min(...shadow)).toFixed(2),
       };
@@ -115,7 +128,9 @@ const { chromium } = require('playwright');
     fail.push(`성기사 보폭이 ${r.stride.paladin.span}px — 12 아래로 떨어졌다(기준선 16)`);
 
   for (const [k, v] of Object.entries(r.bob)) {
-    if (v.n < 8) fail.push(`${k}: 걷는 그림이 ${v.n}번만 그려졌다 — 장면이 안 만들어졌다`);
+    /* 한 바퀴가 12 프레임이다. 그보다 적게 잡히면 마루를 못 밟았을 수 있고,
+       그러면 아래 폭 검사가 그림이 아니라 표본 탓으로 떨어진다. */
+    if (v.n < 12) fail.push(`${k}: 걷는 그림이 ${v.n}번만 그려졌다 — 한 바퀴(12)를 못 채웠다`);
     if (!(v.span > 2 && v.span < 6))
       fail.push(`${k}: 몸이 ${v.span}px 오르내린다 — 2~6px 이어야 한다(안 움직이면 이동감이 없고, 크면 뜬다)`);
     if (v.shadowMoved > .01)

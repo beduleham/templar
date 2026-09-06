@@ -56,6 +56,8 @@ SHEETS = [
     ("art/src/ui_hud_sheet.png", ["bar", "slot", "skillframe", "rail"], "green"),
     # 3단계(§116) — 배너 리본 넷. 속이 채워진 판이라 글자가 그 위에 얹힌다
     ("art/src/ui_banner_sheet.png", ["ribbon", "ribbon_faith", "ribbon_blood", "ribbon_thin"], "green"),
+    # 4단계(§117) — 지도와 상단. 미니맵 틀(뚫림) · 시계 판(채움) · 방향표 화살촉(뚫림) · 보스 체력바 틀(뚫림)
+    ("art/src/ui_map_sheet.png", ["mapframe", "clock", "pointer", "bossbar"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -77,6 +79,8 @@ LAYOUT = [
     # 몸보다 위아래로 튀어나와 상자가 높다 — 몸의 세로 범위는 코드(BANNER_BODY)가 따로 안다
     [("ribbon", 384, 77, 0), ("ribbon_thin", 512, 40, 384)],
     [("ribbon_faith", 512, 141, 0), ("ribbon_blood", 512, 151, 512)],
+    [("mapframe", 192, 192, 0), ("clock", 384, 112, 192), ("pointer", 96, 96, 576)],
+    [("bossbar", 512, 69, 0)],
 ]
 
 

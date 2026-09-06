@@ -22,7 +22,8 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
   'ui_divider', 'ui_crest_paladin', 'ui_crest_warrior', 'ui_crest_rogue', 'ui_crest_mage',
   'ui_corner', 'ui_logo',
   'ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail',                // §115 — 게임 안 HUD 틀
-  'ui_ribbon', 'ui_ribbon_faith', 'ui_ribbon_blood', 'ui_ribbon_thin'];   // §116 — 배너 리본
+  'ui_ribbon', 'ui_ribbon_faith', 'ui_ribbon_blood', 'ui_ribbon_thin',
+  'ui_mapframe', 'ui_clock', 'ui_pointer', 'ui_bossbar'];               // §117 — 지도와 상단   // §116 — 배너 리본
 /* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
    불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
    있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
@@ -34,7 +35,10 @@ const RIBBON_ON = [
 ];
 /* HUD 틀은 **속이 뚫려야** 한다 — 게임이 그 안에 체력·아이콘을 그린다. 초록 키가
    안쪽 창을 남기면 체력이 틀 뒤로 숨는다. 가운데 40% 의 알파를 재서 잡는다. */
-const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
+const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail', 'ui_mapframe'];
+/* 화살촉과 보스 체력바 틀은 가운데 40% 에 팔·테가 걸려 뚫림 검사에 못 넣는다(29%) — 판에서
+   그려지는지만 본다. 둘은 보스나 화면 밖 표적이 있어야 나오므로 파수꾼 하나를 멀리 세운다. */
+const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -128,17 +132,24 @@ const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
       for (let i = 3; i < d.length; i += 4) { n++; if (d[i] > 40) solid++; }
       holes[k] = solid / n * 100;
     }
-    const S9 = drawSlice9, SH = drawSliceH, used = new Set();
+    const S9 = drawSlice9, SH = drawSliceH, UA = uiArt, PT = pointer, used = new Set();
     window.drawSlice9 = (k, ...a) => { used.add(k); return S9(k, ...a); };
     window.drawSliceH = (k, ...a) => { used.add(k); return SH(k, ...a); };
+    window.uiArt = (k, ...a) => { used.add(k); return UA(k, ...a); };
+    window.pointer = (...a) => { const ok = PT(...a); if (ok) used.add('ui_pointer'); return ok; };
     selectedClass = 1; Game.reset(); Game.state = 'playing'; player.items = ['bomb', null, null];
     let t = performance.now() + 5000;
-    for (let i = 0; i < 3; i++) frame(t += 16.7);
+    /* 판을 깐 직후엔 적이 없다 — 2.5초에도 0마리였다(재 봤다). 10초 돌린다(레벨업 창은
+       닫아 둔다). 처음 세 프레임만 돌렸을 때 파수꾼을 세울 적이 없어 체력바 틀이 안 그려졌다. */
+    for (let i = 0; i < 600; i++) { Game.state = 'playing'; frame(t += 16.7); }
+    const far = enemies.find(e => e.active);
+    if (far) { far.sigilKey = 'probe'; far.hp = far.maxHp * .5; far.x = player.x + 2500; far.y = player.y; }
+    for (let i = 0; i < 3; i++) { Game.state = 'playing'; frame(t += 16.7); }
     for (const [, prep] of RIBBON_ON) {                       // 알림 채널을 하나씩
       Game.sinFlash = Game.lmFlash = Game.comboFlash = Game.faithBanner = 0;
       eval(prep); Game.state = 'playing'; frame(t += 16.7);
     }
-    window.drawSlice9 = S9; window.drawSliceH = SH;
+    window.drawSlice9 = S9; window.drawSliceH = SH; window.uiArt = UA; window.pointer = PT;
     Game.state = 'title';
     return { holes, used: [...used] };
   }, [HOLLOW, RIBBON_ON]);
@@ -147,6 +158,8 @@ const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
     if (hud.holes[k] > 3) fail.push(`${k} 의 가운데가 ${hud.holes[k].toFixed(1)}% 막혀 있다 — 틀 안에 그리는 체력이 안 보인다`);
     if (!hud.used.includes(k)) fail.push(`${k} 이 판에서 안 그려진다 — HUD 가 예전 칩으로 떨어졌다`);
   }
+  for (const k of [...ON_TARGET, 'ui_clock'])
+    if (!hud.used.includes(k)) fail.push(`${k} 이 판에서 안 그려진다 — 이름 접두(ui_)나 부르는 자리를 보라`);
   out.push('리본 그려짐 ' + RIBBON_ON.map(([k]) => k.slice(3) + (hud.used.includes(k) ? ' ○' : ' ×')).join(' · '));
   for (const [k] of RIBBON_ON)
     if (!hud.used.includes(k)) fail.push(`${k} 이 알림에서 안 그려진다 — 배너가 옛 칩(또는 글자만)으로 떨어졌다`);

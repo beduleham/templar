@@ -20,7 +20,11 @@ const { chromium } = require('playwright');
 
 const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel', 'ui_inset',
   'ui_divider', 'ui_crest_paladin', 'ui_crest_warrior', 'ui_crest_rogue', 'ui_crest_mage',
-  'ui_corner', 'ui_logo'];
+  'ui_corner', 'ui_logo',
+  'ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];               // §115 — 게임 안 HUD 틀
+/* HUD 틀은 **속이 뚫려야** 한다 — 게임이 그 안에 체력·아이콘을 그린다. 초록 키가
+   안쪽 창을 남기면 체력이 틀 뒤로 숨는다. 가운데 40% 의 알파를 재서 잡는다. */
+const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
 
 (async () => {
   const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -100,6 +104,35 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
     Game.state = 'intro';
     return { title, altar };
   });
+  /* HUD 틀 — 가운데가 뚫렸는가, 그리고 판에서 실제로 쓰이는가 */
+  const hud = await pg.evaluate((HOLLOW) => {
+    const c = document.createElement('canvas'), g = c.getContext('2d');
+    const holes = {};
+    for (const k of HOLLOW) {
+      const f = Sprites.frames[k];
+      c.width = f.w; c.height = f.h; g.clearRect(0, 0, f.w, f.h);
+      g.drawImage(Sprites.atlas, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+      const x0 = Math.floor(f.w * .3), x1 = Math.ceil(f.w * .7), y0 = Math.floor(f.h * .3), y1 = Math.ceil(f.h * .7);
+      const d = g.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      let solid = 0, n = 0;
+      for (let i = 3; i < d.length; i += 4) { n++; if (d[i] > 40) solid++; }
+      holes[k] = solid / n * 100;
+    }
+    const S9 = drawSlice9, SH = drawSliceH, used = new Set();
+    window.drawSlice9 = (k, ...a) => { used.add(k); return S9(k, ...a); };
+    window.drawSliceH = (k, ...a) => { used.add(k); return SH(k, ...a); };
+    selectedClass = 1; Game.reset(); Game.state = 'playing'; player.items = ['bomb', null, null];
+    for (let i = 0; i < 3; i++) frame(performance.now() + 5000 + i * 16.7);
+    window.drawSlice9 = S9; window.drawSliceH = SH;
+    Game.state = 'title';
+    return { holes, used: [...used] };
+  }, HOLLOW);
+  out.push('HUD 틀 가운데 막힘 ' + HOLLOW.map(k => `${k.slice(3)} ${hud.holes[k].toFixed(1)}%`).join(' · '));
+  for (const k of HOLLOW) {
+    if (hud.holes[k] > 3) fail.push(`${k} 의 가운데가 ${hud.holes[k].toFixed(1)}% 막혀 있다 — 틀 안에 그리는 체력이 안 보인다`);
+    if (!hud.used.includes(k)) fail.push(`${k} 이 판에서 안 그려진다 — HUD 가 예전 칩으로 떨어졌다`);
+  }
+
   const crests = calls.title.ar.filter(k => k.startsWith('ui_crest_'));
   const frames = calls.title.s9.filter(k => k === 'ui_panel');
   const insets = calls.title.s9.filter(k => k === 'ui_inset');

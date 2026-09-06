@@ -52,6 +52,8 @@ SHEETS = [
     ("art/src/ui_frame.png",  ["panel", "inset", "divider", "corner"], "green"),
     ("art/src/ui_crest.png",  ["crest_paladin", "crest_warrior", "crest_rogue", "crest_mage"], "green"),
     ("art/src/ui_logo.png",   ["logo"], "dark"),
+    # 2단계(§115) — 게임 안 HUD 틀. 속이 뚫린 틀 넷: 막대 · 칸 · 스킬 버튼 · 경험치 레일
+    ("art/src/ui_hud_sheet.png", ["bar", "slot", "skillframe", "rail"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -66,6 +68,9 @@ LAYOUT = [
      ("crest_rogue", 104, 136, 208), ("crest_mage", 104, 136, 312),
      ("corner", 96, 96, 416)],
     [("logo", 512, 248, 0)],
+    # 아틀라스가 1024 폭이 된 뒤라 한 줄에 둘씩 — 막대와 레일은 삼등분, 칸과 스킬은 아홉 조각
+    [("bar", 384, 64, 0), ("rail", 512, 32, 384)],
+    [("slot", 128, 128, 0), ("skillframe", 192, 192, 128)],
 ]
 
 
@@ -165,14 +170,16 @@ def main():
     atlas = Image.open(ATLAS).convert("RGBA")
     AW, AH = atlas.size
 
-    # 이미 넣은 적이 있으면 제자리에 덮어쓴다 — 다시 받아 넣는 일이 당연히 생긴다
-    known = all(("ui_" + n) in frames for row in LAYOUT for (n, *_ ) in row)
-    need = 0 if known else sum(max(h for (_, _, h, _) in row) for row in LAYOUT)
+    # 이미 넣은 적이 있는 줄은 제자리에 덮어쓰고, 처음 넣는 줄만 아래에 덧붙인다.
+    # 예전엔 「전부 아는가」 하나로 갈라서, 시트를 하나 더 받으면 아는 열셋까지 다시
+    # 아래에 붙였을 것이다(1000줄이 두 번 실린다). 줄 단위로 본다.
+    known_row = [all(("ui_" + n) in frames for (n, *_ ) in row) for row in LAYOUT]
+    need = sum(max(h for (_, _, h, _) in row) for row, k in zip(LAYOUT, known_row) if not k)
     new = Image.new("RGBA", (AW, AH + need), (0, 0, 0, 0)); new.paste(atlas, (0, 0))
 
     y = AH
     print(f"\n{'부품':<16}{'원본':>12}{'아틀라스':>12}   자리")
-    for row in LAYOUT:
+    for row, known in zip(LAYOUT, known_row):
         rh = max(h for (_, _, h, _) in row)
         for (nm, w, h, x) in row:
             fk = "ui_" + nm
@@ -182,9 +189,9 @@ def main():
             new.paste(Image.new("RGBA", (w, h), (0, 0, 0, 0)), (tx, ty))
             new.paste(src, (tx, ty), src)
             frames[fk] = {"x": tx, "y": ty, "w": w, "h": h, "n": 1, "fps": 1}
-            print(f"{nm:<16}{str(parts[nm].size):>12}{f'{w}x{h}':>12}   x={tx} y={ty}")
+            print(f"{nm:<16}{str(parts[nm].size):>12}{f'{w}x{h}':>12}   x={tx} y={ty}{'' if known else '  (새 줄)'}")
         if not known: y += rh
-    if not known: new = new.crop((0, 0, AW, y))
+    new = new.crop((0, 0, AW, max(y, AH)))
 
     atlaslib.save(html[:a] + json.dumps(frames, separators=(",", ":"), ensure_ascii=False) + html[b:], new)
     print(f"\nUI 부품 {len(parts)}개  아틀라스 {AW}x{AH} → {new.size[0]}x{new.size[1]}   "

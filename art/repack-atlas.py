@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """아틀라스에서 아무도 안 쓰는 가로줄을 걷어낸다.
 
-사용:  python3 art/repack-atlas.py [--dry]
+사용:  python3 art/repack-atlas.py [--dry] [--width 1024]
 
 ■ 왜
 
@@ -15,8 +15,20 @@
 
 ■ 어떻게
 
-가로로는 안 건드린다. 폭 512 는 넣는 도구 넷이 다 전제하고 있고, 옆으로 옮기면
-그 넷을 다 고쳐야 한다. **세로 줄만** 본다.
+기본은 가로를 안 건드린다. 폭 512 는 넣는 도구 넷이 다 전제하고 있어서다. **세로 줄만**
+본다.
+
+■ --width — 한 변의 벽에 닿았을 때
+
+512×15424 까지 자라 15600 문턱(`tests/atlas-budget.js`)에 176줄만 남았다. 빈 줄은
+0 이라 걷어낼 것이 없고, 16383 은 WebP 의 진짜 벽이다. 그때의 탈출구가 폭을 넓히는
+것이다 — 살아 있는 띠(512 폭)를 **여러 기둥에 나눠 쌓는다**. 띠 하나가 통째로 한
+기둥에 들어가므로 그림은 한 점도 안 바뀌고, 프레임의 x 에 기둥 자리(512·k)가 더해질
+뿐이다. 넣는 도구 넷은 그대로 돈다 — 새 줄을 맨 아래에 512 폭으로 덧붙이니 오른쪽
+기둥 자리가 비지만, 그건 다음 재묶기가 다시 채운다.
+
+옮긴 뒤 **프레임 하나하나를 옛 아틀라스와 픽셀로 대조**한다. 하나라도 다르면 저장하지
+않는다. 재묶기는 그림을 옮기는 일이지 바꾸는 일이 아니다.
 
   1. 프레임마다 차지하는 줄 [y, y+h) 를 모은다
   2. 겹치거나 붙은 것끼리 합친다  → 살아 있는 띠
@@ -38,6 +50,7 @@ ATLAS = "art/atlas.png"
 
 def main():
     dry = "--dry" in sys.argv
+    width = int(sys.argv[sys.argv.index("--width") + 1]) if "--width" in sys.argv else None
     html = io.open(GAME, encoding="utf-8").read()
     frames, a, b = atlaslib.frames_of(html)
     atlas = Image.open(ATLAS).convert("RGBA")
@@ -52,25 +65,58 @@ def main():
     live = sum(y1 - y0 for y0, y1 in bands)
     print(f"아틀라스 {AW}x{AH} · 프레임 {len(frames)}개가 띠 {len(bands)}개로 "
           f"{live}줄을 쓴다 — 빈 자리 {AH - live}줄 ({(AH - live) / AH * 100:.1f}%)")
-    if AH - live == 0 and AH <= atlaslib.WEBP_MAX:
+    if AH - live == 0 and AH <= atlaslib.WEBP_MAX and not (width and width != AW):
         print("걷어낼 자리가 없다."); return
 
-    # 3~4. 다시 쌓고 y 를 옮긴다
-    new = Image.new("RGBA", (AW, live), (0, 0, 0, 0))
-    move, ty = {}, 0
-    for y0, y1 in bands:
-        new.paste(atlas.crop((0, y0, AW, y1)), (0, ty))
-        move[(y0, y1)] = ty
-        ty += y1 - y0
+    # 3~4. 다시 쌓고 자리를 옮긴다.
+    #      기둥이 여럿이면 띠를 더 잘게 가른다 — 빈 줄이 없는 아틀라스는 띠가 **하나**라서
+    #      (지금이 그렇다: 15424줄 한 덩어리) 띠째로는 기둥에 나눠 담을 수가 없다.
+    #      프레임이 걸치지 않는 줄이면 어디서든 자를 수 있으므로, 그런 줄로 토막을 내고
+    #      토막을 차례로 기둥에 채운다. 토막 안은 통째로 옮기니 그림은 안 바뀐다.
+    W2 = width or AW
+    if W2 % AW: raise SystemExit(f"--width 는 {AW} 의 배수여야 한다")
+    ncol = W2 // AW
+    if ncol > 1:
+        edges = sorted({e for y0, y1 in spans for e in (y0, y1)})
+        cuts = [e for e in edges if not any(y0 < e < y1 for y0, y1 in spans)]
+        pieces = [(cuts[i], cuts[i + 1]) for i in range(len(cuts) - 1)]
+    else:
+        pieces = [tuple(b) for b in bands]
+    goal = -(-live // ncol)                     # 기둥 하나의 목표 높이(올림)
+    colH, c = [0] * ncol, 0
+    move = {}                                   # (y0, y1) -> (기둥 x, 새 y)
+    for y0, y1 in pieces:
+        h = y1 - y0
+        # 이 토막을 얹으면 목표를 넘고, 다음 기둥이 남아 있으면 넘어간다
+        if c + 1 < ncol and colH[c] and colH[c] + h > goal and (colH[c] + h - goal) > (goal - colH[c]):
+            c += 1
+        move[(y0, y1)] = (c * AW, colH[c])
+        colH[c] += h
+    H2 = max(colH)
+    new = Image.new("RGBA", (W2, H2), (0, 0, 0, 0))
+    for (y0, y1), (nx, ny) in move.items():
+        new.paste(atlas.crop((0, y0, AW, y1)), (nx, ny))
+    old = {k: dict(f) for k, f in frames.items()}
     for f in frames.values():
-        for (y0, y1), nz in move.items():
-            if y0 <= f["y"] < y1: f["y"] = nz + f["y"] - y0; break
+        for (y0, y1), (nx, ny) in move.items():
+            if y0 <= f["y"] < y1: f["x"] += nx; f["y"] = ny + f["y"] - y0; break
         else:
             raise SystemExit(f"띠 밖의 프레임이 있다 (y={f['y']})")
 
+    # 대조 — 프레임마다 옛 자리와 새 자리의 픽셀이 같아야 한다
+    bad = 0
+    for k, f in frames.items():
+        o = old[k]; w = f["w"] * f.get("n", 1)
+        if atlas.crop((o["x"], o["y"], o["x"] + w, o["y"] + f["h"])).tobytes() != \
+           new.crop((f["x"], f["y"], f["x"] + w, f["y"] + f["h"])).tobytes():
+            bad += 1; print(f"  다르다: {k}")
+    print(f"프레임 대조 {len(frames)}개 중 다른 것 {bad}개" + ("" if ncol == 1 else
+          f" · 기둥 {ncol}개 높이 {colH}"))
+    if bad: raise SystemExit("재묶기가 그림을 바꿨다 — 저장하지 않는다")
+
     if dry:
-        print(f"→ {AW}x{live} 가 된다 (WebP 한 변 {atlaslib.WEBP_MAX} "
-              f"{'안' if live <= atlaslib.WEBP_MAX else '밖'})")
+        print(f"→ {W2}x{H2} 가 된다 (WebP 한 변 {atlaslib.WEBP_MAX} "
+              f"{'안' if H2 <= atlaslib.WEBP_MAX else '밖'})")
         return
     atlaslib.save(atlaslib.put_frames(html, frames, a, b), new)
 

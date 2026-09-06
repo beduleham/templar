@@ -54,6 +54,8 @@ SHEETS = [
     ("art/src/ui_logo.png",   ["logo"], "dark"),
     # 2단계(§115) — 게임 안 HUD 틀. 속이 뚫린 틀 넷: 막대 · 칸 · 스킬 버튼 · 경험치 레일
     ("art/src/ui_hud_sheet.png", ["bar", "slot", "skillframe", "rail"], "green"),
+    # 3단계(§116) — 배너 리본 넷. 속이 채워진 판이라 글자가 그 위에 얹힌다
+    ("art/src/ui_banner_sheet.png", ["ribbon", "ribbon_faith", "ribbon_blood", "ribbon_thin"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -71,6 +73,10 @@ LAYOUT = [
     # 아틀라스가 1024 폭이 된 뒤라 한 줄에 둘씩 — 막대와 레일은 삼등분, 칸과 스킬은 아홉 조각
     [("bar", 384, 64, 0), ("rail", 512, 32, 384)],
     [("slot", 128, 128, 0), ("skillframe", 192, 192, 128)],
+    # 리본은 그림 비율대로(중립 5.0 · 신앙 3.6 · 핏빛 3.4 · 한 줄 12.7). 신앙·핏빛은 끝 메달이
+    # 몸보다 위아래로 튀어나와 상자가 높다 — 몸의 세로 범위는 코드(BANNER_BODY)가 따로 안다
+    [("ribbon", 384, 77, 0), ("ribbon_thin", 512, 40, 384)],
+    [("ribbon_faith", 512, 141, 0), ("ribbon_blood", 512, 151, 512)],
 ]
 
 

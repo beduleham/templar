@@ -21,7 +21,17 @@ const { chromium } = require('playwright');
 const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel', 'ui_inset',
   'ui_divider', 'ui_crest_paladin', 'ui_crest_warrior', 'ui_crest_rogue', 'ui_crest_mage',
   'ui_corner', 'ui_logo',
-  'ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];               // §115 — 게임 안 HUD 틀
+  'ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail',                // §115 — 게임 안 HUD 틀
+  'ui_ribbon', 'ui_ribbon_faith', 'ui_ribbon_blood', 'ui_ribbon_thin'];   // §116 — 배너 리본
+/* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
+   불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
+   있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
+const RIBBON_ON = [
+  ['ui_ribbon_blood', 'Game.sinFlash = 1.5'],
+  ['ui_ribbon', 'Game.comboFlash = 2.4; player.combos.add(COMBOS[0].key)'],
+  ['ui_ribbon_thin', 'Game.lmFlash = 2.5; Game.lmFlashText = "시험"'],
+  ['ui_ribbon_faith', 'Game.faithBanner = 3; Game.faithBannerStep = 1'],
+];
 /* HUD 틀은 **속이 뚫려야** 한다 — 게임이 그 안에 체력·아이콘을 그린다. 초록 키가
    안쪽 창을 남기면 체력이 틀 뒤로 숨는다. 가운데 40% 의 알파를 재서 잡는다. */
 const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
@@ -105,7 +115,7 @@ const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
     return { title, altar };
   });
   /* HUD 틀 — 가운데가 뚫렸는가, 그리고 판에서 실제로 쓰이는가 */
-  const hud = await pg.evaluate((HOLLOW) => {
+  const hud = await pg.evaluate(([HOLLOW, RIBBON_ON]) => {
     const c = document.createElement('canvas'), g = c.getContext('2d');
     const holes = {};
     for (const k of HOLLOW) {
@@ -122,16 +132,24 @@ const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail'];
     window.drawSlice9 = (k, ...a) => { used.add(k); return S9(k, ...a); };
     window.drawSliceH = (k, ...a) => { used.add(k); return SH(k, ...a); };
     selectedClass = 1; Game.reset(); Game.state = 'playing'; player.items = ['bomb', null, null];
-    for (let i = 0; i < 3; i++) frame(performance.now() + 5000 + i * 16.7);
+    let t = performance.now() + 5000;
+    for (let i = 0; i < 3; i++) frame(t += 16.7);
+    for (const [, prep] of RIBBON_ON) {                       // 알림 채널을 하나씩
+      Game.sinFlash = Game.lmFlash = Game.comboFlash = Game.faithBanner = 0;
+      eval(prep); Game.state = 'playing'; frame(t += 16.7);
+    }
     window.drawSlice9 = S9; window.drawSliceH = SH;
     Game.state = 'title';
     return { holes, used: [...used] };
-  }, HOLLOW);
+  }, [HOLLOW, RIBBON_ON]);
   out.push('HUD 틀 가운데 막힘 ' + HOLLOW.map(k => `${k.slice(3)} ${hud.holes[k].toFixed(1)}%`).join(' · '));
   for (const k of HOLLOW) {
     if (hud.holes[k] > 3) fail.push(`${k} 의 가운데가 ${hud.holes[k].toFixed(1)}% 막혀 있다 — 틀 안에 그리는 체력이 안 보인다`);
     if (!hud.used.includes(k)) fail.push(`${k} 이 판에서 안 그려진다 — HUD 가 예전 칩으로 떨어졌다`);
   }
+  out.push('리본 그려짐 ' + RIBBON_ON.map(([k]) => k.slice(3) + (hud.used.includes(k) ? ' ○' : ' ×')).join(' · '));
+  for (const [k] of RIBBON_ON)
+    if (!hud.used.includes(k)) fail.push(`${k} 이 알림에서 안 그려진다 — 배너가 옛 칩(또는 글자만)으로 떨어졌다`);
 
   const crests = calls.title.ar.filter(k => k.startsWith('ui_crest_'));
   const frames = calls.title.s9.filter(k => k === 'ui_panel');

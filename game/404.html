@@ -6462,6 +6462,8 @@ function drawPlayer() {
    20 하나로 묶었다. 최대 오차는 두 배로 키워도 1.6px 이다(성기사). */
 const HERO_GROW = 1.4;
 const HERO_FOOT = 20;
+// 걸을 때 몸이 뜨는 높이(원본 px). 화면에서는 HERO_GROW 만큼 커진다.
+const WALK_BOB = 1.8;
 
 /* 전직 겹의 좌표 배수. 캔버스를 늘리는 대신 **좌표만** 늘린다.
 
@@ -6515,10 +6517,35 @@ function drawPlayerArt() {
   const at = st === "cast" ? CAST_DUR - player.castT
     : st === "attack" ? (player.dash > 0 ? .07 : ACT_DUR - player.actT)
     : st === "walk" ? player.walk / 10 : Game.time;
+  /* 걸을 때 몸이 오르내린다.
+
+     ■ 왜 코드로 넣는가
+
+     걷기 시트의 보폭을 재 봤더니 직업마다 달랐다 — 발 사이 폭이 한 바퀴 동안
+     추적자 47~85(38px), 성기사 64~80(16px), **전사 46~52(6px), 마법사 51~54(3px)**.
+     전사와 마법사의 「걷기」는 사실상 서 있는 그림 넷이다. 게다가 마법사는 로브가
+     발목을 덮어서, 그림을 다시 받아도 보폭이 보일 자리가 없다.
+
+     로브 입은 인물의 이동감은 발이 아니라 **몸의 오르내림**으로 읽힌다. 그리고
+     이건 그림이 아니라 코드로 넣을 수 있다 — 네 직업에 한꺼번에 걸리고 아틀라스가
+     안 커진다.
+
+     ■ 그림자는 안 따라 올라간다
+
+     drawShadow 는 이 변환 **밖에서** 바닥에 그려진다. 그래서 몸만 뜨고 그림자는
+     제자리에 남아 「발이 땅을 밀었다」로 읽힌다. 몸과 그림자가 같이 오르내리면
+     그냥 그림이 흔들리는 것이 된다.
+
+     ■ 한 바퀴에 두 번
+
+     걷기는 넉 장이고 접지(발 벌림)가 0·2번 칸이다. 그러니 몸은 1·3번 칸에서 떠야
+     한다 — player.walk 한 칸이 1이므로 주기 2다. 접지에서 0, 그 사이에서 최대. */
+  const step = st === "walk"
+    ? -Math.abs(Math.sin(player.walk * Math.PI / 2)) * WALK_BOB : 0;
   ctx.save();
   ctx.globalAlpha = blink ? .45 : 1;
   if (player.cls && Sprites.draw("hero_" + player.cls.key + "_" + st,
-        sx, sy - 3, player.r / 14 * 1.15 * CHAR_SCALE, at, player.flip)) {
+        sx, sy - 3 + step, player.r / 14 * 1.15 * CHAR_SCALE, at, player.flip)) {
     // 피격 — 스프라이트는 색을 갈아입을 수 없으니 붉은 테로 알린다
     if (player.hurtFlash > 0) {
       ctx.globalAlpha = Math.min(.8, player.hurtFlash / .35);

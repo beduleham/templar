@@ -24,8 +24,12 @@
        늘어놓아 붙임표로 삼고, 추적자 다리의 밝기 백분위를 거기에 대응시킨다. 모양만
        빌리고 재질은 제 것이 된다 — 추적자의 초록 천도 이 단계에서 사라진다.
 
-    실행: python3 art/graft-legs.py art/src/warrior_walk_sheet_try2.png \\
-              art/src/rogue_walk_sheet.png art/src/warrior_walk_sheet.png
+    실행: python3 art/graft-legs.py art/src/warrior_walk_sheet_try3.png \\
+              art/src/rogue_walk_sheet.png art/src/warrior_walk_sheet.png --cut .27 --stride .75
+
+    --cut     바닥에서 몸높이의 몇 배 되는 줄에서 자르는가(기본 .30). 정강이를 얼마나
+              가져오는지를 정한다. **보폭은 안 바꾼다** — 27% 로 내려 봤는데 35px 그대로였다.
+    --stride  빌린 다리를 축 기준으로 가로로 모으는 배(기본 1). 보폭은 이걸로 줄인다.
 """
 import sys
 from collections import deque
@@ -146,6 +150,7 @@ def main(argv):
         green_cut = int(argv[argv.index('--green') + 1])
     if '--cut' in argv:
         cut_frac = float(argv[argv.index('--cut') + 1])
+    stride = float(argv[argv.index('--stride') + 1]) if '--stride' in argv else 1.0
     tops, legs = cells(top_p), cells(leg_p)
     scale = np.median([t.height for t in tops]) / legs[1].height
     print(f'다리 배율 {scale:.3f} (서 있는 2번 칸 기준)')
@@ -176,6 +181,19 @@ def main(argv):
                 band = recolor(band, bm, r)
         # 이음매 줄에서 두 그림의 축을 맞춘다
         ax_t, ax_b = axis_at(top, cut - 2), axis_at(band, 1)
+        # 보폭 조절. 이음매 높이는 보폭을 안 바꾼다 — 발 자리는 추적자 그림이 정하고
+        # 이음매는 정강이를 얼마나 가져오는지만 정한다(27% 로 내려 봤는데 35px 그대로였다).
+        # 보폭을 줄이려면 다리 띠를 축 기준으로 가로로 모아야 한다. 장화도 같이
+        # 좁아지는데 화면에서 장화 하나가 7px 이라 0.75 배면 2px 다.
+        if stride != 1:
+            ba_ = np.asarray(band)
+            nb = np.full_like(ba_, 255); nb[:, :, 1] = 0
+            nm = np.zeros_like(bm)
+            for x in range(band.width):
+                sx = int(round(ax_b + (x - ax_b) / stride))
+                if 0 <= sx < band.width:
+                    nb[:, x] = ba_[:, sx]; nm[:, x] = bm[:, sx]
+            band, bm = Image.fromarray(nb), nm
         W = max(top.width, band.width) + 120
         cell = Image.new('RGB', (W, top.height), MAGENTA)
         ba = np.asarray(band)

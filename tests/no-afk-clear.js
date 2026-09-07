@@ -128,6 +128,16 @@ const { chromium } = require('playwright');
     o.pull1 = tauntPull(player);
     for (const k of Object.keys(WEAPONS)) { if (player.weapons.length >= MAX_WEAPONS) break; try { addWeapon(k); } catch (e) {} }
     o.pullN = { n: player.weapons.length, max: MAX_WEAPONS, v: tauntPull(player) };
+    /* 그리고 몸에 닿는 거리에서는 당기지 않는다 — 닿은 놈은 kx 0, 한 뼘 밖의 놈은 끌린다.
+       update() 를 통째로 돌리면 오라가 닿은 놈을 때려 넉백(kx 170)이 섞인다. 자세 갱신만
+       따로 부른다 — 공간 해시를 손으로 채우고 stance.update 한 번. */
+    addTrait('taunt'); player.stillTime = 5; player.bulwark = 1;
+    const near = Game.spawnEnemy('slime', player.x + player.r + 15 + 10, player.y);   // 닿음 (r 15)
+    const far = Game.spawnEnemy('slime', player.x - 110, player.y);                 // 사거리 안, 한 뼘 밖
+    hash.clear(); hash.insert(near); hash.insert(far);
+    player.cls.stance.update(player, 1 / 60, false);
+    o.pullNear = +Math.hypot(near.kx, near.ky).toFixed(2);
+    o.pullFar = +Math.hypot(far.kx, far.ky).toFixed(2);
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -155,6 +165,11 @@ const { chromium } = require('playwright');
     fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
   if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
     fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
+  console.log(`  도발 당김  닿은 적 ${mech.pullNear} · 110px 적 ${mech.pullFar}`);
+  if (mech.pullNear !== 0)
+    fail.push(`닿은 적을 ${mech.pullNear} 당긴다 — 몸에 눌러 붙이면 접촉 배수가 켜진다`);
+  if (!(mech.pullFar > 10))
+    fail.push(`110px 적이 ${mech.pullFar} 밖에 안 끌린다 — 도발이 모으지 않는다`);
 
   for (const r of runs)
     console.log(`  ${r.end === 'won' ? '★ 클리어' : '  죽음  '} ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')} · Lv${r.lv} · ${r.adv}`);

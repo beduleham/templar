@@ -60,6 +60,8 @@ SHEETS = [
     ("art/src/ui_map_sheet.png", ["mapframe", "clock", "pointer", "bossbar"], "green"),
     # 5단계(§118) — 카드. 카드 액자 일반·각성(뚫림) · 머리띠(채움) · 초상 창틀(뚫림)
     ("art/src/ui_card_sheet.png", ["card", "card_awaken", "cardhead", "portrait"], "green"),
+    # §120 도감 — 걸어 본 칸 액자 · 못 간 칸 액자 · 직업 탭 판 · 「다음」 봉인
+    ("art/src/codex_sheet.png", ["codex_cell", "codex_cell_locked", "codex_tab", "codex_mark"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -84,6 +86,8 @@ LAYOUT = [
     [("mapframe", 192, 192, 0), ("clock", 384, 112, 192), ("pointer", 96, 96, 576)],
     [("bossbar", 512, 69, 0)],
     [("card", 240, 304, 0), ("card_awaken", 240, 304, 240), ("portrait", 192, 192, 480), ("cardhead", 320, 61, 672)],
+    # 도감 칸은 98×112(폰 167×191)에 아홉 조각으로 늘려 그린다 — 귀는 drawSlice9 의 scale 로 칸에 맞춘다
+    [("codex_cell", 224, 276, 0), ("codex_cell_locked", 224, 276, 224), ("codex_tab", 416, 100, 448), ("codex_mark", 100, 160, 864)],
 ]
 
 

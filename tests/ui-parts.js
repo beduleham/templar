@@ -24,7 +24,8 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
   'ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail',                // §115 — 게임 안 HUD 틀
   'ui_ribbon', 'ui_ribbon_faith', 'ui_ribbon_blood', 'ui_ribbon_thin',
   'ui_mapframe', 'ui_clock', 'ui_pointer', 'ui_bossbar',                // §117 — 지도와 상단
-  'ui_card', 'ui_card_awaken', 'ui_cardhead', 'ui_portrait'];           // §118 — 카드   // §116 — 배너 리본
+  'ui_card', 'ui_card_awaken', 'ui_cardhead', 'ui_portrait',            // §118 — 카드   // §116 — 배너 리본
+  'ui_codex_cell', 'ui_codex_cell_locked', 'ui_codex_tab', 'ui_codex_mark'];   // §120 — 도감
 /* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
    불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
    있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
@@ -37,7 +38,8 @@ const RIBBON_ON = [
 /* HUD 틀은 **속이 뚫려야** 한다 — 게임이 그 안에 체력·아이콘을 그린다. 초록 키가
    안쪽 창을 남기면 체력이 틀 뒤로 숨는다. 가운데 40% 의 알파를 재서 잡는다. */
 const HOLLOW = ['ui_bar', 'ui_slot', 'ui_skillframe', 'ui_rail', 'ui_mapframe',
-                'ui_card', 'ui_card_awaken', 'ui_portrait'];
+                'ui_card', 'ui_card_awaken', 'ui_portrait',
+                'ui_codex_cell', 'ui_codex_cell_locked'];                 // §120 — 초상이 속으로 보여야 한다
 /* 화살촉과 보스 체력바 틀은 가운데 40% 에 팔·테가 걸려 뚫림 검사에 못 넣는다(29%) — 판에서
    그려지는지만 본다. 둘은 보스나 화면 밖 표적이 있어야 나오므로 파수꾼 하나를 멀리 세운다. */
 const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
@@ -120,6 +122,25 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
     Game.state = 'intro';
     return { title, altar };
   });
+  /* §120 도감 — 네 부품이 실제로 불리는가. 걸어 본 칸(금)·못 간 칸(철)·「다음」 봉인이 한 화면에
+     나오게 성기사 갈래 둘을 걸어 본 것으로 둔다. 탭은 uiArtW 로 그리므로 uiArt 훅에 잡힌다. */
+  const codex = await pg.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const S9 = drawSlice9, SH = drawSliceH, AR = uiArt, used = new Set();
+    window.drawSlice9 = (k, ...a) => { used.add(k); return S9(k, ...a); };
+    window.drawSliceH = (k, ...a) => { used.add(k); return SH(k, ...a); };
+    window.uiArt = (k, ...a) => { used.add(k); return AR(k, ...a); };
+    const saved = JSON.stringify(Meta.codex);
+    Meta.codex.guardian = { n: 1 }; Meta.codex.everwall = { n: 1 };
+    Game.state = 'codex'; Game.codexCls = 0; await wait(200);
+    window.drawSlice9 = S9; window.drawSliceH = SH; window.uiArt = AR;
+    Object.assign(Meta.codex, JSON.parse(saved)); delete Meta.codex.guardian; delete Meta.codex.everwall;
+    Game.state = 'intro';
+    return [...used];
+  });
+  for (const k of ['ui_codex_cell', 'ui_codex_cell_locked', 'ui_codex_tab', 'ui_codex_mark', 'ui_ribbon_thin'])
+    if (!codex.includes(k)) fail.push(`도감 화면이 ${k} 를 안 그린다 — 접두(ui_)나 조건이 틀렸다`);
+  out.push('도감 부품 ' + codex.filter(k => k.startsWith('ui_codex') || k === 'ui_ribbon_thin').length + '/5 불림');
   /* HUD 틀 — 가운데가 뚫렸는가, 그리고 판에서 실제로 쓰이는가 */
   const hud = await pg.evaluate(([HOLLOW, RIBBON_ON]) => {
     const c = document.createElement('canvas'), g = c.getContext('2d');
@@ -164,6 +185,7 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
   }, [HOLLOW, RIBBON_ON]);
   out.push('HUD 틀 가운데 막힘 ' + HOLLOW.map(k => `${k.slice(3)} ${hud.holes[k].toFixed(1)}%`).join(' · '));
   for (const k of HOLLOW) {
+    if (k.startsWith('ui_codex')) continue;          // §120 — 도감 칸은 HUD 가 아니라 도감 화면이 그린다(위에서 따로 봤다)
     if (hud.holes[k] > 3) fail.push(`${k} 의 가운데가 ${hud.holes[k].toFixed(1)}% 막혀 있다 — 틀 안에 그리는 체력이 안 보인다`);
     if (!hud.used.includes(k)) fail.push(`${k} 이 판에서 안 그려진다 — HUD 가 예전 칩으로 떨어졌다`);
   }

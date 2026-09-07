@@ -3818,6 +3818,8 @@ const SKILL_HEAL_FRESH = 20, SKILL_HEAL_FADE = 25, SKILL_HEAL_DROP = .5;
 /* 도발의 흡인력 배수 — (든 무기 수 − 1) / (최대 무기 수 − 1). 무기 하나(시작 무기)로는
    부르지 않고, 무기가 찰수록 세게 부른다(성기사 진영의 도발 주석에 실측). */
 function tauntPull(p) { return clamp((p.weapons.length - 1) / (MAX_WEAPONS - 1), 0, 1); }
+// 도발이 멈추는 여유 — 닿는 거리(e.r + p.r)에서 이만큼 밖에 세운다. 접촉 배수를 켜지 않는 자리.
+let TAUNT_GAP = 22;                 // let — 회귀가 값을 바꿔 견준다
 function skillHealScale(p) {
   if (!p.cls || p.cls.key !== "paladin") return 1;
   const worn = clamp((p.stillTime - SKILL_HEAL_FRESH) / SKILL_HEAL_FADE, 0, 1);
@@ -8429,11 +8431,21 @@ const CLASSES = [
             for (let i = 0; i < found.length; i++) {
               const e = found[i];
               if (!e.active || e.boss) continue;
+              /* 몸에 닿는 거리에서는 당기지 않는다 — 도발은 성전·가시 갑옷·오라의 사거리
+                 안으로 **모으는** 것이지 몸에 눌러 붙이는 것이 아니다. 밀어내기(서로
+                 겹치지 않는 힘)에 맞서 적을 몸에 눌러 붙이면 접촉 배수(×5 · ×8 · ×14)가
+                 켜지고, 그것이 무기를 4~6개 들고도 서 있는 성기사가 2:20~3:00 에 죽던
+                 이유였다(2026-09-07 실측 — tauntPull 주석). 닿는 거리 + 여유 한 뼘에서
+                 멈추고, 거기까지 한 뼘 동안은 서서히 줄여 경계에서 떨리지 않게 한다. */
+              const d = Math.sqrt(dist2(e.x, e.y, p.x, p.y));
+              const stop = e.r + p.r + TAUNT_GAP;
+              if (d <= stop) continue;
+              const k = Math.min(1, (d - stop) / TAUNT_GAP);
               const a = Math.atan2(p.y - e.y, p.x - e.x);
               // 42 는 예전의 60 이다 — 넉백 감쇠를 0.86 에서 0.90 으로 늦추면서
               // 같은 값이 40% 더 세게 당기게 됐다. 도발의 세기는 그대로 두려고 되돌린다.
-              e.kx += Math.cos(a) * pull * dt * 60;
-              e.ky += Math.sin(a) * pull * dt * 60;
+              e.kx += Math.cos(a) * pull * k * dt * 60;
+              e.ky += Math.sin(a) * pull * k * dt * 60;
             }
           }
         }

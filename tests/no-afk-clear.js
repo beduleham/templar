@@ -40,14 +40,22 @@
 
    위쪽 조건(서서 클리어)은 흔들려도 한 번이라도 이기면 진짜다.
 
-   ■ 성전사가 「서서」 이긴 판 (2026-09-07) — 서 있지 않았다
+   ■ 성전사가 「서서」 이긴 판 (2026-09-07) — 서 있지 않았다. 두 번 손봤다
 
-   성전사의 스킬은 바라보는 쪽으로 470px 밀려나는 돌진이다. 이동 입력이 없는 봇의
-   바라보는 쪽은 (1, 0) 으로 고정이라, 성전사가 되면 자원이 찰 때마다 오른쪽으로 470px 씩
-   순간이동한다(받쳐서 확정한 판 넷: 돌진 89~102회 · 원점에서 3.4~4.3만 px). 회복 고리가
-   아니라 한 버튼 카이팅이다. 서서 Lv20 을 밟는 판이 74판 중 0 이라 드물고(다들 5:30~7:00
-   에 죽는다), 성전사가 돼도 7판 중 1판만 이겼다. 자를 바꿀지 게임을 바꿀지는 사람이
-   정한다 — §개발정리. 그때까지 이 자는 그 승리를 그대로 빨간불로 둔다.
+   성전사의 스킬은 470px 밀려나는 돌진이다. 이동 입력이 없는 봇의 바라보는 쪽은 (1, 0)
+   으로 고정이라, 성전사가 되면 자원이 찰 때마다 오른쪽으로 470px 씩 순간이동했다
+   (받쳐서 확정한 넷: 돌진 89~102회 · 원점에서 3.4~4.3만 px). 회복 고리가 아니라
+   한 버튼 카이팅이었다. 사람이 둘을 정했다.
+
+     ① 돌진 방향을 무리 쪽으로   서 있으면 가장 가까운 무리로 간다. **반대로 갔다** —
+                                받침 성전사 4판이 전부 이겼다(도망이 광역 한 방이 됐다).
+     ② 돌진 무적을 없앰          1.7초마다 0.7초 무적이면 자원이 곧 방어막이다.
+                                받침 성전사 3판 중 1승으로 내려왔다(12:27·12:34 죽음).
+
+   지금 이 자는 **12판 중 4판이 빨간불**이다 — 성전사 둘, 불멸의 성벽 둘. 성벽은 돌진이
+   없으므로 ①②와 무관한 다른 길이고, 도발 세 설정(지금·몸에 붙이던 때·예전)에서 각 6판,
+   따로 36판을 돌려도 한 번도 안 이겼는데 자에서는 이긴다 — 탐침과 자의 차이를 아직 못
+   가렸다(§개발정리). 남은 손잡이 후보는 성기사의 자원(맞으면 찬다)이다.
 
    (도발 자체가 3레벨에 자살 카드인지는 따로 물을 일이다 — 설명이 「더 둘러싸일수록
    강해진다」인데 세지는 것은 성전·가시 갑옷이고 도발은 부르기만 한다. §개발정리.)
@@ -155,6 +163,19 @@ const { chromium } = require('playwright');
     const aimIdle = dashAim(player);
     keys.add('s'); const aimMove = dashAim(player); keys.delete('s');
     o.aimIdle = +aimIdle.x.toFixed(2); o.aimMove = { x: +aimMove.x.toFixed(2), y: +aimMove.y.toFixed(2), fx: player.faceX, fy: player.faceY };
+    /* 돌진은 무적을 주지 않는다 — 무리로 뛰어들면 들어가는 순간 맞는다.
+       (1.7초마다 0.7초 무적이면 자원이 곧 방어막이 된다 — 머리 주석) */
+    selectedClass = 0; Game.reset();
+    for (const k of ['guardian', 'crusader']) {
+      const a = ADVANCES.find(x => x.key === k);
+      player.level = Math.max(player.level, a.tier * 12); player.sigils = 9;
+      Game.applyChoice(a);
+    }
+    player.res = 100; player.skillCd = 0; player.iframe = 0;
+    useSkill();
+    o.dashOn = player.dash > 0;                       // 돌진이 실제로 나갔는가(자가 헛돌지 않게)
+    o.dashIframe = +player.iframe.toFixed(2);
+    const hp0 = player.hp; hurtPlayer(50); o.dashHurt = Math.round(hp0 - player.hp);
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -182,6 +203,13 @@ const { chromium } = require('playwright');
     fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
   if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
     fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
+  console.log(`  돌진 무적  나갔는가 ${mech.dashOn} · 무적 ${mech.dashIframe}초 · 돌진 중 받은 피해 ${mech.dashHurt}`);
+  if (!mech.dashOn)
+    fail.push(`돌진이 안 나갔다 — 아래 두 줄이 아무것도 안 묻는다`);
+  if (mech.dashIframe !== 0)
+    fail.push(`돌진이 무적 ${mech.dashIframe}초를 준다 — 자원이 곧 방어막이 되면 파고드는 값을 안 치른다`);
+  if (!(mech.dashHurt > 0))
+    fail.push(`돌진 중에 ${mech.dashHurt} 맞는다 — 무리로 뛰어들면 맞아야 한다`);
   console.log(`  돌진 방향  서 있을 때 x ${mech.aimIdle} (무리는 왼쪽) · 이동 중 (${mech.aimMove.x}, ${mech.aimMove.y}) = 바라보는 쪽 (${mech.aimMove.fx}, ${mech.aimMove.fy})`);
   if (!(mech.aimIdle < -.9))
     fail.push(`서 있을 때 돌진이 x ${mech.aimIdle} 로 간다 — 왼쪽 무리로 가야 한다. 바라보는 쪽으로 가면 서서 스킬만으로 도망친다`);

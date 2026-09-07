@@ -2554,7 +2554,7 @@ const WEAPONS = {
   },
 
   scythe: {
-    name: "피의 낫", icon: "🩸", element: "blood", px: "scythe", desc: "사방으로 피의 파동을 퍼뜨린다. 적중 시 체력을 조금 회복.",
+    name: "피의 낫", icon: "🩸", element: "blood", px: "scythe", desc: "사방으로 피의 파동을 퍼뜨린다. 적중 시 체력을 조금 회복(파동마다 12마리까지).",
     cd: [2.6, 2.4, 2.2, 2.0, 1.82, 1.64, 1.46, 1.28],
     dmg: [20, 28, 39, 55, 77, 108, 152, 214],
     radius: [92, 106, 124, 146, 174, 208, 250, 300],
@@ -3011,11 +3011,12 @@ function spawnSlash(p, ang, dmg, len, life, element, arc) {
   s.element = element || "physical"; s.arc = arc || .62;      // 부채꼴 반각(rad) — 플레일만 .8
 }
 
+const WAVE_HEAL_CAP = 12;        // 파동 한 발이 회복을 세는 적의 수 — 위 5-b 주석
 function spawnWave(o) {
   const w = alloc(waves); if (!w) return;
   w.active = true; w.x = o.x; w.y = o.y; w.r = 0; w.maxR = o.maxR;
   w.life = w.maxLife = o.life; w.dmg = o.dmg; w.color = o.color;
-  w.element = o.element || "physical"; w.heal = o.heal || 0;
+  w.element = o.element || "physical"; w.heal = o.heal || 0; w.healN = 0;
   w.hitIds.clear();
   if (!w.heal) spawnFx(fxKey("boom", w.element), w.x, w.y, Math.min(150, o.maxR * .7), 0);   // 폭발 그림은 파동보다 작게(§101)
 }
@@ -5026,7 +5027,13 @@ function update(dt) {
       if (dist2(e.x, e.y, wv.x, wv.y) < rr * rr) {
         wv.hitIds.add(e.id);
         damageEnemy(e, wv.dmg, wv.x, wv.y, 200, wv.element);
-        if (wv.heal) player.hp = Math.min(s.maxHp, player.hp + wv.heal);
+        /* 파동 회복은 파동마다 WAVE_HEAL_CAP 마리까지다(2026-09-07). 피의 낫은 적중한 적
+           하나마다 1.2 를 회복하는데 상한이 없었다 — 도발이 200마리를 모으면 파동 한 발이
+           240 이고, 서 있는 성기사가 15분째 분당 적중 10,508 · 회복 4,505(초당 75)로 받은
+           피해의 85~88% 를 되돌려 15:00 을 이겼다(낫을 집게 한 6판 중 3승, 금한 6판 0승).
+           흡혈 전환엔 예산(leechBudget)이 있는데 여기엔 없었다. 12마리 = 14.4 — 200마리
+           앞에서 15배 준다. 「적중 시 조금 회복」이라는 카드 문장은 그대로 참이다. */
+        if (wv.heal && wv.healN < WAVE_HEAL_CAP) { wv.healN++; player.hp = Math.min(s.maxHp, player.hp + wv.heal); }
       }
     }
   }

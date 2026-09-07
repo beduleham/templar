@@ -8195,9 +8195,50 @@ function skSlash(name, icon, cost, desc, o) {
   } };
 }
 
+/* 돌진의 방향. 이동 중이면 가는 쪽(사람이 조종하는 방향), **가만히 서 있으면 가장 가까운
+   무리 쪽**이다.
+
+   예전엔 늘 바라보는 쪽(faceX·faceY)이었다. 이동 입력이 없으면 그 값이 판 처음의 (1, 0)
+   으로 고정이라, 스킬만 매 프레임 누르는 성전사가 오른쪽으로 470px 씩 순간이동하며
+   무리를 한 줄로 따돌렸다 — 「서서 스킬만으로」 15:00 을 이긴 판의 실체였다(2026-09-07,
+   받쳐서 확정한 넷이 돌진 89~102회 · 원점에서 3.4~4.3만 px). 돌진의 설명은 「적진을
+   꿰뚫고 지나간다」다. 적진이 있는 쪽으로 가야 그 문장이 참이다.
+
+   무리는 각도 16칸 히스토그램으로 잡는다 — 700px 안의 적을 칸에 넣되 가까울수록 무겁게
+   (1/(1 + d/250)), 이웃 칸까지 더해 가장 무거운 칸의 가중 평균 방향을 쓴다. 적이 없으면
+   바라보는 쪽 그대로. */
+function dashAim(p) {
+  const mv = inputVector();
+  if (mv.x || mv.y) return { x: p.faceX, y: p.faceY };
+  const BINS = 16, wx = new Array(BINS).fill(0), wy = new Array(BINS).fill(0), w = new Array(BINS).fill(0);
+  const R2 = 700 * 700;
+  let any = false;
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (!e.active) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d2 = dx * dx + dy * dy;
+    if (d2 > R2 || d2 < 1) continue;
+    const d = Math.sqrt(d2), k = 1 / (1 + d / 250);
+    const b = Math.floor(((Math.atan2(dy, dx) + TAU) % TAU) / TAU * BINS) % BINS;
+    w[b] += k; wx[b] += dx / d * k; wy[b] += dy / d * k; any = true;
+  }
+  if (!any) return { x: p.faceX, y: p.faceY };
+  let best = 0, bw = -1;
+  for (let b = 0; b < BINS; b++) {
+    const sum = w[b] + w[(b + 1) % BINS] + w[(b + BINS - 1) % BINS];
+    if (sum > bw) { bw = sum; best = b; }
+  }
+  let x = 0, y = 0;
+  for (const b of [best, (best + 1) % BINS, (best + BINS - 1) % BINS]) { x += wx[b]; y += wy[b]; }
+  const L = Math.hypot(x, y) || 1;
+  return { x: x / L, y: y / L };
+}
+
 function skDash(name, icon, cost, desc, o) {
   return { name, icon, cost, desc, use(p) {
-    p.dash = o.dur; p.dashX = p.faceX; p.dashY = p.faceY;
+    const aim = dashAim(p);
+    p.dash = o.dur; p.dashX = aim.x; p.dashY = aim.y;
+    p.faceX = aim.x; p.faceY = aim.y;          // 몸도 그쪽을 본다 — 돌진하는 쪽과 바라보는 쪽이 어긋나면 안 된다
     /* 돌진은 지나가는 복도만 때린다. 반경 34 면 복도 폭이 94px 이라, 반지름 380 짜리
        파동(넓이 45만)의 10분의 1도 안 된다 — 스킬 한 방의 값을 재 보니 다섯 중 꼴찌였고
        (51k 대 참수 160k), 사람은 「공격력이 거의 없다」며 15분을 도망 다녔다.

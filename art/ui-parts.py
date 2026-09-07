@@ -58,6 +58,8 @@ SHEETS = [
     ("art/src/ui_banner_sheet.png", ["ribbon", "ribbon_faith", "ribbon_blood", "ribbon_thin"], "green"),
     # 4단계(§117) — 지도와 상단. 미니맵 틀(뚫림) · 시계 판(채움) · 방향표 화살촉(뚫림) · 보스 체력바 틀(뚫림)
     ("art/src/ui_map_sheet.png", ["mapframe", "clock", "pointer", "bossbar"], "green"),
+    # 5단계(§118) — 카드. 카드 액자 일반·각성(뚫림) · 머리띠(채움) · 초상 창틀(뚫림)
+    ("art/src/ui_card_sheet.png", ["card", "card_awaken", "cardhead", "portrait"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -81,6 +83,7 @@ LAYOUT = [
     [("ribbon_faith", 512, 141, 0), ("ribbon_blood", 512, 151, 512)],
     [("mapframe", 192, 192, 0), ("clock", 384, 112, 192), ("pointer", 96, 96, 576)],
     [("bossbar", 512, 69, 0)],
+    [("card", 240, 304, 0), ("card_awaken", 240, 304, 240), ("portrait", 192, 192, 480), ("cardhead", 320, 61, 672)],
 ]
 
 

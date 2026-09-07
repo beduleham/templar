@@ -58,8 +58,11 @@ const { chromium } = require('playwright');
     const cw = 300, gap = 26, x0 = (W - (3 * cw + 2 * gap)) / 2;
     const draw = (A) => { CARDBG_A = A; fix(); mouse.x = -99; mouse.y = -99;
                           ctx.setTransform(1, 0, 0, 1, 0, 0); frame(performance.now()); };
+    /* 재는 상자는 카드 **안쪽**이다 — 액자(§118, 테 14px)를 상자에 넣으면 액자의 장식이
+       바탕 얼룩을 올려 워터마크의 몫이 묻힌다(0번 카드가 9.12 → 9.33 으로 「안 보인다」가 됐다).
+       테 안으로 22px 들여 잰다. */
     const stat = (i) => {
-      const d = ctx.getImageData(Math.round(x0 + i * (cw + gap)) + 12, 190, cw - 24, 300).data;
+      const d = ctx.getImageData(Math.round(x0 + i * (cw + gap)) + 22, 200, cw - 44, 290).data;
       const L = []; for (let k = 0; k < d.length; k += 4) L.push(d[k] * .299 + d[k + 1] * .587 + d[k + 2] * .114);
       L.sort((a, b) => a - b);
       const cut = (lo, hi) => L.slice(Math.floor(L.length * lo), Math.floor(L.length * hi));

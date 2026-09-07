@@ -13479,19 +13479,24 @@ function drawTitle() {
   ctx.font = "700 18px " + FONT; ctx.fillStyle = "rgba(255,255,255,.9)";
   ctx.fillText("직업 선택", W / 2, big ? 166 : 114);
 
-  // 제단 진입 버튼
-  const abw = big ? 204 : Math.min(250, W - 48), abh = 46;
+  /* 제단 진입 버튼 — 다른 버튼과 같은 손그림 판(§114). 이 자리만 옛 액자로 남아 있었다
+     (2026-09-07 점검). 끝 장식 안쪽(plateInset)에 아이콘과 글자를 놓으므로 넓은 화면에서는
+     판을 204 → 236 으로 늘려 두 줄이 장식에 닿지 않게 한다. */
+  const abw = big ? 236 : Math.min(250, W - 48), abh = 46;
   const abx = big ? W - abw - 28 : (W - abw) / 2, aby = big ? 28 : 62;
   const aHover = inRect(mouse.x, mouse.y, abx, aby, abw, abh);
-  panel(abx, aby, abw, abh, 12,
-    aHover ? "rgba(38,28,58,.98)" : "rgba(16,14,28,.9)",
-    aHover ? "#c9a3ff" : "rgba(201,163,255,.3)");
+  if (!uiPlate(abx, aby, abw, abh, aHover ? "hover" : ""))
+    panel(abx, aby, abw, abh, 12,
+      aHover ? "rgba(38,28,58,.98)" : "rgba(16,14,28,.9)",
+      aHover ? "#c9a3ff" : "rgba(201,163,255,.3)");
+  const ain = plateInset(abh) - 8;
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  drawMenuIcon("orb", abx + 22, aby + 23, "#c9a3ff", 3);
+  drawMenuIcon("orb", abx + ain + 10, aby + 23, "#c9a3ff", 3);
   ctx.font = "700 14px " + FONT; ctx.fillStyle = "#c9a3ff";
-  ctx.fillText("영혼의 제단", abx + 44, aby + 16);
-  ctx.font = "600 12px " + FONT; ctx.fillStyle = "rgba(255,255,255,.6)";
-  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  탭", abx + 44, aby + 33);
+  ctx.fillText("영혼의 제단", abx + ain + 30, aby + 16);
+  fitFont("600", 12, Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  탭", abw - ain * 2 - 30);
+  ctx.fillStyle = "rgba(255,255,255,.6)";
+  ctx.fillText(Meta.souls.toLocaleString("ko-KR") + " 영혼  ·  탭", abx + ain + 30, aby + 33);
   if (aHover && mouse.clicked) { Game.introFrom = "title"; Game.state = "altar"; return; }
   ctx.textAlign = "center";
 
@@ -13666,7 +13671,7 @@ function drawTitle() {
      안내 줄과 칩이 시작 문구 위에 겹쳐 찍혔다. 자리가 없으면 참고 정보를 접는다. */
   const gridBottom = y0 + rows * ch + (rows - 1) * gap;
   const chipRows = Math.ceil(COMBOS.length / Math.max(1, Math.min(COMBOS.length,
-    Math.floor((W - 24 + 8) / 126))));
+    Math.floor((W - 24 + 8) / 146))));            // 칩 최소 폭 138 + 틈 8 — 아래 줄과 같은 셈
   const showCombo = H - gridBottom >= 58 + chipRows * 40 + 60;
   if (!showCombo) { ctx.textAlign = "center"; return drawTitleFoot(); }
 
@@ -13679,26 +13684,33 @@ function drawTitle() {
   ctx.fillText("서로 다른 속성의 무기를 " + COMBO_LEVEL + "레벨까지 올리면 조합이 열리고, "
     + "둘 다 " + COMBO_MASTER + "레벨이면 ★완성되어 효과가 " + MASTER_POWER + "배가 된다", W / 2, gridBottom + 40);
 
-  /* 여섯 개를 한 줄로 놓으면 1,096px 이다. 좁으면 여러 줄로 접는다. */
-  const chipGap = 8;
+  /* 여섯 개를 한 줄로 놓으면 1,096px 이다. 좁으면 여러 줄로 접는다.
+     조합 칩은 짧은 손그림 판(ui_btn_short)이다 — 옛 액자로 남아 있던 자리(2026-09-07 점검).
+     끝 장식이 높이 34 에서 한쪽 15px 이라 그 안쪽에 아이콘·글자를 놓고, 이름은 남는 폭에
+     맞춰 줄인다(fitFont). 최소 폭을 118 → 138 로 올려 이름 자리를 지킨다. */
+  const chipGap = 8, chipH = 34;
   const perRow = Math.max(1, Math.min(COMBOS.length,
-    Math.floor((W - 24 + chipGap) / (118 + chipGap))));
+    Math.floor((W - 24 + chipGap) / (138 + chipGap))));
   const chipW = Math.min(176, Math.floor((W - 24 - (perRow - 1) * chipGap) / perRow));
   const chipY = gridBottom + 58;
+  const fShort = Sprites.frames.ui_btn_short;
+  const cin = fShort && Sprites.atlas ? Math.round(fShort.w * BTN_CAP * chipH / fShort.h) + 4 : 10;
   for (let i = 0; i < COMBOS.length; i++) {
     const cb = COMBOS[i], r = Math.floor(i / perRow);
     const inRow = Math.min(perRow, COMBOS.length - r * perRow);
     const rowW = inRow * chipW + (inRow - 1) * chipGap;
     const cx = (W - rowW) / 2 + (i % perRow) * (chipW + chipGap);
     const cy = chipY + r * 40;
-    panel(cx, cy, chipW, 34, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
+    if (!drawSliceH("ui_btn_short", cx, cy, chipW, chipH, BTN_CAP))
+      panel(cx, cy, chipW, chipH, 8, "rgba(14,14,24,.8)", "rgba(255,255,255,.1)");
     ctx.textAlign = "left"; ctx.font = "600 11px " + FONT;
     const ea = ELEMENTS[cb.a], eb = ELEMENTS[cb.b];
-    drawMenuIcon(ea.px, cx + 16, cy + 17, ea.color, 2);
-    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + 27, cy + 20);
-    drawMenuIcon(eb.px, cx + 44, cy + 17, eb.color, 2);
-    ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = "700 12px " + FONT;
-    ctx.fillText(cb.name, cx + 58, cy + 17);
+    drawMenuIcon(ea.px, cx + cin + 6, cy + 17, ea.color, 2);
+    ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillText("+", cx + cin + 17, cy + 20);
+    drawMenuIcon(eb.px, cx + cin + 34, cy + 17, eb.color, 2);
+    ctx.fillStyle = "rgba(255,255,255,.8)";
+    fitFont("700", 12, cb.name, chipW - cin * 2 - 50);
+    ctx.fillText(cb.name, cx + cin + 48, cy + 17);
   }
 
   drawTitleFoot();

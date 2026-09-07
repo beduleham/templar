@@ -147,6 +147,14 @@ const { chromium } = require('playwright');
     player.cls.stance.update(player, 1 / 60, false);
     o.pullNear = +Math.hypot(near.kx, near.ky).toFixed(2);
     o.pullFar = +Math.hypot(far.kx, far.ky).toFixed(2);
+    /* 돌진은 가만히 서 있으면 가장 가까운 무리 쪽으로, 이동 중이면 가는 쪽으로 간다.
+       (서 있는 성전사가 (1, 0) 으로 470px 씩 순간이동하며 이긴 판의 원인 — 머리 주석) */
+    selectedClass = 0; Game.reset(); keys.clear();
+    for (let i = 0; i < 3; i++) Game.spawnEnemy('slime', player.x - 200, player.y + (i - 1) * 30);
+    Game.spawnEnemy('slime', player.x + 400, player.y);          // 먼 쪽에 하나 — 가까운 무리가 이겨야 한다
+    const aimIdle = dashAim(player);
+    keys.add('s'); const aimMove = dashAim(player); keys.delete('s');
+    o.aimIdle = +aimIdle.x.toFixed(2); o.aimMove = { x: +aimMove.x.toFixed(2), y: +aimMove.y.toFixed(2), fx: player.faceX, fy: player.faceY };
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -174,6 +182,11 @@ const { chromium } = require('playwright');
     fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
   if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
     fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
+  console.log(`  돌진 방향  서 있을 때 x ${mech.aimIdle} (무리는 왼쪽) · 이동 중 (${mech.aimMove.x}, ${mech.aimMove.y}) = 바라보는 쪽 (${mech.aimMove.fx}, ${mech.aimMove.fy})`);
+  if (!(mech.aimIdle < -.9))
+    fail.push(`서 있을 때 돌진이 x ${mech.aimIdle} 로 간다 — 왼쪽 무리로 가야 한다. 바라보는 쪽으로 가면 서서 스킬만으로 도망친다`);
+  if (!(mech.aimMove.x === mech.aimMove.fx && mech.aimMove.y === mech.aimMove.fy))
+    fail.push(`이동 중 돌진이 (${mech.aimMove.x}, ${mech.aimMove.y}) — 사람이 가는 쪽이어야 한다`);
   console.log(`  도발 당김  닿은 적 ${mech.pullNear} · 110px 적 ${mech.pullFar}`);
   if (mech.pullNear !== 0)
     fail.push(`닿은 적을 ${mech.pullNear} 당긴다 — 몸에 눌러 붙이면 접촉 배수가 켜진다`);

@@ -197,7 +197,10 @@ const { chromium } = require('playwright');
     /* 파동 회복은 파동마다 12마리까지 — 피의 낫이 200마리 앞에서 한 발에 240 을 채우던 고리(머리 주석).
        적 30마리를 몸에 붙여 놓고 회복 1.2 짜리 파동 하나를 터뜨린다. */
     selectedClass = 0; Game.reset();
-    for (let i = 0; i < 30; i++) { const a = i / 30 * TAU; Game.spawnEnemy('slime', player.x + Math.cos(a) * 40, player.y + Math.sin(a) * 40); }
+    for (let i = 0; i < 30; i++) {
+      const a = i / 30 * TAU, e = Game.spawnEnemy('slime', player.x + Math.cos(a) * 40, player.y + Math.sin(a) * 40);
+      if (e) e.hp = e.maxHp = 1e6;    // 오라가 죽이면 레벨업 회복(최대 체력 재계산 ~14)이 섞인다 — 12판 중 1판이 그래서 29.6 을 찍었다
+    }
     hash.clear(); for (const e of enemies) if (e.active) hash.insert(e);
     player.hp = player.stats.maxHp * .3; player.iframe = 9;              // 접촉 피해가 섞이지 않게
     const hpW = player.hp;

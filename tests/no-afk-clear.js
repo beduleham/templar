@@ -67,7 +67,8 @@
    탐침 36판이 재현 못 한 것은 빌드 운이었다. 피의 낫은 파동이 적중한 적 하나마다 1.2 를
    회복하고 상한이 없다 — 도발이 200마리를 모으면 파동 한 발이 240 이고, 15분째 분당 회복
    4,505(초당 75)로 받은 피해의 85~88% 를 되돌렸다. 낫을 집게 한 6판 중 3승(낫 4~7레벨),
-   금한 6판 0승. 손잡이는 사람이 정한다(§개발정리). 그때까지 이 자는 그 승리를 빨간불로 둔다.
+   금한 6판 0승. **파동마다 12마리까지만 회복하게 상한을 걸었다**(사람의 결정) — 같은 봇
+   6판 0승. 아래 mech 가 30마리 적중에 12마리에서 멈추는지 잰다.
 
    (도발 자체가 3레벨에 자살 카드인지는 따로 물을 일이다 — 설명이 「더 둘러싸일수록
    강해진다」인데 세지는 것은 성전·가시 갑옷이고 도발은 부르기만 한다. §개발정리.)
@@ -193,6 +194,18 @@ const { chromium } = require('playwright');
     selectedClass = 0; Game.reset();
     const gainAt = (dt) => { player.res = 0; player.resHitT = Game.time - dt; player.iframe = 0; hurtPlayer(1); return +player.res.toFixed(1); };
     o.resSlow = gainAt(10); o.resFast = gainAt(.6);
+    /* 파동 회복은 파동마다 12마리까지 — 피의 낫이 200마리 앞에서 한 발에 240 을 채우던 고리(머리 주석).
+       적 30마리를 몸에 붙여 놓고 회복 1.2 짜리 파동 하나를 터뜨린다. */
+    selectedClass = 0; Game.reset();
+    for (let i = 0; i < 30; i++) { const a = i / 30 * TAU; Game.spawnEnemy('slime', player.x + Math.cos(a) * 40, player.y + Math.sin(a) * 40); }
+    hash.clear(); for (const e of enemies) if (e.active) hash.insert(e);
+    player.hp = player.stats.maxHp * .3; player.iframe = 9;              // 접촉 피해가 섞이지 않게
+    const hpW = player.hp;
+    spawnWave({ x: player.x, y: player.y, maxR: 200, dmg: 0, life: .5, color: '#fff', element: 'blood', heal: 1.2 });
+    for (let i = 0; i < 40; i++) update(1 / 60);
+    const wv = waves.find(w => w.heal === 1.2);
+    o.waveHeal = { hits: wv ? [...wv.hitIds].filter(x => typeof x === 'number').length : -1, counted: wv ? wv.healN : -1,
+                   healed: +(player.hp - hpW).toFixed(1), cap: WAVE_HEAL_CAP };   // healed 에는 0.67초치 재생(~1)이 섞인다
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -220,6 +233,14 @@ const { chromium } = require('playwright');
     fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
   if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
     fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
+  console.log(`  파동 회복  적 ${mech.waveHeal.hits}마리 적중 · 회복으로 센 것 ${mech.waveHeal.counted}마리 · 실제 회복 ${mech.waveHeal.healed} (상한 ${mech.waveHeal.cap}마리 = ${(mech.waveHeal.cap * 1.2).toFixed(1)}, 재생 조금 섞임)`);
+  if (!(mech.waveHeal.hits >= 25))
+    fail.push(`파동이 ${mech.waveHeal.hits}마리밖에 안 맞혔다 — 자가 상한을 물어볼 자리가 아니다`);
+  if (mech.waveHeal.counted !== mech.waveHeal.cap)
+    fail.push(`30마리 적중에 회복을 ${mech.waveHeal.counted}마리에서 셌다 — 파동마다 ${mech.waveHeal.cap}마리에서 멈춰야 한다`);
+  const capHeal = mech.waveHeal.cap * 1.2;
+  if (!(mech.waveHeal.healed >= capHeal - .1 && mech.waveHeal.healed < capHeal + 2.5))
+    fail.push(`실제 회복 ${mech.waveHeal.healed} — 상한 ${capHeal.toFixed(1)} 에 재생 한 줌을 더한 값이어야 한다`);
   console.log(`  피격 충전  10초 만에 맞음 ${mech.resSlow} · 0.6초 만에 맞음 ${mech.resFast}`);
   if (!(mech.resSlow >= 26))
     fail.push(`한참 만에 맞았는데 ${mech.resSlow} 만 찬다 — 「맞으면 찬다」는 그대로여야 한다`);

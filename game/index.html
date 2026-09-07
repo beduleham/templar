@@ -5136,7 +5136,7 @@ function update(dt) {
 
   /* 6-b. 접촉 피해 — 몇 마리에게 둘러싸였는지가 피해량을 정한다.
      무적 시간만 두면 1마리든 300마리든 위험이 같아져, 이 장르의 핵심 위협이 사라진다. */
-  if (player.iframe <= 0 && player.dash <= 0) {
+  if (player.iframe <= 0) {
     const touch = hash.query(player.x, player.y, player.r + 46, scratch);
     let count = 0, worst = 0;
     for (let i = 0; i < touch.length; i++) {
@@ -5314,7 +5314,9 @@ function update(dt) {
 /* 접촉·적 탄·장판이 모두 같은 규칙을 통과하도록 한 곳에 모은다.
    raw 는 방어력 적용 전 값. */
 function hurtPlayer(raw, tag) {
-  if (player.iframe > 0 || player.dash > 0 || Game.state !== "playing") return;
+  /* 돌진 중이라고 건너뛰지 않는다(§돌진 무적). 무적이 필요한 돌진은 스스로 iframe 을
+     준다(광전사) — 여기서 통째로 면제하면 그 선택이 공짜가 된다. */
+  if (player.iframe > 0 || Game.state !== "playing") return;
   /* 첫 1분은 맞는 피해를 0.7 에서 1.0 으로 올린다(§밸런스 2차). 스폰 경사를 잡은 뒤에도
      추적자·마법사 봇이 48~136초에 죽었고, 첫 90초 피해는 100% 접촉이었다 — 배우는 동안
      둘러싸여도 한두 번은 빠져나올 수 있어야 한다. 1분 뒤에는 정상. */
@@ -8246,7 +8248,15 @@ function skDash(name, icon, cost, desc, o) {
     p.dashR = o.r || 34;
     p.dashDmg = (o.dmg + p.level * (o.perLv || 12)) * p.stats.damage * p.dynDmg;
     p.dashHit.clear();
-    p.iframe = Math.max(p.iframe, o.dur + .2);
+    /* 무적을 주지 않는다(2026-09-07). 예전엔 돌진 시간 + 0.2초 동안 아무것도 못 맞았다.
+       돌진을 무리 쪽으로 돌리고 나니 서 있는 성전사가 12판 중 성전사가 된 4판 **전부**
+       15:00 을 이겼다 — 1.7초마다 0.7초 무적 + 광역 한 방이면 자원이 곧 방어막이라,
+       파고드는 값을 아무도 치르지 않는다. 이제 돌진은 **피해를 주는 이동**일 뿐이다.
+       무리 한복판으로 뛰어들면 들어가는 순간 한 대 맞는다(맞으면 일반 무적 0.6초가
+       붙으므로 한 번의 돌진에 한 대다).
+
+       광전사의 돌진은 그대로 둔다 — 그쪽은 스킬이 제 무적(0.55초)을 따로 주고,
+       특성 「진격」의 문장이 「더 멀리, 더 오래 무적」이라 무적이 그 특성의 알맹이다. */
     cam.shake = 8;
     Sfx.play(190, .3, "sawtooth", .85, 320);
   } };

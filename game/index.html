@@ -3814,6 +3814,9 @@ function skillCd() {
        그 계보만 늘 벌을 받는다
      · 마법사도 멈추면 강해지는 직업이다. 자세가 진영일 때만 건다. */
 const SKILL_HEAL_FRESH = 20, SKILL_HEAL_FADE = 25, SKILL_HEAL_DROP = .5;
+/* 도발의 흡인력 배수 — (든 무기 수 − 1) / (최대 무기 수 − 1). 무기 하나(시작 무기)로는
+   부르지 않고, 무기가 찰수록 세게 부른다(성기사 진영의 도발 주석에 실측). */
+function tauntPull(p) { return clamp((p.weapons.length - 1) / (MAX_WEAPONS - 1), 0, 1); }
 function skillHealScale(p) {
   if (!p.cls || p.cls.key !== "paladin") return 1;
   const worn = clamp((p.stillTime - SKILL_HEAL_FRESH) / SKILL_HEAL_FADE, 0, 1);
@@ -8019,8 +8022,9 @@ const TRAITS = {
       desc: "방벽이 더 빨리 서고, 더 많이 막고, 더 많이 회복한다.",
       detail: l => "전개 " + (.6 - .15 * l).toFixed(2) + "초 · 피해 감소 " + Math.round((.52 + .08 * l) * 100) + "%~ · 초당 회복 " + ((.015 + .005 * l) * 100).toFixed(1) + "%~" },
     { key: "taunt", name: "도발", icon: "📢", max: 2,
-      desc: "방벽을 세우면 주변의 적이 끌려온다. 더 둘러싸일수록 강해진다.",
-      detail: l => "흡인력 " + l + "단계" },
+      desc: "방벽을 세우면 주변의 적이 끌려온다. 무기가 많을수록 세게 당긴다 (무기 하나로는 못 부른다).",
+      detail: l => "흡인력 " + l + "단계 · 지금 무기 " + player.weapons.length + "/" + MAX_WEAPONS
+                   + " → " + Math.round(tauntPull(player) * 100) + "%" },
     { key: "crusade", name: "성전", icon: "✝️", max: 3,
       desc: "곁에 붙은 적 하나마다 피해가 오른다.",
       detail: l => "적 1마리당 피해 +" + (6 + 2.5 * l) + "%" },
@@ -8406,14 +8410,29 @@ const CLASSES = [
           // 도발: 방벽 중에는 적을 끌어당긴다 — 더 둘러싸일수록 이득이라는 규칙과 맞물린다
           const tl = traitLv("taunt");
           if (tl > 0) {
+            /* 흡인력은 **든 무기 수**에 걸린다 — 무기 1개 = 0, 2개 = 20%, 6개 = 온전.
+
+               3레벨 · 1레벨 무기 하나로 서 있는 성기사가 도발을 집으면 90초에 죽었다
+               (2026-09-07 실측: 서 있는 봇 30판 중 도발을 3레벨에 집은 9판 전부 80~98초
+               죽음, 안 집은 15판 전부 생존). 불러들인 것을 죽일 화력이 없으면 도발은
+               자살 카드다 — 그리고 카드는 「더 둘러싸일수록 강해진다」고 말했다.
+
+               「무기 1개 = 1/6」로 먼저 걸었는데 그래도 죽었다(95~125초). 흡인력을 줄이며
+               재 보니 서 있는 3레벨 성기사는 **아주 약한 당김에도** 무너진다 —
+               흡인 0 이면 12판 중 0, 3% 면 2, 8% 면 5, 17% 면 7판이 200초 안에 죽었다.
+               해악이 세기에 비례하지 않는다: 밀어내기(서로 겹치지 않게 하는 힘)에 맞서
+               적을 몸에 눌러 붙이는 것 자체가 접촉 배수(×5 · ×8 · ×14)를 켠다.
+               그래서 시작 무기 하나로는 아예 부르지 않는다. 화력의 가장 정직한 척도가
+               무기 수라 거기에 걸고, 무기가 차면서 도발도 차오른다. */
+            const pull = 42 * tl * tauntPull(p);
             for (let i = 0; i < found.length; i++) {
               const e = found[i];
               if (!e.active || e.boss) continue;
               const a = Math.atan2(p.y - e.y, p.x - e.x);
               // 42 는 예전의 60 이다 — 넉백 감쇠를 0.86 에서 0.90 으로 늦추면서
               // 같은 값이 40% 더 세게 당기게 됐다. 도발의 세기는 그대로 두려고 되돌린다.
-              e.kx += Math.cos(a) * 42 * tl * dt * 60;
-              e.ky += Math.sin(a) * 42 * tl * dt * 60;
+              e.kx += Math.cos(a) * pull * dt * 60;
+              e.ky += Math.sin(a) * pull * dt * 60;
             }
           }
         }

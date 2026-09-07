@@ -122,6 +122,12 @@ const { chromium } = require('playwright');
       return Math.round(player.hp - h0);
     };
     o.healFresh = heal(0); o.healWorn = heal(90);
+    /* 도발의 흡인력은 무기 수에 걸린다 — 시작 무기 하나로는 0, 여섯이면 온전.
+       (3레벨에 도발을 집은 서 있는 성기사가 90초에 죽던 원인 — 머리 주석) */
+    selectedClass = 0; Game.reset();
+    o.pull1 = tauntPull(player);
+    for (const k of Object.keys(WEAPONS)) { if (player.weapons.length >= MAX_WEAPONS) break; try { addWeapon(k); } catch (e) {} }
+    o.pullN = { n: player.weapons.length, max: MAX_WEAPONS, v: tauntPull(player) };
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -144,6 +150,11 @@ const { chromium } = require('playwright');
     fail.push(`실제 회복이 ${mech.healFresh} → ${mech.healWorn} — 배수가 회복에 안 걸린다`);
   if (mech.mage !== 1)
     fail.push(`마법사도 값을 문다 (${mech.mage}) — 멈춰야 강한 직업이다`);
+  console.log(`  도발 흡인  무기 1개 ${mech.pull1} · 무기 ${mech.pullN.n}개 ${mech.pullN.v}`);
+  if (mech.pull1 !== 0)
+    fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
+  if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
+    fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
 
   for (const r of runs)
     console.log(`  ${r.end === 'won' ? '★ 클리어' : '  죽음  '} ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')} · Lv${r.lv} · ${r.adv}`);

@@ -62,6 +62,8 @@ SHEETS = [
     ("art/src/ui_card_sheet.png", ["card", "card_awaken", "cardhead", "portrait"], "green"),
     # §120 도감 — 걸어 본 칸 액자 · 못 간 칸 액자 · 직업 탭 판 · 「다음」 봉인
     ("art/src/codex_sheet.png", ["codex_cell", "codex_cell_locked", "codex_tab", "codex_mark"], "green"),
+    # §121 HUD 작은 칩 — 한 줄 칩 · 신앙 저울 홈 · 단계 점 켜짐 · 꺼짐
+    ("art/src/hud_chip_sheet.png", ["chip", "scale", "pip_on", "pip_off"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -88,6 +90,8 @@ LAYOUT = [
     [("card", 240, 304, 0), ("card_awaken", 240, 304, 240), ("portrait", 192, 192, 480), ("cardhead", 320, 61, 672)],
     # 도감 칸은 98×112(폰 167×191)에 아홉 조각으로 늘려 그린다 — 귀는 drawSlice9 의 scale 로 칸에 맞춘다
     [("codex_cell", 224, 276, 0), ("codex_cell_locked", 224, 276, 224), ("codex_tab", 416, 100, 448), ("codex_mark", 100, 160, 864)],
+    # 한 줄 칩·저울은 화면에서 240×22 안팎이라 384 폭(dpr2 여유). 점은 13×10 에 그리므로 96 으로 충분하다
+    [("chip", 384, 64, 0), ("scale", 384, 63, 384), ("pip_on", 96, 52, 768), ("pip_off", 96, 52, 864)],
 ]
 
 

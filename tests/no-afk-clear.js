@@ -52,10 +52,19 @@
      ② 돌진 무적을 없앰          1.7초마다 0.7초 무적이면 자원이 곧 방어막이다.
                                 받침 성전사 3판 중 1승으로 내려왔다(12:27·12:34 죽음).
 
-   지금 이 자는 **12판 중 4판이 빨간불**이다 — 성전사 둘, 불멸의 성벽 둘. 성벽은 돌진이
-   없으므로 ①②와 무관한 다른 길이고, 도발 세 설정(지금·몸에 붙이던 때·예전)에서 각 6판,
-   따로 36판을 돌려도 한 번도 안 이겼는데 자에서는 이긴다 — 탐침과 자의 차이를 아직 못
-   가렸다(§개발정리). 남은 손잡이 후보는 성기사의 자원(맞으면 찬다)이다.
+   ②까지 하고도 **12판 중 4판이 빨간불**이었다 — 성전사 둘, 불멸의 성벽 둘. 그래서
+   셋째를 했다.
+
+     ③ 피격 충전에 시간 상한   성기사의 자원은 맞으면 26 씩 상한 없이 찼다. 서 있는 성기사가
+                              1~3분에 분당 18~34번 맞아 자원 470~880 을 채우고 심판의 빛
+                              (60 · 무적 1.6초)을 분당 9~17번 썼다 — 무리가 곧 연료였다.
+                              3초에 한 번 온전히, 더 잦으면 지난 시간만큼만(0.7초면 6).
+                              스킬 분당 6~11번으로, 성전사의 돌진은 219~328회 → 46~85회.
+                              받침 성전사 2판 모두 죽음(10:19 · 13:40).
+
+   성벽은 돌진이 없고 부동의 맹세는 재사용 대기(18.8초)에 묶여 있어 ①②③ 어느 것의 영향도
+   거의 안 받는다. 도발 세 설정에서 각 6판, 따로 36판을 돌려도 한 번도 안 이겼는데 자에서는
+   이겼다 — 탐침과 자의 차이를 아직 못 가렸다(§개발정리).
 
    (도발 자체가 3레벨에 자살 카드인지는 따로 물을 일이다 — 설명이 「더 둘러싸일수록
    강해진다」인데 세지는 것은 성전·가시 갑옷이고 도발은 부르기만 한다. §개발정리.)
@@ -176,6 +185,11 @@ const { chromium } = require('playwright');
     o.dashOn = player.dash > 0;                       // 돌진이 실제로 나갔는가(자가 헛돌지 않게)
     o.dashIframe = +player.iframe.toFixed(2);
     const hp0 = player.hp; hurtPlayer(50); o.dashHurt = Math.round(hp0 - player.hp);
+    /* 피격 충전은 3초에 한 번 온전하다 — 잇달아 맞으면 지난 시간만큼만 찬다.
+       (서 있는 성기사가 분당 18~34번 맞아 자원 470~880 을 채우던 고리 — 머리 주석) */
+    selectedClass = 0; Game.reset();
+    const gainAt = (dt) => { player.res = 0; player.resHitT = Game.time - dt; player.iframe = 0; hurtPlayer(1); return +player.res.toFixed(1); };
+    o.resSlow = gainAt(10); o.resFast = gainAt(.6);
     // 마법사는 멈춰야 강한 직업이다 — 여기에 값을 물리면 안 된다
     selectedClass = 3; Game.reset();
     player.stillTime = 200;
@@ -203,6 +217,11 @@ const { chromium } = require('playwright');
     fail.push(`시작 무기 하나로 도발이 ${mech.pull1} 당긴다 — 불러들인 것을 죽일 화력이 없으면 자살 카드다`);
   if (!(mech.pullN.n === mech.pullN.max && mech.pullN.v === 1))
     fail.push(`무기 ${mech.pullN.n}개에 흡인 ${mech.pullN.v} — 무기가 차면 온전히 당겨야 한다`);
+  console.log(`  피격 충전  10초 만에 맞음 ${mech.resSlow} · 0.6초 만에 맞음 ${mech.resFast}`);
+  if (!(mech.resSlow >= 26))
+    fail.push(`한참 만에 맞았는데 ${mech.resSlow} 만 찬다 — 「맞으면 찬다」는 그대로여야 한다`);
+  if (!(mech.resFast > 0 && mech.resFast < mech.resSlow * .3))
+    fail.push(`0.6초 만에 맞아도 ${mech.resFast} 찬다 — 「맞을수록 찬다」가 안 접혔다`);
   console.log(`  돌진 무적  나갔는가 ${mech.dashOn} · 무적 ${mech.dashIframe}초 · 돌진 중 받은 피해 ${mech.dashHurt}`);
   if (!mech.dashOn)
     fail.push(`돌진이 안 나갔다 — 아래 두 줄이 아무것도 안 묻는다`);

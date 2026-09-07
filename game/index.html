@@ -13984,14 +13984,17 @@ function codexCell(a, x, y, cw, ch, got, hov, next) {
     ctx.globalAlpha = 1;
   }
   // 이름은 제 판 위에 — 초상과 겹치지 않는다. 띠는 HUD 의 한 줄 리본(§116)을 그대로 쓴다
-  const bandArt = drawSliceH("ui_ribbon_thin", x + 4, y + ch - plateH - 3, cw - 8, plateH, RIBBON.ribbon_thin.cap);
+  /* 띠는 칸 폭을 거의 다 쓴다(안쪽 1px). 4px 씩 들였을 때 98px 칸에서 메달 둘(28px)까지 빼면
+     글자 자리가 58px 뿐이라 「대지의 심판자」가 8px 로 줄었다 — codex 회귀가 9.5px 아래를 잡는다.
+     메달은 띠의 5% 라 글자가 메달 **안쪽 가장자리**까지는 가도 된다: 여백을 메달 하나 몫만 뺀다. */
+  const bandArt = drawSliceH("ui_ribbon_thin", x + 1, y + ch - plateH - 3, cw - 2, plateH, RIBBON.ribbon_thin.cap);
   if (!bandArt) pxChip(x + 4, y + ch - plateH - 3, cw - 8, plateH, "rgba(6,6,12,.92)", null, 4);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const fs = clamp(Math.round(ch * .108), 10, 17);
   ctx.fillStyle = got ? a.color : "rgba(255,255,255,.62)";
-  // 띠의 끝 메달 안쪽에만 글자를 — 폰(칸 191)에서 「불멸의 성벽」이 메달을 덮었다
+  // 띠의 끝 메달을 덮지 않게 — 폰(칸 191)에서 「불멸의 성벽」이 메달을 덮었다
   const bandCap = bandArt ? ribbonCap("ribbon_thin", plateH) : 2;
-  fitFont("700", fs, a.name, cw - 12 - bandCap * 2);
+  fitFont("700", fs, a.name, cw - 6 - bandCap);
   ctx.fillText(a.name, pcx, y + ch - plateH / 2 - 3);
   if (next && !got) {
     /* 「다음」 표시는 왼 위 귀에 매달린 붉은 봉인(§120). 맥동은 점선 시절 그대로 알파로 —

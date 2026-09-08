@@ -114,24 +114,46 @@ const { BOT } = require('../tests/bot.js');
         if (Game.state === 'playing') { botTick(1 / 60, true); player.hp = player.stats.maxHp; }
         update(1 / 60); pick();
       }
-      const hp0 = player.stats.maxHp; player.hp = hp0;
+      /* 버티기는 **세 번 재서 중앙값**을 쓴다(§130).
+
+         한 번만 재면 판정이 분포에서 뽑은 점 하나에 달린다 — 그래서 이 자가 오래
+         「가끔 빨간불」이었다. 6:00 을 32표본 재고 「최소 9.8초라 안정적」이라고
+         적었는데, 자를 고쳐 다시 돌리니 6번 중 한 번이 3.9초로 떨어졌다.
+         꼬리를 못 본 표본이었던 것이다.
+
+         비싼 것은 6분 빌드업이고 버티는 창은 12초다. 죽으면 되살려 그 자리에서
+         다시 재면 표본이 세 배가 되는데 값은 거의 안 든다. 되살릴 때 적을 치우지
+         않는다 — 치우면 재던 것과 다른 것을 재게 된다. */
       const BT = botTick; botTick = () => {};       // 손을 뗀다
-      let lived = 0, dogs = 0;
-      for (let k = 0; k < 60 * 12; k++) {
-        update(1 / 60); pick();
-        lived = k / 60;
-        dogs = Math.max(dogs, nearestEnemies(player.x, player.y, 110, 60).filter(e => e.type.name === '사냥개').length);
-        if (player.hp <= 0 || Game.state !== 'playing') break;
+      const runs = [];
+      let dogs = 0;
+      for (let t = 0; t < 3; t++) {
+        if (Game.state !== 'playing') Game.state = 'playing';
+        /* 반복마다 시계를 제자리로 돌린다. 12초씩 세 번이면 36초가 흘러 6:00 판이
+           사냥개 구간(6:30)으로 넘어간다 — 실제로 넘어가서 「사냥개 전」을 재는
+           자리에 사냥개 다섯이 붙었다. 시각은 난이도를 정하므로, 되돌려야 세
+           표본이 **같은 자리에서 뽑은 셋**이 된다. */
+        Game.time = AT;
+        player.hp = player.stats.maxHp; player.iframe = 0;
+        let lived = 0;
+        for (let k = 0; k < 60 * 12; k++) {
+          update(1 / 60); pick();
+          lived = k / 60;
+          dogs = Math.max(dogs, nearestEnemies(player.x, player.y, 110, 60).filter(e => e.type.name === '사냥개').length);
+          if (player.hp <= 0 || Game.state !== 'playing') break;
+        }
+        runs.push(+lived.toFixed(1));
       }
       botTick = BT; botRestore();
-      res.push({ ci, at: AT, lived: +lived.toFixed(1), dogs, alive: Game.alive, lv: player.level });
+      const sorted = runs.slice().sort((a, b) => a - b);
+      res.push({ ci, at: AT, lived: sorted[1], runs, dogs, alive: Game.alive, lv: player.level });
     }
     return res;
   }, CASES);
   const NM = ['성기사', '전사', '추적자', '마법사'];
   const mmss = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
   for (const r of cliff) {
-    out.push(`${mmss(r.at)}   ${NM[r.ci]} 가만히 ${r.lived}초 버팀 · 곁의 사냥개 ${r.dogs} · 동시 적 ${r.alive} · Lv${r.lv}`);
+    out.push(`${mmss(r.at)}   ${NM[r.ci]} 가만히 ${r.lived}초 버팀 (${r.runs.join('/')} 중앙값) · 곁의 사냥개 ${r.dogs} · 동시 적 ${r.alive} · Lv${r.lv}`);
     /* 6:00 은 사냥개 전이라 안정적이다(32표본 9.8~12초) — 절벽이 돌아오면 여기서 걸린다.
        6:40 은 양봉이라(1.8~12초) 「즉사가 아니다」만 본다. 머리 주석 참고. */
     const floor = r.at < 390 ? 4 : 1;

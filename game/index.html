@@ -2644,7 +2644,11 @@ const hash = new SpatialHash(70);
 const scratch = [], scratch2 = [], scratch3 = [];
 const cam = { x: 0, y: 0, shake: 0, px: 0, py: 0 };
 const CAM_K = .16;                       // 카메라가 한 프레임에 좁히는 비율
-const CAM_LEAD = (1 - CAM_K) / CAM_K;    // 등속에서 생기는 뒤처짐을 정확히 상쇄한다
+/* 뒤처짐을 (1-k)/k 만큼 미리 더하면 정확히 0 이 되는데, 그러면 카메라가 주인공에
+   대해 완전히 굳어 뻣뻣하다. 그래서 **80% 만 상쇄한다** — 남는 20%(등속에서 가로
+   3.3px)가 따라붙는 여운이 된다. 고치기 전 16.7px 의 1/5 이라 치우쳐 보이지 않는다. */
+const CAM_FOLLOW = .8;
+const CAM_LEAD = (1 - CAM_K) / CAM_K * CAM_FOLLOW;
 const CAM_LEAD_MAX = 30;                 // 돌진처럼 빠른 것에는 천장을 둔다
 
 /* ---------- 큰 이펙트의 픽셀 렌더 ----------

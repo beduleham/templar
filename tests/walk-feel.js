@@ -135,9 +135,14 @@ const { chromium } = require('playwright');
     out.cam.멈춤 = walk([], 60);
     out.cam.오른쪽 = walk([KM.right[0]], 180);
     out.cam.왼위 = walk([KM.left[0], KM.up[0]], 180);
-    player.dynSpeed = 1.6;
+    /* 빠를 때도 봐야 한다 — 뒤처짐은 속도에 비례하므로 이동 강화를 먹을수록 커진다.
+       처음엔 dynSpeed 를 올렸는데 그 값은 **update 가 매 프레임 1 로 되돌린다** —
+       빠르지도 않은 판을 「빠를 때」라 이름 붙여 재고 있었다. 판마다 다시 계산되지
+       않는 base.speed 를 올린다. */
+    const spd0 = player.base.speed;
+    player.base.speed = spd0 * 1.6;
     out.cam.빠를때 = walk([KM.right[0], KM.down[0]], 180);
-    player.dynSpeed = 1;
+    player.base.speed = spd0;
     Game.state = 'title';
     return out;
   });
@@ -167,10 +172,14 @@ const { chromium } = require('playwright');
   }
 
   /* 어긋남은 방향에도 속도에도 상관없이 몇 px 안이어야 한다. 고치기 전에는
-     오른쪽으로 걸을 때 가로 16.7px · 세로 11.2px 이었고, 이동 +60% 면 더 컸다. */
+     오른쪽으로 걸을 때 가로 16.7px · 세로 11.2px 이었고, 이동 +60% 면 더 컸다.
+
+     지금은 일부러 다 상쇄하지 않는다(CAM_FOLLOW .8) — 완전히 상쇄하면 카메라가
+     굳어 뻣뻣하다. 남기는 몫이 등속에서 가로 3.3px 이므로 문턱은 6 으로 잡는다.
+     상한만 본다: 여운을 얼마나 남길지는 취향이고, 잡아야 할 것은 **치우쳐 보이는가**다. */
   console.log('카메라 어긋남(px): ' + Object.entries(r.cam).map(([k, v]) => k + ' ' + v).join(' · '));
   for (const [k, v] of Object.entries(r.cam))
-    if (v > 4) fail.push(`${k} 일 때 주인공이 화면 가운데에서 ${v}px 벗어난다 — 카메라 앞당김이 빠졌다(§129)`);
+    if (v > 6) fail.push(`${k} 일 때 주인공이 화면 가운데에서 ${v}px 벗어난다 — 카메라 앞당김이 빠졌다(§129)`);
 
   fail.push(...errs);
   await b.close();

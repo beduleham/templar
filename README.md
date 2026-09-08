@@ -2,6 +2,8 @@
 
 어린이집·유치원 원장/교사의 교육계획 수립과 교재·교구 선정을 일원화하는 AI 추천 어시스턴트.
 
+기능·아키텍처·검증 내역 전체 정리는 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)를 참고하세요.
+
 ## 기술 스택
 
 - React 19 + TypeScript + Vite

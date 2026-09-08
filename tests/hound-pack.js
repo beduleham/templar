@@ -16,6 +16,25 @@
      4. 무리를 다 잡으면 값을 준다. 한 번만
      5. **실수의 값** — 6:00 에 가만히 서서 4초 이상 버틴다
         (이 자가 절벽을 잡는다. 12초에서 3.5초로 떨어진 것이 원래 문제였다)
+     6. **사냥개가 실제로 있는 자리** — 6:40 에 가만히 서기(§130)
+
+   ■ 5번이 사냥개 없는 자리를 재고 있었다 (§130)
+
+   머리에 적힌 「6:00 에 6마리」는 사냥개가 6:00 에 나오던 시절의 값이다. 그 뒤
+   HOUND_FROM 을 390(6:30)으로 미뤘는데 **재는 시각은 360 에 남았다.** 그래서
+   20판을 돌려도 곁의 사냥개가 늘 0 이었고, 「12마리 넘으면 빨간불」은 구조상
+   한 번도 걸릴 수 없었다. 값이 안 움직이는 검사는 검사가 아니다.
+
+   6번을 따로 단다. 5번(6:00)은 그대로 둔다 — 32표본에서 9.8~12초로 안정적이라
+   문턱 4초가 여유 있게 선다. 6번은 다르다. 사냥개가 붙으면 이렇게 나온다:
+
+       전사    최소 2.1  중앙 4.1   [2.1 2.3 2.4 2.6 3.1 3.4 4.1 4.3 7.7 10.9 12 12 12]
+       추적자  최소 1.8  중앙 2.4   [1.8 2.2 2.2 2.3 2.4 2.4 2.4 2.5 7.4 12 12 12 12]
+
+   **양봉이다** — 대개 2~4초인데 가끔 끝까지 버틴다. 한 표본으로는 어디에 문턱을
+   두든 흔들리므로, 실측 바닥(1.8)보다 확실히 아래인 1.0 에 둔다. 이 자가 잡는
+   것은 「사냥개 앞에서 오래 버틴다」가 아니라 **「즉사가 아니다」** 다.
+   사람이 정했다(2026-09-08): 사냥개 밸런스는 그대로 두고 자를 실측에 맞춘다.
 
    실행: node tests/hound-pack.js */
 const { chromium } = require('playwright');
@@ -80,16 +99,18 @@ const { BOT } = require('../tests/bot.js');
   if (mech.reward.drop < 1) fail.push('무리를 다 잡았는데 아무것도 안 나온다');
 
   // ── 5. 실수의 값 — 절벽이 돌아왔는지
-  const cliff = await pg.evaluate(async () => {
+  /* 5번은 사냥개 전(6:00), 6번은 사냥개가 붙은 뒤(6:40). 같은 장치로 두 자리를 잰다. */
+  const CASES = [[1, 360], [2, 360], [1, 400], [2, 400]];
+  const cliff = await pg.evaluate(async (CASES) => {
     const res = [];
-    for (const ci of [1, 2]) {                     // 전사 · 추적자 — 절벽이 가장 깊던 둘
+    for (const [ci, AT] of CASES) {                // 전사 · 추적자 — 절벽이 가장 깊던 둘
       selectedClass = ci; Game.reset(); botInstall(); player.godMode = false;
       const pick = () => { let g = 0;
         while ((Game.state === 'levelup' || Game.state === 'advance') && g++ < 50) {
           const C = Game.choices, hpF = player.hp / player.stats.maxHp;
           Game.applyChoice((hpF < .4 && C.find(c => c.type === 'heal')) || C.find(c => c.type === 'passive') || C.find(c => c.type !== 'heal') || C[0]);
         } };
-      for (let i = 0; i < 60 * 362 && Game.time < 360; i++) {
+      for (let i = 0; i < 60 * (AT + 2) && Game.time < AT; i++) {
         if (Game.state === 'playing') { botTick(1 / 60, true); player.hp = player.stats.maxHp; }
         update(1 / 60); pick();
       }
@@ -103,16 +124,26 @@ const { BOT } = require('../tests/bot.js');
         if (player.hp <= 0 || Game.state !== 'playing') break;
       }
       botTick = BT; botRestore();
-      res.push({ ci, lived: +lived.toFixed(1), dogs, alive: Game.alive, lv: player.level });
+      res.push({ ci, at: AT, lived: +lived.toFixed(1), dogs, alive: Game.alive, lv: player.level });
     }
     return res;
-  });
+  }, CASES);
   const NM = ['성기사', '전사', '추적자', '마법사'];
+  const mmss = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
   for (const r of cliff) {
-    out.push(`6:00   ${NM[r.ci]} 가만히 ${r.lived}초 버팀 · 곁의 사냥개 ${r.dogs} · 동시 적 ${r.alive} · Lv${r.lv}`);
-    if (r.lived < 4) fail.push(`${NM[r.ci]}: 6:00 에 가만히 ${r.lived}초 만에 죽는다 — 4초 이상이어야 한다 (절벽이 돌아왔다)`);
+    out.push(`${mmss(r.at)}   ${NM[r.ci]} 가만히 ${r.lived}초 버팀 · 곁의 사냥개 ${r.dogs} · 동시 적 ${r.alive} · Lv${r.lv}`);
+    /* 6:00 은 사냥개 전이라 안정적이다(32표본 9.8~12초) — 절벽이 돌아오면 여기서 걸린다.
+       6:40 은 양봉이라(1.8~12초) 「즉사가 아니다」만 본다. 머리 주석 참고. */
+    const floor = r.at < 390 ? 4 : 1;
+    if (r.lived < floor)
+      fail.push(`${NM[r.ci]}: ${mmss(r.at)} 에 가만히 ${r.lived}초 만에 죽는다 — ${floor}초 이상이어야 한다`);
     if (r.dogs > 12) fail.push(`${NM[r.ci]}: 곁의 사냥개가 ${r.dogs}마리 — 무리가 쌓이고 있다`);
   }
+  /* 6:40 에 사냥개가 정말 곁에 있었는가. 이것이 빠지면 위의 6:40 검사는 다시
+     사냥개 없는 자리를 재게 된다 — 그게 §130 에서 잡은 바로 그 구멍이다. */
+  const late = cliff.filter(r => r.at >= 390);
+  if (!late.some(r => r.dogs > 0))
+    fail.push(`6:40 인데 곁에 사냥개가 한 마리도 안 왔다 (${late.map(r => r.dogs).join(',')}) — 사냥개 없는 자리를 재고 있다`);
 
   fail.push(...errs);
   await b.close();

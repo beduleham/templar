@@ -56,16 +56,45 @@ const CAPTURE = `(() => {
   const errs = [];
   let bad = 0;
 
-  // ── 1. 붐비는 고정 장면에서 겹친 쌍
-  {
-    const pg = await b.newPage({ viewport: { width: 1440, height: 860 } });
+  /* 페이지를 여는 순간부터 게임의 rAF 루프를 막는다(§130).
+
+     evaluate 안에서만 막으면 이미 늦다 — 페이지를 열고 Sprites 가 준비될 때까지
+     루프가 **제 속도로** 돌고, 그동안 몇 프레임이 지나갔는지가 판마다 다르다.
+     그 차이가 어트랙트 데모의 상태로 남아 재는 장면을 흔들었다(같은 코드로 띠가
+     8·9·10줄). Sprites.ready 는 이미지 onload 로 서므로 rAF 없이도 준비된다.
+
+     프레임은 아래에서 시계를 쥐고 직접 넘긴다 — 이 파일이 재는 것은 애니메이션이
+     아니라 **한 프레임의 배치**다. */
+  const newPage = async (vw, vh) => {
+    const pg = await b.newPage({ viewport: { width: vw, height: vh } });
+    await pg.addInitScript(() => { window.requestAnimationFrame = () => 0; });
     pg.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
     await pg.goto('file:///home/user/templar/game/index.html');
     await pg.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
+    return pg;
+  };
+
+  // ── 1. 붐비는 고정 장면에서 겹친 쌍
+  {
+    const pg = await newPage(1440, 860);
     const r = await pg.evaluate(async (CAP) => {
       let seed = 12345;
       Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-      const step = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      /* 프레임은 시계를 쥐고 넘긴다(§130). rAF 로 넘기면 판이 무거울 때 실제로
+         그려지는 수가 달라지는데, 지형 표지는 **지난 프레임의 HUD 자리**를 보고
+         비키므로 프레임 수가 흔들리면 재는 장면 자체가 흔들린다 — 혼자 돌려도
+         띠가 12번 중 2번 10줄이 아니라 9줄이었다. 넘기는 동안은 frame() 이 자기를
+         다시 예약하는 것을 막는다. 안 막으면 부른 만큼 루프가 불어나 화면 밖에서
+         계속 돌고, 그 부하가 다시 다음 장면을 흔든다. */
+      let ft = 1e6;
+      /* 고정 타임스텝 누산기(acc)를 비운다. 프레임 수를 고정해도 이것이 남아
+         있으면 **한 프레임에 update 가 두 번** 돌 수 있다 — 실제로 Game.time 이
+         430.05 와 430.07 로 갈렸고, 그 한 번 차이로 적이 더 나와 띠가 8·9·10줄을
+         오갔다. 넘기는 간격도 STEP 과 정확히 같게 준다(16.7 로 주면 조금씩 밀려
+         누산기가 언젠가 넘친다). */
+      acc = 0;
+      const DT = 1000 / 60;
+      const step = () => { last = ft; ft += DT; frame(ft); };
       selectedClass = 0; Game.reset(); Game.state = 'playing';
       player.base.maxHp = 1e9; recomputeStats(); player.hp = 1e9;
       Game.time = 430;
@@ -82,7 +111,7 @@ const CAPTURE = `(() => {
         for (const e of E) { e.spd = 0; e.hp = 1e9;
           damageEnemy(e, 14 + (f%4)*9, e.x+20, e.y, 0, ['physical','fire','holy'][f%3]); }
         if (Game.state !== 'playing') Game.state = 'playing';
-        await step();
+        step();
       }
       for (const e of enemies) if (!keep.has(e)) e.active = false;
       const boxes = eval(CAP);
@@ -123,10 +152,7 @@ const CAPTURE = `(() => {
   /* 뷰포트를 셋 골라도 논리 화면이 비슷하게 나온다(캔버스가 넓이를 맞춰 늘린다).
      좁은 화면은 미션 배너의 기준 y 가 달라지므로(narrow() → 152) 반드시 넣는다. */
   for (const [vw, vh] of [[1440,860],[844,390],[390,844]]) {
-    const pg = await b.newPage({ viewport: { width: vw, height: vh } });
-    pg.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
-    await pg.goto('file:///home/user/templar/game/index.html');
-    await pg.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
+    const pg = await newPage(vw, vh);
     const r = await pg.evaluate(async ({ CAP, BIG }) => {
       /* 씨앗을 박는다. 붐비는 장면 쪽만 박아 두었더니 이 띠 검사가 실행마다
          11줄과 12줄 사이를 오갔고, 드물게 「보스 표지 ↔ 미션」 한 쌍이 났다.
@@ -134,19 +160,33 @@ const CAPTURE = `(() => {
          자리도 흔들린다. 계측기가 흔들리면 그 위의 판정도 못 믿는다. */
       let seed = 4242;
       Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-      const step = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      /* 프레임은 시계를 쥐고 넘긴다(§130). rAF 로 넘기면 판이 무거울 때 실제로
+         그려지는 수가 달라지는데, 지형 표지는 **지난 프레임의 HUD 자리**를 보고
+         비키므로 프레임 수가 흔들리면 재는 장면 자체가 흔들린다 — 혼자 돌려도
+         띠가 12번 중 2번 10줄이 아니라 9줄이었다. 넘기는 동안은 frame() 이 자기를
+         다시 예약하는 것을 막는다. 안 막으면 부른 만큼 루프가 불어나 화면 밖에서
+         계속 돌고, 그 부하가 다시 다음 장면을 흔든다. */
+      let ft = 1e6;
+      /* 고정 타임스텝 누산기(acc)를 비운다. 프레임 수를 고정해도 이것이 남아
+         있으면 **한 프레임에 update 가 두 번** 돌 수 있다 — 실제로 Game.time 이
+         430.05 와 430.07 로 갈렸고, 그 한 번 차이로 적이 더 나와 띠가 8·9·10줄을
+         오갔다. 넘기는 간격도 STEP 과 정확히 같게 준다(16.7 로 주면 조금씩 밀려
+         누산기가 언젠가 넘친다). */
+      acc = 0;
+      const DT = 1000 / 60;
+      const step = () => { last = ft; ft += DT; frame(ft); };
       selectedClass = 0; Game.reset(); Game.state = 'playing';
       player.base.maxHp = 1e9; recomputeStats(); player.hp = 1e9; Game.time = 430;
       for (const e of enemies) e.active = false;
       const boss = Game.spawnEnemy('boss1', player.x + 2200, player.y + 600, RANKS.common);
       if (boss) { boss.think = () => {}; boss.spd = 0; boss.hp = 16141; boss.maxHp = 32000; }
-      await step();
+      step();
       Game.advancePending = 1;
       Game.lmFlash = 3; Game.lmFlashText = '봉인이 풀렸다 — 파수꾼을 쓰러뜨려라';
       Mission.flash = BIG ? 1.5 : 0;
       if (Game.state !== 'playing') Game.state = 'playing';
-      await step();
-      await step();          // 한 프레임 더 — 표지가 '지난 프레임의 HUD 자리'를 보고 비키므로, 판이 무거울 때 한 번은 덜 앉는다(전체 회귀 동시 실행에서 한 번 흔들렸다)
+      step();
+      step();          // 한 프레임 더 — 표지가 '지난 프레임의 HUD 자리'를 보고 비킨다
       Mission.flash = BIG ? 1.5 : 0;
       const boxes = eval(CAP);
       // 중앙에 쓰는 것만 — 왼쪽 위 조합 줄이 좁은 화면에서 이 구간에 들어온다

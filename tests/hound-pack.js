@@ -53,6 +53,10 @@ const { BOT } = require('../tests/bot.js');
   // ── 1~4. 구조 — 시각을 직접 옮겨 무리를 두 번 부른다
   const mech = await pg.evaluate(() => {
     const o = {};
+    /* 여기도 씨앗을 박는다. 판정에는 여유가 있지만(떨군 것 ≥ 1) 찍히는 값이 4 와 2
+       사이를 오갔다 — 흔들리는 계측기는 그 위의 판정도 못 믿게 만든다(§130). */
+    let seed = 8641;
+    Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     const hounds = () => enemies.filter(e => e.active && e.type.name === '사냥개');
     selectedClass = 0; Game.reset(); player.godMode = true;
     o.from = typeof HOUND_FROM !== 'undefined' ? HOUND_FROM : null;
@@ -119,10 +123,6 @@ const { BOT } = require('../tests/bot.js');
          쪽이 낫다. 지나가는 빨간불은 다른 회귀를 못 보게 만든다. */
       let seed = SEED;
       Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
-      /* 소리도 막아야 씨앗이 듣는다. Sfx.throttled 는 **실제 시계**로 제한을 거는데,
-         통과할 때만 콜백 안의 rnd() 가 난수를 쓴다 — 벽시계에 따라 난수 흐름이
-         갈리므로 씨앗을 박아도 판마다 값이 달라졌다(실제로 세 판이 다 달랐다). */
-      Sfx.throttled = () => {};
       selectedClass = ci; Game.reset(); botInstall(); player.godMode = false;
       const pick = () => { let g = 0;
         while ((Game.state === 'levelup' || Game.state === 'advance') && g++ < 50) {

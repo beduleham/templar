@@ -127,7 +127,11 @@ const { chromium } = require('playwright');
       let mx = 0;
       for (let i = 0; i < n; i++) {
         Game.state = 'playing'; update(1 / 60);
-        mx = Math.max(mx, Math.abs(player.sx - W / 2), Math.abs((player.sy - HT / 2) * TILT));
+        /* 세로 기준은 화면 한가운데가 아니라 **카메라가 겨누는 점**이다. 카메라는
+           발밑을 정중앙보다 CAM_DROP 만큼 아래에 두어 몸통을 가운데에 세운다(§137).
+           HT/2 로 재면 그 의도된 20 이 매번 어긋남으로 잡힌다 — 자가 목표를 모르면
+           고친 것이 빨간불이 된다. */
+        mx = Math.max(mx, Math.abs(player.sx - W / 2), Math.abs((player.sy - HT / 2 - CAM_DROP) * TILT));
       }
       keys.clear();
       return +mx.toFixed(1);

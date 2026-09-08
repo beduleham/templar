@@ -28,7 +28,9 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
   'ui_codex_cell', 'ui_codex_cell_locked', 'ui_codex_tab', 'ui_codex_mark',    // §120 — 도감
   'ui_chip', 'ui_scale', 'ui_pip_on', 'ui_pip_off',                           // §121 — HUD 작은 칩
   'ui_sk_wave', 'ui_sk_bolt', 'ui_sk_slash',                                  // §122 — 스킬 형태 여섯
-  'ui_sk_burst', 'ui_sk_blink', 'ui_sk_dash'];
+  'ui_sk_burst', 'ui_sk_blink', 'ui_sk_dash',
+  'ui_up_vigor', 'ui_up_edge', 'ui_up_swift', 'ui_up_avarice',                // §124 — 제단 강화 일곱
+  'ui_up_zeal', 'ui_up_rebirth', 'ui_up_orb'];
 /* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
    불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
    있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
@@ -230,6 +232,24 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
   if (sk.noShape.length) fail.push(`형태가 없는 스킬 ${sk.noShape.length}개 — ${sk.noShape.slice(0, 3).join(', ')} (옛 별로 떨어진다)`);
   if (sk.noArt.length) fail.push(`그림이 없는 형태 ${sk.noArt.join(', ')} — 이름이나 아틀라스를 보라`);
   if (sk.drawn.length !== 6) fail.push(`HUD 가 그린 스킬 그림이 ${sk.drawn.length}/6 — 스킬 액자가 옛 별로 떨어졌다`);
+
+  /* §124 제단 — 강화 여섯과 영혼 구슬은 한 화면에 다 나온다. 강화를 하나 더 넣으면 그림이
+     없어 조용히 옛 표로 떨어지므로(화면은 안 죽는다) ALTAR 전부가 그려지는지를 센다. */
+  const altar = await pg.evaluate(() => {
+    const UA = uiArt, drawn = new Set();
+    window.uiArt = (k, ...a) => { const ok = UA(k, ...a); if (ok && k.startsWith('ui_up_')) drawn.add(k); return ok; };
+    const saved = Meta.souls, lv = JSON.stringify(Meta.levels);
+    Meta.souls = 4000; Meta.levels.vigor = 5;            // 다 올린 칸도 한 장 섞는다
+    Game.state = 'altar'; mouse.x = -9; mouse.y = -9;
+    frame(performance.now() + 5000);
+    window.uiArt = UA;
+    Meta.souls = saved; Meta.levels = JSON.parse(lv);
+    Game.state = 'title';
+    return { drawn: [...drawn], want: ALTAR.map(u => 'ui_up_' + u.key).concat('ui_up_orb') };
+  });
+  for (const k of altar.want)
+    if (!altar.drawn.includes(k)) fail.push(`${k} 이 제단에서 안 그려진다 — 옛 표로 떨어졌다`);
+  out.push(`제단 강화 ${altar.drawn.length}/${altar.want.length} 그려짐`);
 
   const crests = calls.title.ar.filter(k => k.startsWith('ui_crest_'));
   const frames = calls.title.s9.filter(k => k === 'ui_panel');

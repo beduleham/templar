@@ -68,6 +68,10 @@ SHEETS = [
     # 파동 · 낙뢰 · 참격 · 탄막 · 순간이동 · 돌진. 스킬 일흔둘이 이 여섯을 나눠 쓴다.
     ("art/src/skill_shape_sheet.png",
      ["sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash"], "green"),
+    # §124 — 영혼의 제단 강화 아이콘 일곱. 4열 2행이고 마지막 칸은 비어 있다(이름이 일곱뿐).
+    # 32px 이던 것을 44px 로 키워 그린다 — 16px 자리는 절차 표가 이기고 여기는 손그림이 이긴다.
+    ("art/src/altar_icon_sheet.png",
+     ["up_vigor", "up_edge", "up_swift", "up_avarice", "up_zeal", "up_rebirth", "up_orb"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -99,6 +103,10 @@ LAYOUT = [
     # §122 — 스킬 형태 여섯. 정사각 128 로 통일한다(FIT 이 비율을 지켜 넣는다)
     [("sk_wave", 128, 128, 0), ("sk_bolt", 128, 128, 128), ("sk_slash", 128, 128, 256),
      ("sk_burst", 128, 128, 384), ("sk_blink", 128, 128, 512), ("sk_dash", 128, 128, 640)],
+    # §124 — 제단 강화 일곱. 정사각 128 로 통일한다(원본 비율이 0.50~1.12 로 제각각)
+    [("up_vigor", 128, 128, 0), ("up_edge", 128, 128, 128), ("up_swift", 128, 128, 256),
+     ("up_avarice", 128, 128, 384), ("up_zeal", 128, 128, 512), ("up_rebirth", 128, 128, 640),
+     ("up_orb", 128, 128, 768)],
 ]
 
 
@@ -162,10 +170,17 @@ def split(path, n, mode):
     r = max(empty_runs(fg.sum(1) > 0, H // 3, 2 * H // 3), key=lambda t: t[1] - t[0])
     cy = (r[0] + r[1]) // 2
     """ 세로선은 **줄마다 따로** 찾는다. 한 줄의 그림이 다른 줄의 빈틈으로 삐져나와도
-        서로를 방해하지 않는다. 두 칸이면 가운데 하나, 세 칸이면 5분의 1~2 와 3~4 구간에서
-        가장 넓은 빈 줄을 하나씩 — 칸이 고르게 놓였다는 것만 가정한다(§122). """
-    per = n // 2
-    wins = [(W // 4, 3 * W // 4)] if per == 2 else [(W // 5, 2 * W // 5), (3 * W // 5, 4 * W // 5)]
+        서로를 방해하지 않는다(§122).
+
+        칸 수는 이름 수에서 나온다 — 두 줄이므로 한 줄에 ceil(n/2) 칸이다. 일곱이면 넷씩
+        두 줄이고 마지막 칸이 빈다. 그 빈 칸은 자르되 이름이 모자라 zip 이 버린다(§124).
+
+        경계는 칸이 고르다는 것만 가정한다 — j/per 자리 ±10% 안에서 가장 넓은 빈 줄.
+        두 칸일 때만 예전 창(1/4~3/4)을 그대로 둔다. 이미 넣은 시트 일곱 장이 그 창을
+        전제하고 갈렸고, 다시 갈라 자리가 한 픽셀이라도 밀리면 아틀라스가 통째로 바뀐다. """
+    per = -(-n // 2)
+    wins = ([(W // 4, 3 * W // 4)] if per == 2 else
+            [(round(W * (j / per - .1)), round(W * (j / per + .1))) for j in range(1, per)])
     cuts = []
     for y0, y1 in ((0, cy), (cy, H)):
         prof = fg[y0:y1].sum(0) > 0
@@ -176,11 +191,12 @@ def split(path, n, mode):
     for i, (y0, y1) in enumerate(((0, cy), (cy, H))):
         xs = [0] + cuts[i] + [W]
         out += [im.crop((xs[j], y0, xs[j + 1], y1)) for j in range(per)]
-    return out
+    return out[:n]
 
 
 FIT = {"logo",                                   # 늘리지 않고 칸 안에 맞춰 넣는다 — 글자는 비율이 틀어지면 티가 난다
-       "sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash"}
+       "sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash",
+       "up_vigor", "up_edge", "up_swift", "up_avarice", "up_zeal", "up_rebirth", "up_orb"}
 """ 스킬 아이콘 여섯은 원본 비율이 0.84~1.26 으로 제각각이다. 늘려 채우면 낙뢰는 뚱뚱해지고
     돌진은 납작해진다. 더 나쁜 것은 uiArt 가 **높이로** 크기를 맞춘다는 점이다 — 비율이
     다른 것들을 같은 높이로 그리면 넓은 것이 혼자 커 보인다. 정사각 칸에 비율대로 넣어

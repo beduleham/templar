@@ -51,10 +51,17 @@ const { chromium } = require('playwright');
     selectedClass = 0; Game.reset();
     for (const k of Object.keys(WEAPONS)) { try { addWeapon(k); } catch (e) {} }
     player.xp = player.xpNext; Game.levelUp();
+    /* 장면을 고정한다. 카드 화면 뒤에서는 세계가 계속 돌고, 스크림이 78% 만 가리므로
+       살아 있는 이펙트가 22% 로 비쳐 보인다. 이 파일이 재는 것은 **카드 잘라내기**인데,
+       레벨업 연출(§133)의 파동과 입자가 두 프레임 사이에 움직여 화면 전체가 「바뀐 곳」이
+       됐다(카드 밖 0 → 138,999). 재는 동안 세계를 비워 둔다. */
     const fix = () => { Game.choices = [
       { type: 'weapon', key: 'orbit', level: 2, isNew: false },
       { type: 'weapon', key: 'dagger', level: 2, isNew: false },
-      { type: 'weapon', key: 'flame', level: 1, isNew: true }]; };
+      { type: 'weapon', key: 'flame', level: 1, isNew: true }];
+      for (const pool of [waves, fxs, particles, numbers, enemies, projectiles, gems, bolts, beams])
+        for (const o of pool) o.active = false;
+      fxLive = 0; numLive = 0; Game.lvAt = 0; cam.shake = 0; };
     const cw = 300, gap = 26, x0 = (W - (3 * cw + 2 * gap)) / 2;
     const draw = (A) => { CARDBG_A = A; fix(); mouse.x = -99; mouse.y = -99;
                           ctx.setTransform(1, 0, 0, 1, 0, 0); frame(performance.now()); };

@@ -2643,7 +2643,10 @@ const fxs        = makePool(112, () => ({ x: 0, y: 0, key: "", life: 0, maxLife:
 let enemyIdSeq = 1;
 const hash = new SpatialHash(70);
 const scratch = [], scratch2 = [], scratch3 = [];
-const cam = { x: 0, y: 0, shake: 0 };
+const cam = { x: 0, y: 0, shake: 0, px: 0, py: 0 };
+const CAM_K = .16;                       // 카메라가 한 프레임에 좁히는 비율
+const CAM_LEAD = (1 - CAM_K) / CAM_K;    // 등속에서 생기는 뒤처짐을 정확히 상쇄한다
+const CAM_LEAD_MAX = 30;                 // 돌진처럼 빠른 것에는 천장을 둔다
 
 /* ---------- 큰 이펙트의 픽셀 렌더 ----------
    작은 이펙트는 스프라이트로 그린다(거의 1:1). 하지만 큰 것은 못 그린다 —
@@ -4394,6 +4397,7 @@ const Game = {
     player.hp = player.stats.maxHp;
     addWeapon(openStart(player.cls));
     cam.x = player.x - W / 2; cam.y = player.y - HT / 2; cam.shake = 0;
+    cam.px = player.x; cam.py = player.y;
     this.state = "playing";
   },
 
@@ -5448,9 +5452,21 @@ function update(dt) {
     if (b.life <= 0) b.active = false;
   }
 
-  /* 10. 카메라 */
-  cam.x = lerp(cam.x, player.x - W / 2, .16);
-  cam.y = lerp(cam.y, player.y - HT / 2, .16);
+  /* 10. 카메라
+
+     lerp 로만 따라가면 **등속으로 걷는 내내 같은 만큼 뒤처진다.** 부드럽게 따라붙는
+     것과 다르다 — 방향을 바꿀 때만 어긋나는 게 아니라 걷는 동안 계속 그 자리에
+     머무르므로, 주인공이 화면 가운데가 아니라 옆으로 밀려 붙박여 보인다.
+     실측(오른쪽으로 계속 걸을 때): 가로 16.7 · 세로 11.2. 이동 속도를 올릴수록 더
+     벌어진다 — 강화를 먹을수록 화면이 더 틀어지는 셈이다.
+
+     뒤처지는 양은 정확히 「한 프레임 이동량 × (1-k)/k」다. 그만큼을 목표에 미리
+     더하면 등속에서는 딱 가운데에 서고, 방향을 바꾸는 순간의 부드러움은 그대로다.
+     돌진(초당 940)까지 그대로 더하면 카메라가 튀므로 앞당김에는 천장을 둔다. */
+  const camVx = player.x - cam.px, camVy = player.y - cam.py;
+  cam.px = player.x; cam.py = player.y;
+  cam.x = lerp(cam.x, player.x - W / 2 + clamp(camVx * CAM_LEAD, -CAM_LEAD_MAX, CAM_LEAD_MAX), CAM_K);
+  cam.y = lerp(cam.y, player.y - HT / 2 + clamp(camVy * CAM_LEAD, -CAM_LEAD_MAX, CAM_LEAD_MAX), CAM_K);
   cam.shake *= .88;
   player.sx = player.x - cam.x; player.sy = player.y - cam.y;
 }

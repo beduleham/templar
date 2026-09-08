@@ -15164,14 +15164,22 @@ function drawLevelBackdrop() {
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   // 들어오는 순간의 번쩍임 — 0.35초에 걸쳐 사그라든다
-  const flash = Math.max(0, 1 - t / .35);
+  const flash = Math.max(0, 1 - t / .55);
   if (flash > 0) {
-    ctx.globalAlpha = flash * .22 * deep;
+    ctx.globalAlpha = flash * flash * .5 * deep;
     ctx.fillStyle = F.hot; ctx.fillRect(0, 0, W, H);
   }
+  /* 갈래의 색을 화면 가장자리에 남긴다. 번쩍임은 0.55초면 사라지는데 고르는 시간은
+     그보다 훨씬 길다 — 그동안 「내가 어느 쪽으로 가고 있는가」가 화면에 남아 있어야
+     한다. 가운데는 비워 둔다(카드 글자를 읽어야 한다). */
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .22, W / 2, H / 2, Math.max(W, H) * .62);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, F.col);
+  ctx.globalAlpha = .3 * deep;
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   /* 흐르는 알갱이. 신앙은 내려오고 타락은 오르고 일반은 가운데에서 퍼진다.
      서른둘이면 화면이 채워지지도 비지도 않는다 — 카드 글자를 읽어야 하므로 옅게. */
-  const N = 32;
+  const N = 54;
   for (let i = 0; i < N; i++) {
     const sp = .10 + (i % 5) * .035;
     /* 위상은 **레벨업이 일어난 순간**부터 잰다. 벽시계를 그대로 쓰면 화면이 뜰 때마다
@@ -15184,9 +15192,9 @@ function drawLevelBackdrop() {
     if (F.dir < 0)      { y = ph * H;              al = (1 - ph) * .5; }
     else if (F.dir > 0) { y = (1 - ph) * H;        al = ph * .5; }
     else                { y = H * .5 + (ph - .5) * H * (i % 2 ? 1 : -1); al = (1 - Math.abs(ph - .5) * 2) * .5; }
-    ctx.globalAlpha = al * .34;
+    ctx.globalAlpha = al * .85;
     ctx.fillStyle = i % 4 ? F.col : F.hot;
-    ctx.fillRect(x | 0, y | 0, PIX, PIX * (F.dir ? 3 : 1));
+    ctx.fillRect(x | 0, y | 0, PIX, PIX * (F.dir ? 5 : 2));
   }
   ctx.restore();
 }

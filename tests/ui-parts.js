@@ -231,6 +231,38 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
     return { total: all.length, noShape, noArt, cnt, drawn: [...drawn] };
   });
   out.push(`스킬 형태 ${sk.total}개 스킬 → ` + Object.entries(sk.cnt).map(([k, v]) => k + ' ' + v).join(' · '));
+
+  /* §127 형태 이펙트 — 갈래마다 제 그림이 실제로 떠야 한다. 도우미(skSlash 등) 안에 두면
+     손으로 쓴 직업 스킬 넷이 조용히 빠지므로(그렇게 한 번 틀렸다) 갈래를 대표하는 스킬을
+     **직업 스킬 쪽으로** 골라 쓴다 — 새 플레이어가 처음 쓰는 것이 그쪽이다. */
+  const fx = await pg.evaluate(() => {
+    const WANT = { slash: 'fx_crescent', dash: 'fx_wedge', burst: 'fx_volley',
+                   bolt: 'fx_pillar', blink: 'fx_implode' };
+    const SF = spawnFx, out = {};
+    const all = [...CLASSES.map(c => c.skill), ...ADVANCES.filter(a => a.skill).map(a => a.skill)];
+    for (const [shape, key] of Object.entries(WANT)) {
+      // 직업 스킬을 먼저 고른다 — 도우미를 안 거치는 쪽이 빠지기 쉽다
+      const sk = CLASSES.map(c => c.skill).find(s => s.shape === shape)
+              || all.find(s => s.shape === shape);
+      if (!sk) { out[shape] = 'no-skill'; continue; }
+      selectedClass = 0; Game.reset(); Game.state = 'playing';
+      for (let i = 0; i < 20; i++) { Game.state = 'playing'; update(1 / 60); }
+      // 낙뢰는 **맞은 자리**에 그린다 — 때릴 것이 없으면 그릴 것도 없다. 하나 세워 준다.
+      const tgt = Game.spawnEnemy('zombie', player.x + 70, player.y, RANKS.common);
+      if (tgt) { tgt.think = () => {}; tgt.spd = 0; tgt.hp = 1e9; tgt.maxHp = 1e9; }
+      const seen = new Set();
+      window.spawnFx = (k, ...a) => { seen.add(k); return SF(k, ...a); };
+      player.cls.skill = sk; player.res = 100; player.skillCd = 0;
+      useSkill();
+      window.spawnFx = SF;
+      out[shape] = seen.has(key) ? 'ok' : [...seen].join(',') || 'none';
+    }
+    Game.state = 'title';
+    return out;
+  });
+  for (const [shape, r] of Object.entries(fx))
+    if (r !== 'ok') fail.push(`${shape} 갈래가 제 이펙트를 안 띄운다 — 뜬 것: ${r}`);
+  out.push('형태 이펙트 ' + Object.values(fx).filter(r => r === 'ok').length + '/5 뜸');
   if (sk.noShape.length) fail.push(`형태가 없는 스킬 ${sk.noShape.length}개 — ${sk.noShape.slice(0, 3).join(', ')} (옛 별로 떨어진다)`);
   if (sk.noArt.length) fail.push(`그림이 없는 형태 ${sk.noArt.join(', ')} — 이름이나 아틀라스를 보라`);
   if (sk.drawn.length !== 6) fail.push(`HUD 가 그린 스킬 그림이 ${sk.drawn.length}/6 — 스킬 액자가 옛 별로 떨어졌다`);

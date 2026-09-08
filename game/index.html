@@ -2999,6 +2999,8 @@ function pxRing(cx, cy, R, thick, cols, noEdge) {
 }
 
 /* ---------- 스폰 헬퍼 ---------- */
+/* 스킬이 쏜 탄에도 표식을 단다(§126) — 파동과 같은 규칙이다. 무기 탄 300발과 같은
+   굵기로 그리면 「탄막」 갈래(비전 폭발 등)만 혼자 조용하다. */
 function spawnProjectile(o) {
   const p = alloc(projectiles); if (!p) return null;
   p.active = true;
@@ -3006,6 +3008,7 @@ function spawnProjectile(o) {
   p.pierce = o.pierce + (player.dynPierce || 0); p.life = o.life; p.kind = o.kind; p.angle = o.angle;
   p.color = o.color; p.homing = o.homing || 0; p.target = o.target || null;
   p.element = o.element || "physical"; p.maxLife = o.life; p.retarget = 0;
+  p.big = skillCast ? 1 : 0;
   const ps = player.dynProjSpeed || 1;
   if (ps !== 1) { p.vx *= ps; p.vy *= ps; }
   if (!p.homing && player.dynHoming) p.homing = player.dynHoming;
@@ -3020,12 +3023,25 @@ function spawnSlash(p, ang, dmg, len, life, element, arc) {
   s.element = element || "physical"; s.arc = arc || .62;      // 부채꼴 반각(rad) — 플레일만 .8
 }
 
+/* 스킬이 낳은 이펙트(§126).
+
+   실측 10분: 스킬이 낳은 파동 102개, 그 밖(무기·조합·연쇄 폭발)이 1,059개. 6초에 한 번
+   대 초당 1.8번이다. **§101·§102 가 눌러 놓은 것은 저 1,059개지 스킬이 아니다** — 파동
+   열다섯이 동시에 살아 화면 중앙의 21%가 밝았던 것은 무기가 만든 일이었고, 그 처방(알파
+   .08, 뒷테 제거, 여섯 개 상한)을 스킬도 함께 뒤집어썼다. 그래서 한 판의 가장 큰 순간이
+   무기 한 발과 같은 굵기로 그려진다.
+
+   스킬에만 따로 예산을 준다. 전체 이펙트 부담은 9% 만 움직이고, 한 방의 무게는 되찾는다.
+   다만 연쇄로 여러 발이 겹칠 수는 있으므로 굵게 그리는 것은 **동시 셋까지**다. */
+let skillCast = false;
+const BIG_WAVE_CAP = 3;
 const WAVE_HEAL_CAP = 12;        // 파동 한 발이 회복을 세는 적의 수 — 위 5-b 주석
 function spawnWave(o) {
   const w = alloc(waves); if (!w) return;
   w.active = true; w.x = o.x; w.y = o.y; w.r = 0; w.maxR = o.maxR;
   w.life = w.maxLife = o.life; w.dmg = o.dmg; w.color = o.color;
   w.element = o.element || "physical"; w.heal = o.heal || 0; w.healN = 0;
+  w.big = skillCast ? 1 : 0;
   w.hitIds.clear();
   if (!w.heal) spawnFx(fxKey("boom", w.element), w.x, w.y, Math.min(150, o.maxR * .7), 0);   // 폭발 그림은 파동보다 작게(§101)
 }
@@ -3852,6 +3868,19 @@ function skillHealScale(p) {
   return 1 - SKILL_HEAL_DROP * worn;
 }
 
+/* 발동의 첫 프레임(§126). 예전에는 아무것도 없었다 — 옅게 시작해서 옅게 끝났고,
+   「지금 큰 것을 썼다」는 신호가 화면에 한 장도 없었다. fx_cast 그림은 아틀라스에 이미
+   있었는데 무기 하나만 쓰고 스킬은 안 쓰고 있었다(§126 에서 찾았다).
+   흔들림은 형태마다 다르다 — 발밑에서 퍼지는 것과 앞으로 내지르는 것이 같은 무게일 수 없다. */
+const CAST_SHAKE = { wave: 15, bolt: 13, slash: 10, burst: 8, blink: 6, dash: 9 };
+const CLASS_ELEM = { paladin: "holy", warrior: "physical", rogue: "physical", mage: "frost" };
+function castBurst(sk) {
+  const el = sk.elem || CLASS_ELEM[player.cls && player.cls.key] || "physical";
+  spawnFx(fxKey("cast", el), player.x, player.y - 6, 96, 0);
+  cam.shake = Math.max(cam.shake, CAST_SHAKE[sk.shape] || 10);
+  spawnParticles(player.x, player.y - 4, 16, player.cls ? player.cls.resource.color : "#fff",
+                 260, .45, 4, { drag: .86 });
+}
 function useSkill() {
   const C = player.cls;
   if (!C || Game.state !== "playing") return;
@@ -3867,7 +3896,10 @@ function useSkill() {
   player.res -= sk.cost;
   player.skillCd = skillCd();
   player.castT = CAST_DUR;
+  castBurst(sk);
+  skillCast = true;
   sk.use(player);
+  skillCast = false;
   if (advVal("skillEcho", false)) { player.echoT = .45; player.echoSkill = sk; }
 }
 
@@ -4140,7 +4172,12 @@ function applyAdvanceEffects(p, dt, moving) {
   // 스킬 메아리 — 0.45초 뒤 한 번 더
   if (p.echoT > 0) {
     p.echoT -= dt;
-    if (p.echoT <= 0 && p.echoSkill) { p.echoSkill.use(p); p.echoSkill = null; }
+    /* 메아리도 스킬이다(§126) — 표식을 안 달면 같은 스킬이 두 번째만 조용히 나간다.
+       발동 그림은 다시 안 띄운다. 0.45초 뒤에 한 번 더 번쩍이면 두 방으로 읽힌다. */
+    if (p.echoT <= 0 && p.echoSkill) {
+      skillCast = true; p.echoSkill.use(p); skillCast = false;
+      p.echoSkill = null;
+    }
   }
 }
 
@@ -4744,7 +4781,11 @@ function update(dt) {
     player.dash -= dt;
     player.x += player.dashX * 940 * dt;
     player.y += player.dashY * 940 * dt;
-    spawnParticles(player.x, player.y, 1, "#ff8a5c", 60, .3, 3);
+    /* 지나간 자리(§126). 예전에는 프레임마다 입자 하나였다 — 초당 60개를 뿌려도 한 점씩
+       흩어지니 궤적으로 안 읽혔고, 돌진이 화면에서는 순간이동과 구별되지 않았다.
+       뒤로 쏘아 보내면 하나의 자국이 된다. */
+    spawnParticles(player.x, player.y - 4, 3, "#ffb066", 220, .34, 4,
+                   { dir: Math.atan2(-player.dashY, -player.dashX), spread: .5, streak: 1, drag: .82 });
   } else {
     const tspd = player.terrainSpeed || 1;      // 지형 감속 (가시덤불 · 늪)
     player.x += mv.x * player.base.speed * s.speed * player.dynSpeed * tspd * dt;
@@ -6914,7 +6955,7 @@ function drawWorld() {
   }
 
   // 파동
-  let wvDrawn = 0;
+  let wvDrawn = 0, bigDrawn = 0;
   for (const wv of waves) {
     if (!wv.active) continue;
     const t = 1 - wv.life / wv.maxLife;
@@ -6922,8 +6963,12 @@ function drawWorld() {
     if (sx < -wv.r - 60 || sx > W + wv.r + 60 || sy < -wv.r - 60 || sy > HT + wv.r + 60) continue;
     /* 화면에 파동이 여섯을 넘으면 그 뒤는 앞날 한 줄만 그린다(§101). 연쇄 폭발 빌드는
        한 프레임에 파동 13~19개를 살려 두는데, 채움과 뒷테가 겹치면 바닥이 통째로 밝아진다. */
-    const near = waveInk(wv.r);
-    if (++wvDrawn > 6) {
+    /* 스킬 파동은 따로 센다(§126). 무기가 만든 열다섯 개에 밀려 스킬 한 방이 「일곱 번째」로
+       깎이면, 한 판의 가장 큰 순간이 화면에서 사라진다. 굵게 그리는 것은 동시 셋까지고,
+       넷째부터는 보통 파동과 같은 줄에 선다. */
+    const big = wv.big && ++bigDrawn <= BIG_WAVE_CAP;
+    const near = big ? Math.max(waveInk(wv.r), .55) : waveInk(wv.r);
+    if (!big && ++wvDrawn > 6) {
       if (wv.r > 240) continue;                       // 일곱 번째부터는 큰 고리를 아예 뺀다
       ctx.save(); ctx.globalAlpha = (1 - t) * .5 * near;
       pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120); ctx.restore();
@@ -6932,8 +6977,8 @@ function drawWorld() {
     ctx.save();
     /* 알파를 절반으로(§101). 10분에 파동 15~19개가 동시에 살아 화면 중앙의 21%가 밝은
        픽셀이었다 — 앞날(부딪히는 자리)만 남기고 채움·뒷테는 힌트로 내린다. */
-    if (wv.r <= 160) {                                  // 큰 원판(.08)은 안 보이고 비싸다 — 작을 때만(§102)
-      ctx.globalAlpha = (1 - t) * .08;
+    if (wv.r <= (big ? 300 : 160)) {                     // 큰 원판(.08)은 안 보이고 비싸다 — 작을 때만(§102)
+      ctx.globalAlpha = (1 - t) * (big ? .20 : .08);
       ctx.fillStyle = faithHue(wv.color);
       ctx.beginPath(); ctx.arc(sx, sy, wv.r, 0, TAU); ctx.fill();
     }
@@ -6941,12 +6986,12 @@ function drawWorld() {
     /* 뒷테(.82 고리)는 뺐다(§102) — 알파 .15 로는 안 보였고 칸만 545개였다. 본테는 반지름
        120 을 넘으면 격자 테두리 없이 몸통만 — 격자 칸은 앞날(흰 줄)이 이미 그린다. */
     // 앞날(흰 줄)만이 아니라 몸통도 함께 깎는다 — 밝기를 만드는 것은 몸통이다
-    ctx.globalAlpha = (1 - t) * .4 * near;
+    ctx.globalAlpha = (1 - t) * (big ? .85 : .4) * near;
     // 색은 **그릴 때** 옮긴다 — 저울은 판 도중에 바뀌고, 이미 날아가는 고리도 같이 물들어야 한다
-    pxRing(sx, sy, wv.r, 4 + (1 - t) * 5, pxPal(faithHue(wv.color)), wv.r > 120);
+    pxRing(sx, sy, wv.r, (big ? 7 : 4) + (1 - t) * (big ? 9 : 5), pxPal(faithHue(wv.color)), wv.r > 120);
     // 앞날 — 가장 바깥 한 줄만 희게. 여기가 부딪히는 자리다. 큰 고리는 몸통만(§102)
-    ctx.globalAlpha = (1 - t) * .7 * near;
-    pxRing(sx, sy, wv.r + 2, PIX, PJ_WHITE, wv.r > 120);
+    ctx.globalAlpha = (1 - t) * (big ? 1 : .7) * near;
+    pxRing(sx, sy, wv.r + 2, big ? PIX * 2 : PIX, PJ_WHITE, wv.r > 120);
     ctx.restore();
   }
 
@@ -7000,7 +7045,11 @@ function drawWorld() {
         }
         ctx.globalAlpha = 1;
       }
-      pxDisc(sx, sy, flame ? p.r * (.75 + t * .45) : p.r, cols);
+      /* 스킬 탄은 굵게(§126). 무기 탄 300발과 같은 굵기로 그리면 「탄막」 갈래만 혼자
+         조용하다 — 실제로 비전 폭발이 여섯 갈래 중 가장 안 보였다. 흰 심을 박아 무게를 준다. */
+      const rr = (flame ? p.r * (.75 + t * .45) : p.r) * (p.big ? 1.5 : 1);
+      pxDisc(sx, sy, rr, cols);
+      if (p.big) { if (pjCols) pxFlush(pjCols); pjCols = null; pxDisc(sx, sy, rr * .45, PJ_WHITE); pjCols = cols; }
     }
   }
   if (pjCols) pxFlush(pjCols);
@@ -8170,7 +8219,7 @@ function traitDef(clsKey, key) {   // 이전 호출부 호환
    전직마다 스킬이 바뀌어야 하는데 24개를 손으로 쓰면 관리가 안 된다.
    형태별로 만들어 쓰고, 수치만 전직 데이터에 둔다. */
 function skWave(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, healPct: o.healPct || 0, shape: "wave", use(p) {
+  return { name, icon, cost, desc, healPct: o.healPct || 0, elem: o.elem || "physical", shape: "wave", use(p) {
     spawnWave({ x: p.x, y: p.y, maxR: o.r * p.stats.area,
       dmg: (o.dmg + p.level * (o.perLv || 10)) * p.stats.damage * p.dynDmg,
       life: o.life || .5, color: o.color, element: o.elem, heal: o.heal || 0 });
@@ -8184,7 +8233,7 @@ function skWave(name, icon, cost, desc, o) {
 }
 
 function skBurst(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, shape: "burst", use(p) {
+  return { name, icon, cost, desc, elem: o.elem || "physical", shape: "burst", use(p) {
     const targets = nearestEnemies(p.x, p.y, 900, o.n);
     for (let i = 0; i < o.n; i++) {
       const t = targets[i % Math.max(1, targets.length)];
@@ -8206,7 +8255,7 @@ function skBurst(name, icon, cost, desc, o) {
 }
 
 function skStrike(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, shape: "bolt", use(p) {
+  return { name, icon, cost, desc, elem: o.elem || "physical", shape: "bolt", use(p) {
     const pool = nearestEnemies(p.x, p.y, 800, o.n * 2);
     const dmg = (o.dmg + p.level * (o.perLv || 14)) * p.stats.damage * p.dynDmg;
     for (let i = 0; i < o.n; i++) {
@@ -8223,7 +8272,7 @@ function skStrike(name, icon, cost, desc, o) {
 }
 
 function skSlash(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, shape: "slash", use(p) {
+  return { name, icon, cost, desc, elem: o.elem || "physical", shape: "slash", use(p) {
     const base = Math.atan2(p.faceY, p.faceX);
     const dmg = (o.dmg + p.level * (o.perLv || 12)) * p.stats.damage * p.dynDmg;
     for (let i = 0; i < o.n; i++)
@@ -8276,7 +8325,7 @@ function dashAim(p) {
 }
 
 function skDash(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, shape: "dash", use(p) {
+  return { name, icon, cost, desc, elem: o.elem || "physical", shape: "dash", use(p) {
     const aim = dashAim(p);
     p.dash = o.dur; p.dashX = aim.x; p.dashY = aim.y;
     p.faceX = aim.x; p.faceY = aim.y;          // 몸도 그쪽을 본다 — 돌진하는 쪽과 바라보는 쪽이 어긋나면 안 된다
@@ -8302,12 +8351,15 @@ function skDash(name, icon, cost, desc, o) {
 }
 
 function skBlink(name, icon, cost, desc, o) {
-  return { name, icon, cost, desc, shape: "blink", use(p) {
+  return { name, icon, cost, desc, elem: o.elem || "physical", shape: "blink", use(p) {
     const ox = p.x, oy = p.y;
     p.x += p.faceX * o.dist; p.y += p.faceY * o.dist;
     p.iframe = Math.max(p.iframe, o.iframe || .9);
     const dmg = (o.dmg + p.level * (o.perLv || 8)) * p.stats.damage * p.dynDmg;
     for (const [bx, by] of [[ox, oy], [p.x, p.y]]) {
+      /* 떠난 자리와 도착한 자리에 한 장씩(§126). 표시가 없으면 「어디서 어디로 갔는지」가
+         화면에 안 남아, 순간이동이 그냥 순간이동으로만 보인다. */
+      spawnFx(fxKey("boom", o.elem), bx, by, 78, 0);
       spawnParticles(bx, by, 22, o.color, 280, .6, 4);
       for (let i = 0; i < o.n; i++) {
         const a = i / o.n * TAU, sp = 540 * p.stats.projSpeed;

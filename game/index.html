@@ -15148,6 +15148,12 @@ function levelUpBurst() {
    내가 어느 쪽으로 가고 있는지가 화면에 남아 있게. 시계는 실제 시계를 쓴다.
    그리기만 하는 것이므로 판을 흔들지 않는다(§131). */
 function drawLevelBackdrop() {
+  /* 터진 적이 없으면 안 그린다. 카드 화면은 레벨업이 아닌 길로도 뜰 수 있고
+     (전직·회귀), 그때 번쩍임을 깔면 일어나지 않은 일을 그리는 것이 된다.
+     그리고 이 배경은 벽시계로 흐르므로, 켜 두면 두 프레임을 견주는 검사가 못 선다 —
+     card-bg 가 카드 알파만 바꿔 A/B 를 하는데 화면 전체가 바뀐 것으로 잡혔다
+     (카드 밖 0 → 138,936). 일어난 일만 그리면 그 문제도 같이 사라진다. */
+  if (!Game.lvAt) return;
   const F = LV_FX[Game.lvKind || "plain"], deep = Game.lvDeep || 1;
   const t = (performance.now() - (Game.lvAt || 0)) / 1000;
   ctx.save();
@@ -15163,7 +15169,11 @@ function drawLevelBackdrop() {
   const N = 32;
   for (let i = 0; i < N; i++) {
     const sp = .10 + (i % 5) * .035;
-    const ph = ((performance.now() / 1000) * sp + i * .131) % 1;
+    /* 위상은 **레벨업이 일어난 순간**부터 잰다. 벽시계를 그대로 쓰면 화면이 뜰 때마다
+       알갱이가 아무 데나 흩어져 있어 연출이 매번 중간부터 시작하고, 무엇보다 그리기가
+       두 프레임을 견주는 검사(card-bg)를 못 하게 만든다 — 카드 알파만 바꿔 A/B 를
+       하는데 배경이 그 사이에 흘러 화면 전체가 바뀐 것으로 잡혔다. */
+    const ph = (t * sp + i * .131) % 1;
     const x = (i * 137.5) % W;
     let y, al;
     if (F.dir < 0)      { y = ph * H;              al = (1 - ph) * .5; }

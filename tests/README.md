@@ -7,6 +7,27 @@ npm i playwright        # 최초 1회
 node tests/regress-freeze.js
 ```
 
+## 언제 무엇을 돌리나 (§142)
+
+전부 돌리면 **30분**이다. 시간의 대부분은 파일 크기가 아니라 **판을 실제로 굴리는
+데** 든다 — `no-afk-clear` 는 15분짜리 판을, `late-readability` 는 10분짜리 판을
+봇으로 끝까지 돌린다. 그래서 고치는 동안에는 걸리는 것만 고른다.
+
+```sh
+node tests/pick.js                  # 마지막 커밋 이후 바뀐 곳에 걸리는 검사만
+node tests/pick.js --since HEAD~3
+node tests/pick.js --list           # 고르기만 하고 안 돌린다
+node tests/pick.js adv aura         # 이름으로 고른다
+sh tests/run-all.sh                 # 전부 (배포 직전에 한 번)
+```
+
+실측: 오오라를 고친 커밋에서 고른 것은 7개 · **37초**였다(전부는 30분).
+
+**고르기는 빠르기를 사는 것이지 안전을 사는 것이 아니다.** `pick.js` 는 검사가
+게임의 이름을 부르는 것을 보고 고르는데, 화면을 그려 픽셀로 판정하는 검사는
+이름을 거의 안 부른다(adv-look 은 `drawScene()` 하나만 부른다). 생김새 규칙으로
+그 구멍을 어느 정도 메웠지만 완전하지 않다. **배포 전에는 반드시 전부 돌린다.**
+
 ## regress-freeze.js
 
 **잡는 버그:** 마법사로 천벌의 번개를 얻어 「감전 폭풍」 조합이 해금된 직후

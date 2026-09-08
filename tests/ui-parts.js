@@ -26,7 +26,9 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
   'ui_mapframe', 'ui_clock', 'ui_pointer', 'ui_bossbar',                // §117 — 지도와 상단
   'ui_card', 'ui_card_awaken', 'ui_cardhead', 'ui_portrait',            // §118 — 카드   // §116 — 배너 리본
   'ui_codex_cell', 'ui_codex_cell_locked', 'ui_codex_tab', 'ui_codex_mark',    // §120 — 도감
-  'ui_chip', 'ui_scale', 'ui_pip_on', 'ui_pip_off'];                          // §121 — HUD 작은 칩
+  'ui_chip', 'ui_scale', 'ui_pip_on', 'ui_pip_off',                           // §121 — HUD 작은 칩
+  'ui_sk_wave', 'ui_sk_bolt', 'ui_sk_slash',                                  // §122 — 스킬 형태 여섯
+  'ui_sk_burst', 'ui_sk_blink', 'ui_sk_dash'];
 /* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
    불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
    있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
@@ -201,6 +203,33 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
   out.push('리본 그려짐 ' + RIBBON_ON.map(([k]) => k.slice(3) + (hud.used.includes(k) ? ' ○' : ' ×')).join(' · '));
   for (const [k] of RIBBON_ON)
     if (!hud.used.includes(k)) fail.push(`${k} 이 알림에서 안 그려진다 — 배너가 옛 칩(또는 글자만)으로 떨어졌다`);
+
+  /* §122 스킬 형태 — 능동 스킬 일흔둘이 여섯 그림을 나눠 쓴다. 스킬 하나가 형태를 안 달고
+     들어오면(새 각성을 추가할 때) 그 스킬만 조용히 옛 별로 떨어진다 — 화면이 안 죽으므로
+     눈으로는 안 잡힌다. 스킬마다 형태가 있고 그 형태의 그림이 판에 있는지를 센다.
+     그리고 여섯이 **실제로 그려지는지**는 형태를 하나씩 갈아 끼우며 HUD 를 한 프레임씩 본다. */
+  const sk = await pg.evaluate(() => {
+    const all = [...CLASSES.map(c => c.skill), ...ADVANCES.filter(a => a.skill).map(a => a.skill)];
+    const noShape = all.filter(s => !s.shape).map(s => s.name);
+    const noArt = [...new Set(all.map(s => s.shape))].filter(k => k && !Sprites.frames['ui_sk_' + k]);
+    const cnt = {};
+    for (const s of all) cnt[s.shape] = (cnt[s.shape] || 0) + 1;
+    const UA = uiArt, drawn = new Set();
+    window.uiArt = (k, ...a) => { const ok = UA(k, ...a); if (ok && k.startsWith('ui_sk_')) drawn.add(k); return ok; };
+    selectedClass = 0; Game.reset(); Game.state = 'playing';
+    let t = performance.now() + 5000;
+    for (const shape of ['wave', 'bolt', 'slash', 'burst', 'blink', 'dash']) {
+      player.cls.skill.shape = shape; Game.state = 'playing'; frame(t += 16.7);
+    }
+    player.cls.skill.shape = 'slash';
+    window.uiArt = UA;
+    Game.state = 'title';
+    return { total: all.length, noShape, noArt, cnt, drawn: [...drawn] };
+  });
+  out.push(`스킬 형태 ${sk.total}개 스킬 → ` + Object.entries(sk.cnt).map(([k, v]) => k + ' ' + v).join(' · '));
+  if (sk.noShape.length) fail.push(`형태가 없는 스킬 ${sk.noShape.length}개 — ${sk.noShape.slice(0, 3).join(', ')} (옛 별로 떨어진다)`);
+  if (sk.noArt.length) fail.push(`그림이 없는 형태 ${sk.noArt.join(', ')} — 이름이나 아틀라스를 보라`);
+  if (sk.drawn.length !== 6) fail.push(`HUD 가 그린 스킬 그림이 ${sk.drawn.length}/6 — 스킬 액자가 옛 별로 떨어졌다`);
 
   const crests = calls.title.ar.filter(k => k.startsWith('ui_crest_'));
   const frames = calls.title.s9.filter(k => k === 'ui_panel');

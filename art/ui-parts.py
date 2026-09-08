@@ -64,6 +64,10 @@ SHEETS = [
     ("art/src/codex_sheet.png", ["codex_cell", "codex_cell_locked", "codex_tab", "codex_mark"], "green"),
     # §121 HUD 작은 칩 — 한 줄 칩 · 신앙 저울 홈 · 단계 점 켜짐 · 꺼짐
     ("art/src/hud_chip_sheet.png", ["chip", "scale", "pip_on", "pip_off"], "green"),
+    # 7단계(§122) — 능동 스킬의 형태 여섯. 3열 2행이다(칸이 여섯이라 2×2 로는 못 담는다).
+    # 파동 · 낙뢰 · 참격 · 탄막 · 순간이동 · 돌진. 스킬 일흔둘이 이 여섯을 나눠 쓴다.
+    ("art/src/skill_shape_sheet.png",
+     ["sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash"], "green"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -92,6 +96,9 @@ LAYOUT = [
     [("codex_cell", 224, 276, 0), ("codex_cell_locked", 224, 276, 224), ("codex_tab", 416, 100, 448), ("codex_mark", 100, 160, 864)],
     # 한 줄 칩·저울은 화면에서 240×22 안팎이라 384 폭(dpr2 여유). 점은 13×10 에 그리므로 96 으로 충분하다
     [("chip", 384, 64, 0), ("scale", 384, 63, 384), ("pip_on", 96, 52, 768), ("pip_off", 96, 52, 864)],
+    # §122 — 스킬 형태 여섯. 정사각 128 로 통일한다(FIT 이 비율을 지켜 넣는다)
+    [("sk_wave", 128, 128, 0), ("sk_bolt", 128, 128, 128), ("sk_slash", 128, 128, 256),
+     ("sk_burst", 128, 128, 384), ("sk_blink", 128, 128, 512), ("sk_dash", 128, 128, 640)],
 ]
 
 
@@ -154,16 +161,30 @@ def split(path, n, mode):
     if n == 1: return [im]
     r = max(empty_runs(fg.sum(1) > 0, H // 3, 2 * H // 3), key=lambda t: t[1] - t[0])
     cy = (r[0] + r[1]) // 2
+    """ 세로선은 **줄마다 따로** 찾는다. 한 줄의 그림이 다른 줄의 빈틈으로 삐져나와도
+        서로를 방해하지 않는다. 두 칸이면 가운데 하나, 세 칸이면 5분의 1~2 와 3~4 구간에서
+        가장 넓은 빈 줄을 하나씩 — 칸이 고르게 놓였다는 것만 가정한다(§122). """
+    per = n // 2
+    wins = [(W // 4, 3 * W // 4)] if per == 2 else [(W // 5, 2 * W // 5), (3 * W // 5, 4 * W // 5)]
     cuts = []
     for y0, y1 in ((0, cy), (cy, H)):
-        c = max(empty_runs(fg[y0:y1].sum(0) > 0, W // 4, 3 * W // 4), key=lambda t: t[1] - t[0])
-        cuts.append((c[0] + c[1]) // 2)
-    print(f"  {os.path.basename(path)}: 가로선 y={cy}, 세로선 위 x={cuts[0]} 아래 x={cuts[1]}")
-    return [im.crop(b) for b in [(0, 0, cuts[0], cy), (cuts[0], 0, W, cy),
-                                 (0, cy, cuts[1], H), (cuts[1], cy, W, H)]]
+        prof = fg[y0:y1].sum(0) > 0
+        cuts.append([sum(max(empty_runs(prof, lo, hi), key=lambda t: t[1] - t[0])) // 2
+                     for lo, hi in wins])
+    print(f"  {os.path.basename(path)}: 가로선 y={cy}, 세로선 위 {cuts[0]} 아래 {cuts[1]}")
+    out = []
+    for i, (y0, y1) in enumerate(((0, cy), (cy, H))):
+        xs = [0] + cuts[i] + [W]
+        out += [im.crop((xs[j], y0, xs[j + 1], y1)) for j in range(per)]
+    return out
 
 
-FIT = {"logo"}   # 늘리지 않고 칸 안에 맞춰 넣는다 — 글자는 비율이 틀어지면 티가 난다
+FIT = {"logo",                                   # 늘리지 않고 칸 안에 맞춰 넣는다 — 글자는 비율이 틀어지면 티가 난다
+       "sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash"}
+""" 스킬 아이콘 여섯은 원본 비율이 0.84~1.26 으로 제각각이다. 늘려 채우면 낙뢰는 뚱뚱해지고
+    돌진은 납작해진다. 더 나쁜 것은 uiArt 가 **높이로** 크기를 맞춘다는 점이다 — 비율이
+    다른 것들을 같은 높이로 그리면 넓은 것이 혼자 커 보인다. 정사각 칸에 비율대로 넣어
+    빈자리를 투명으로 두면, 같은 높이로 불러도 여섯이 같은 크기로 보인다. """
 
 
 def fitbox(im, w, h):

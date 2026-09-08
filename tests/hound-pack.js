@@ -100,10 +100,29 @@ const { BOT } = require('../tests/bot.js');
 
   // ── 5. 실수의 값 — 절벽이 돌아왔는지
   /* 5번은 사냥개 전(6:00), 6번은 사냥개가 붙은 뒤(6:40). 같은 장치로 두 자리를 잰다. */
-  const CASES = [[1, 360], [2, 360], [1, 400], [2, 400]];
+  const CASES = [[1, 360, 8641], [2, 360, 8641], [1, 400, 8641], [2, 400, 8641]];
   const cliff = await pg.evaluate(async (CASES) => {
     const res = [];
-    for (const [ci, AT] of CASES) {                // 전사 · 추적자 — 절벽이 가장 깊던 둘
+    const R0 = Math.random;
+    for (const [ci, AT, SEED] of CASES) {          // 전사 · 추적자 — 절벽이 가장 깊던 둘
+      /* 씨앗을 박는다(§130). 흔들림은 표본 사이가 아니라 **판 사이**에 있었다 —
+         봇이 6분 동안 만드는 빌드가 판마다 다르고, 빌드가 나쁘면 세 표본이 다
+         나쁘다(2.6/1.8/1.8). 그래서 세 번 재서 중앙값을 써도 6번 중 한 번은
+         빨간불이었다.
+
+         hud-overlap 이 같은 문제에 낸 답과 같다: 살아 있는 판을 굴려 재면 앞뒤를
+         견줄 수 없으니 장면을 고정한다. 씨앗을 박으면 빌드도 적도 같아져 값이
+         고정되고, 그러면 **바뀌었다는 사실 자체**가 신호가 된다.
+
+         대가는 분명하다 — 이 자는 이제 빌드 하나만 본다. 여러 빌드에 걸친 절벽은
+         no-afk-clear 가 96경로로 따로 본다. 여기서는 흔들리지 않는 자 하나를 갖는
+         쪽이 낫다. 지나가는 빨간불은 다른 회귀를 못 보게 만든다. */
+      let seed = SEED;
+      Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+      /* 소리도 막아야 씨앗이 듣는다. Sfx.throttled 는 **실제 시계**로 제한을 거는데,
+         통과할 때만 콜백 안의 rnd() 가 난수를 쓴다 — 벽시계에 따라 난수 흐름이
+         갈리므로 씨앗을 박아도 판마다 값이 달라졌다(실제로 세 판이 다 달랐다). */
+      Sfx.throttled = () => {};
       selectedClass = ci; Game.reset(); botInstall(); player.godMode = false;
       const pick = () => { let g = 0;
         while ((Game.state === 'levelup' || Game.state === 'advance') && g++ < 50) {
@@ -145,6 +164,7 @@ const { BOT } = require('../tests/bot.js');
         runs.push(+lived.toFixed(1));
       }
       botTick = BT; botRestore();
+      Math.random = R0;
       const sorted = runs.slice().sort((a, b) => a - b);
       res.push({ ci, at: AT, lived: sorted[1], runs, dogs, alive: Game.alive, lv: player.level });
     }

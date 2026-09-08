@@ -30,7 +30,9 @@ const PARTS = ['ui_btn', 'ui_btn_hover', 'ui_btn_sel', 'ui_btn_short', 'ui_panel
   'ui_sk_wave', 'ui_sk_bolt', 'ui_sk_slash',                                  // §122 — 스킬 형태 여섯
   'ui_sk_burst', 'ui_sk_blink', 'ui_sk_dash',
   'ui_up_vigor', 'ui_up_edge', 'ui_up_swift', 'ui_up_avarice',                // §124 — 제단 강화 일곱
-  'ui_up_zeal', 'ui_up_rebirth', 'ui_up_orb'];
+  'ui_up_zeal', 'ui_up_rebirth', 'ui_up_orb',
+  'drop_meat', 'drop_magnet', 'drop_sigil', 'drop_bomb',                      // §125 — 바닥 획득물 여덟
+  'drop_sand', 'drop_fury', 'drop_ward', 'drop_soul'];
 /* 리본은 알림이 떠 있을 때만 그려진다. 채널을 하나씩 켜고 한 프레임씩 그려 넷이 다
    불리는지 본다. 판 이름의 ui_ 접두를 빼먹어 여섯 채널이 조용히 옛 칩으로 떨어진 적이
    있다(§116) — 그림이 없을 때와 같은 길이라 오류가 없다. 이 자가 그걸 잡는다. */
@@ -250,6 +252,27 @@ const ON_TARGET = ['ui_pointer', 'ui_bossbar'];
   for (const k of altar.want)
     if (!altar.drawn.includes(k)) fail.push(`${k} 이 제단에서 안 그려진다 — 옛 표로 떨어졌다`);
   out.push(`제단 강화 ${altar.drawn.length}/${altar.want.length} 그려짐`);
+
+  /* §125 바닥 획득물 — 소모품을 하나 더 넣으면 그림이 없어 옛 약병으로 조용히 떨어진다
+     (다섯이 색만 다른 같은 병이던 시절로 되돌아가는 셈이다). 여덟이 다 그려지는지 센다. */
+  const drop = await pg.evaluate(() => {
+    const UA = uiArt, drawn = new Set();
+    window.uiArt = (k, ...a) => { const ok = UA(k, ...a); if (ok && k.startsWith('drop_')) drawn.add(k); return ok; };
+    selectedClass = 0; Game.reset(); Game.state = 'playing';
+    let t = performance.now() + 5000;
+    for (let i = 0; i < 30; i++) { Game.state = 'playing'; update(1 / 60); }
+    for (const e of enemies) e.active = false;
+    for (const p of pickups) p.active = false;
+    const KINDS = ['heart', 'vacuum', 'sigil', ...CONSUMABLE_KEYS.map(k => 'item:' + k)];
+    KINDS.forEach((k, i) => spawnPickup(player.x - 300 + i * 70, player.y - 150, k));
+    Game.state = 'playing'; frame(t += 16.7);
+    window.uiArt = UA;
+    Game.state = 'title';
+    return { drawn: [...drawn], want: KINDS.length };
+  });
+  if (drop.drawn.length !== drop.want)
+    fail.push(`바닥 획득물 ${drop.drawn.length}/${drop.want} 만 그려진다 — 옛 도형으로 떨어졌다`);
+  out.push(`바닥 획득물 ${drop.drawn.length}/${drop.want} 그려짐`);
 
   const crests = calls.title.ar.filter(k => k.startsWith('ui_crest_'));
   const frames = calls.title.s9.filter(k => k === 'ui_panel');

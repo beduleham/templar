@@ -72,6 +72,10 @@ SHEETS = [
     # 32px 이던 것을 44px 로 키워 그린다 — 16px 자리는 절차 표가 이기고 여기는 손그림이 이긴다.
     ("art/src/altar_icon_sheet.png",
      ["up_vigor", "up_edge", "up_swift", "up_avarice", "up_zeal", "up_rebirth", "up_orb"], "green"),
+    # §125 — 바닥에 떨어지는 획득물 여덟. UI 가 아니라 세계의 사물이라 앞가지가 drop_ 이다.
+    # 소모품 다섯이 여태 색만 다른 같은 약병 하나였다(§122 의 별 하나와 같은 자리).
+    ("art/src/drop_sheet.png",
+     ["meat", "magnet", "sigil", "bomb", "sand", "fury", "ward", "soul"], "green", "drop_"),
 ]
 # 아틀라스에 넣을 크기와 자리 — (이름, 폭, 높이, 줄 안 x). 같은 줄은 x 로 나눈다.
 LAYOUT = [
@@ -107,6 +111,10 @@ LAYOUT = [
     [("up_vigor", 128, 128, 0), ("up_edge", 128, 128, 128), ("up_swift", 128, 128, 256),
      ("up_avarice", 128, 128, 384), ("up_zeal", 128, 128, 512), ("up_rebirth", 128, 128, 640),
      ("up_orb", 128, 128, 768)],
+    # §125 — 바닥 획득물 여덟. 정사각 128, 폭 1024 를 꽉 채운다
+    [("meat", 128, 128, 0), ("magnet", 128, 128, 128), ("sigil", 128, 128, 256),
+     ("bomb", 128, 128, 384), ("sand", 128, 128, 512), ("fury", 128, 128, 640),
+     ("ward", 128, 128, 768), ("soul", 128, 128, 896)],
 ]
 
 
@@ -196,7 +204,8 @@ def split(path, n, mode):
 
 FIT = {"logo",                                   # 늘리지 않고 칸 안에 맞춰 넣는다 — 글자는 비율이 틀어지면 티가 난다
        "sk_wave", "sk_bolt", "sk_slash", "sk_burst", "sk_blink", "sk_dash",
-       "up_vigor", "up_edge", "up_swift", "up_avarice", "up_zeal", "up_rebirth", "up_orb"}
+       "up_vigor", "up_edge", "up_swift", "up_avarice", "up_zeal", "up_rebirth", "up_orb",
+       "meat", "magnet", "sigil", "bomb", "sand", "fury", "ward", "soul"}
 """ 스킬 아이콘 여섯은 원본 비율이 0.84~1.26 으로 제각각이다. 늘려 채우면 낙뢰는 뚱뚱해지고
     돌진은 납작해진다. 더 나쁜 것은 uiArt 가 **높이로** 크기를 맞춘다는 점이다 — 비율이
     다른 것들을 같은 높이로 그리면 넓은 것이 혼자 커 보인다. 정사각 칸에 비율대로 넣어
@@ -212,14 +221,20 @@ def fitbox(im, w, h):
 
 
 def main():
-    parts = {}
-    for path, names, mode in SHEETS:
+    parts, prefix = {}, {}
+    """ 아틀라스 이름의 앞가지는 시트가 정한다(§125). 여태 전부 `ui_` 였는데 바닥에
+        떨어지는 물건은 UI 가 아니라 세계의 사물이라 `drop_` 을 쓴다 — 이름이 무엇인지
+        말해야 나중에 읽는 사람이 자리를 안 헷갈린다. SHEETS 항목의 넷째 자리가 앞가지고,
+        없으면 예전대로 `ui_`. """
+    for path, names, mode, *rest in SHEETS:
+        pre = rest[0] if rest else "ui_"
         for im, nm in zip(split(path, len(names), mode), names):
             k = keygreen(im) if mode == "green" else keydark(im)
             a = np.array(k); ys, xs = np.nonzero(a[:, :, 3] > (8 if mode == "green" else 30))
             k = k.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
-            k.save(f"art/src/ui_{nm}.png")
+            k.save(f"art/src/{pre}{nm}.png")
             parts[nm] = k
+            prefix[nm] = pre
 
     html = io.open(GAME, encoding="utf-8").read()
     a = html.index("const ATLAS_FRAMES = ") + len("const ATLAS_FRAMES = ")
@@ -231,7 +246,7 @@ def main():
     # 이미 넣은 적이 있는 줄은 제자리에 덮어쓰고, 처음 넣는 줄만 아래에 덧붙인다.
     # 예전엔 「전부 아는가」 하나로 갈라서, 시트를 하나 더 받으면 아는 열셋까지 다시
     # 아래에 붙였을 것이다(1000줄이 두 번 실린다). 줄 단위로 본다.
-    known_row = [all(("ui_" + n) in frames for (n, *_ ) in row) for row in LAYOUT]
+    known_row = [all((prefix.get(n, "ui_") + n) in frames for (n, *_ ) in row) for row in LAYOUT]
     need = sum(max(h for (_, _, h, _) in row) for row, k in zip(LAYOUT, known_row) if not k)
     new = Image.new("RGBA", (AW, AH + need), (0, 0, 0, 0)); new.paste(atlas, (0, 0))
 
@@ -240,7 +255,7 @@ def main():
     for row, known in zip(LAYOUT, known_row):
         rh = max(h for (_, _, h, _) in row)
         for (nm, w, h, x) in row:
-            fk = "ui_" + nm
+            fk = prefix.get(nm, "ui_") + nm
             ty = frames[fk]["y"] if known else y
             tx = frames[fk]["x"] if known else x
             src = fitbox(parts[nm], w, h) if nm in FIT else parts[nm].resize((w, h), Image.LANCZOS)

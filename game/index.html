@@ -5488,6 +5488,7 @@ function update(dt) {
      돌진(초당 940)까지 그대로 더하면 카메라가 튀므로 앞당김에는 천장을 둔다. */
   const camVx = player.x - cam.px, camVy = player.y - cam.py;
   cam.px = player.x; cam.py = player.y;
+  cam.vx = camVx; cam.vy = camVy;        // 이번 프레임 이동량 — 추적자 잔상이 쓴다(§132)
   cam.x = lerp(cam.x, player.x - W / 2 + clamp(camVx * CAM_LEAD, -CAM_LEAD_MAX, CAM_LEAD_MAX), CAM_K);
   cam.y = lerp(cam.y, player.y - HT / 2 + clamp(camVy * CAM_LEAD, -CAM_LEAD_MAX, CAM_LEAD_MAX), CAM_K);
   cam.shake *= .88;
@@ -6313,6 +6314,207 @@ function capeW(y, m) {
   return 9 + u * 10;
 }
 
+/* ══════════ 직업의 오오라 (§132) ══════════
+
+   네 겹(망토·머리·궤도·문양)은 **갈래**의 것이다 — 결 열 가지가 68마디를 덮는다.
+   그런데 전직하고 나서 화면에 남는 인상은 등 뒤의 납작한 원반 하나였다. 색만 다른
+   같은 타원이라 오오라가 아니라 그림자 얼룩으로 읽혔고, 무엇보다 **아무것도 위로
+   솟지 않았다.** 「웅장」이 안 나오는 자리가 거기였다.
+
+   그래서 다섯째 겹을 얹는다. 이것만은 갈래가 아니라 **직업**의 것이다 — 4차가
+   이미 직업별로 갈리므로(from 이 기본 직업) 결이 아니라 직업으로 나누는 것이 맞다.
+
+   **바닥은 안 채운다.** 이 게임의 피해는 「몇 마리에게 둘러싸였나」(포위 배수 최대
+   4.2배)를 눈으로 세는 데 걸려 있어서, 발밑을 채우면 그 읽기가 통째로 막힌다
+   (adv-look 이 지킨다). 그래서 웅장함을 넓이가 아니라 **높이·움직임·빛**으로 낸다.
+   솟는 것, 도는 것, 남는 것.
+
+     성기사  올라가는 빛 — 발밑에서 머리 위로 오르는 빛알과 머리 위 후광
+     전사    튀는 불티 — 발밑에서 솟구쳐 떨어지는 불티와 어깨 높이의 열기
+     추적자  남는 잔상 — 뒤에 두 겹 남았다 스러지는 실루엣과 낮게 깔린 안개
+     마법사  도는 룬 — 머리 높이에서 천천히 도는 룬 판 셋과 내려앉는 마나
+
+   세기는 차수를 따른다(1~4). 전직할수록 더 커지는 것이 눈에 보여야 한다.
+   난수는 안 쓴다 — 알갱이마다 시간에서 위상을 뽑으므로 프레임마다 흔들리지 않고,
+   같은 시각이면 같은 그림이다(§131 과 같은 이유로 그리기가 판을 흔들면 안 된다). */
+const CLASS_AURA = {
+  paladin: { col: "#ffd76e", n: 7 },
+  warrior: { col: "#ff8a4c", n: 8 },
+  rogue:   { col: "#7de0b0", n: 3 },
+  mage:    { col: "#b9c8ff", n: 3 },
+};
+/* 한 알갱이. 격자에 맞춰 찍어야 몸과 같은 결로 보인다. */
+const auraDot = (x, y, w, h) => pxR(x - PIX * .5, y - PIX * .5, w || PIX, h || PIX);
+
+function drawClassAura(sx, sy, front) {
+  const tier = advList().length;
+  if (!tier || !player.cls) return;
+  const K = CLASS_AURA[player.cls.key];
+  if (!K) return;
+  const T = Game.time, k = .55 + tier * .15;          // 차수가 세기를 정한다
+  const pal = pxPal(K.col);
+  ctx.save();
+
+  if (player.cls.key === "paladin") {
+    /* 올라가는 빛. 발밑(sy+13)에서 나서 머리 위(sy-40)로 사라진다.
+       위로 갈수록 옅어지고 좁아진다 — 그래야 「오른다」로 읽힌다. */
+    if (!front) {
+      /* 빛기둥 — 웅장함은 넓이가 아니라 **높이**에서 온다. 발밑에서 머리 위까지
+         가늘게 서는 기둥 몇 개. 바닥을 안 채우면서 화면에서 가장 큰 것이 된다. */
+      for (let i = 0; i < 2 + tier; i++) {
+        const a = T * .35 + i * TAU / (2 + tier);
+        const x = sx + Math.cos(a) * (20 + tier * 3) * AL;
+        const h = (34 + tier * 9) * (.7 + Math.sin(T * 1.6 + i * 1.3) * .3);
+        const dep = .6 + Math.sin(a) * .4;
+        /* 기둥은 **한 덩어리로 칠하면 안 된다.** 어두운 배경에 낮은 알파의 납작한
+           사각형은 빛이 아니라 회색 막대로 읽힌다(실제로 그렇게 나왔다). 줄마다
+           위로 갈수록 옅어지고 좁아지게 쌓아야 「선 빛」이 된다. */
+        for (let u = 0; u < h; u += 3) {
+          const f = 1 - u / h;                        // 아래가 1, 위가 0
+          ctx.globalAlpha = f * f * .5 * k * dep;
+          ctx.fillStyle = f > .72 ? "#fffbe8" : K.col;
+          const w = PIX * (.5 + f * 1.3);
+          ctx.beginPath(); auraDot(x - w, sy + 12 * AL - u * AL, w * 2, PIX); ctx.fill();
+        }
+      }
+      for (let i = 0; i < K.n * tier; i++) {
+        const ph = (T * .55 + i * .137) % 1;           // 0 → 1 이 한 번 오르는 것
+        const a = i * 2.399;
+        const rx = Math.cos(a) * (16 + (i % 3) * 7) * AL * (1 - ph * .45);
+        const y = sy + 13 * AL - ph * 72 * AL;
+        ctx.globalAlpha = (1 - ph) * .95 * k;
+        ctx.fillStyle = ph < .3 ? "#fffbe8" : (ph > .6 ? pal[0] : K.col);
+        ctx.beginPath(); auraDot(sx + rx, y, PIX * (ph < .5 ? 2 : 1), PIX * (1 + (1 - ph) * 2.2)); ctx.fill();
+      }
+    } else {
+      // 머리 위 후광 — 차수만큼 넓어진다. 고리 하나, 두께 한 칸.
+      const hy = sy - 34 * AL, R = (13 + tier * 2.5) * AL;
+      /* 후광은 두 겹이다 — 한 줄짜리 고리는 화면에서 점선으로 흩어져 「테」로만 읽힌다.
+         안쪽을 밝게 겹쳐야 빛나는 고리가 된다. */
+      ctx.globalAlpha = (.5 + Math.sin(T * 1.8) * .14) * k;
+      ctx.fillStyle = "#fffbe8";
+      ctx.beginPath(); advRing(sx, hy, R, R * .34, T * .5, 0); ctx.fill();
+      ctx.globalAlpha = (.3 + Math.sin(T * 1.8) * .1) * k;
+      ctx.fillStyle = K.col;
+      ctx.beginPath(); advRing(sx, hy, R + PIX, R * .34 + PIX, T * .5, 0); ctx.fill();
+      ctx.beginPath(); advRing(sx, hy, R - PIX, R * .34 - PIX, -T * .5, 0); ctx.fill();
+    }
+
+  } else if (player.cls.key === "warrior") {
+    /* 튀는 불티. 위로 솟았다 중력에 떨어진다 — 포물선이라야 「튄다」로 읽힌다.
+       열기는 어깨 높이에서 좌우로만 흔들리는 짧은 줄. */
+    if (!front) {
+      for (let i = 0; i < K.n * tier; i++) {
+        const ph = (T * .75 + i * .119) % 1;
+        const sgn = i % 2 ? 1 : -1, sp = 8 + (i % 5) * 5;
+        const x = sx + sgn * sp * ph * 2.4 * AL;
+        const y = sy + 13 * AL - (ph * 46 - ph * ph * 40) * AL;
+        ctx.globalAlpha = (1 - ph * ph) * .95 * k;
+        ctx.fillStyle = ph < .4 ? "#fff0c0" : (ph < .75 ? K.col : pal[2]);
+        ctx.beginPath(); auraDot(x, y, PIX * (ph < .5 ? 2 : 1), PIX * (ph < .5 ? 2 : 1)); ctx.fill();
+      }
+      /* 발밑 열기 — 채우지 않는다. 낮고 넓은 호 두 줄이라 포위 읽기를 안 가린다. */
+      for (let i = 0; i < 2; i++) {
+        const w = (20 + tier * 4 + Math.sin(T * 2.2 + i * 2) * 4) * AL;
+        ctx.globalAlpha = (.2 + Math.sin(T * 2.6 + i) * .08) * k;
+        ctx.fillStyle = K.col;
+        ctx.beginPath(); advRing(sx, sy + (11 + i * 3) * AL, w, w * .3, 0, 0, Math.PI); ctx.fill();
+      }
+    } else {
+      for (let i = 0; i < 3 + tier; i++) {
+        const y = sy - (6 + i * 5) * AL;
+        const w = (11 + Math.sin(T * 3.1 + i) * 5) * AL;
+        ctx.globalAlpha = (.26 + Math.sin(T * 2.4 + i * 1.7) * .14) * k;
+        ctx.fillStyle = i % 2 ? "#ffd9a0" : K.col;
+        ctx.beginPath(); auraDot(sx - w, y, w * 2, PIX); ctx.fill();
+      }
+    }
+
+  } else if (player.cls.key === "rogue") {
+    /* 남는 잔상. 몸을 다시 그릴 수는 없으니(그리기 순서가 꼬인다) 몸의 자리에
+       세로로 긴 그림자를 겹쳐 둔다. 걸을 때만 벌어지도록 지난 자리에서 뺀다. */
+    if (!front) {
+      /* 잔상은 「지나온 자리」에 남는다. 이동량은 카메라가 이미 프레임마다 재고 있으므로
+         (§129) 그걸 그대로 쓴다 — 그리기가 상태를 따로 들고 있으면 어긋난다.
+         화면 세로는 눕어 있으므로 TILT 를 곱한다. */
+      const dx = cam.vx || 0, dy = (cam.vy || 0) * TILT;
+      for (let e = 1; e <= 1 + tier / 2 | 0; e++) {
+        ctx.globalAlpha = .22 * k / e;
+        ctx.fillStyle = pal[1];
+        ctx.beginPath();
+        for (let y = -24; y <= 14; y += 2) {
+          const w = (5 + Math.cos(y / 9) * 3) * AL;
+          auraDot(sx - dx * e * 3 - w, sy + y * AL - dy * e * 3, w * 2, PIX);
+        }
+        ctx.fill();
+      }
+      // 낮게 깔린 안개 — 발밑에서만, 납작하게. 바닥을 덮지 않도록 줄 몇 개뿐.
+      for (let i = 0; i < 3 + tier; i++) {
+        const ph = (T * .22 + i * .17) % 1;
+        const w = (10 + ph * 30) * AL;
+        ctx.globalAlpha = (1 - ph) * .3 * k;
+        ctx.fillStyle = K.col;
+        ctx.beginPath(); advRing(sx, sy + (10 + i * 2) * AL, w, w * .3, 0, 0); ctx.fill();
+      }
+    } else {
+      for (let i = 0; i < tier; i++) {
+        const a = T * 2.4 + i * TAU / tier;
+        ctx.globalAlpha = .5 * k;
+        ctx.fillStyle = K.col;
+        ctx.beginPath();
+        auraDot(sx + Math.cos(a) * 26 * AL, sy - 8 * AL + Math.sin(a) * 9 * AL, PIX * 4, PIX);
+        ctx.fill();
+      }
+    }
+
+  } else {
+    /* 도는 룬 판. 머리 높이에서 기울어진 타원을 돈다 — 뒤로 갈 때는 옅고 작다.
+       아래로는 마나가 천천히 내려앉는다. 마법사만 위아래가 모두 움직인다. */
+    /* 룬 고리는 둘이다 — 하나는 넓게 느리게, 하나는 좁게 빠르게 반대로. 고리 하나는
+       「장식이 돈다」인데 둘이 어긋나 돌면 「무언가 작동한다」가 된다. */
+    const rings = tier >= 2 ? 2 : 1;
+    for (let g = 0; g < rings; g++) {
+    const gg = g ? -1 : 1, gs = g ? .62 : 1;
+    const ry = 7 * AL * gs, R = (20 + tier * 2) * AL * gs, hy = sy - (38 - g * 7) * AL;
+    /* 수는 적게. 처음에 고리마다 일곱씩 두었더니 머리 위가 **흰 얼룩**으로 뭉쳤다 —
+       룬은 하나하나가 읽혀야 룬이다. 그리고 고리를 머리 위로 띄운다(얼굴을 덮으면
+       주인공이 안 보인다). */
+    const nR = 3 + (tier >> 1);
+    for (let i = 0; i < nR; i++) {
+      const a = T * .8 * gg * (g ? 1.7 : 1) + i * TAU / nR;
+      const back = Math.sin(a) < 0;
+      if (back === !!front) continue;                 // 뒤쪽은 몸보다 먼저
+      const d = .6 + (Math.sin(a) + 1) * .35;
+      ctx.globalAlpha = d * .8 * k;
+      ctx.fillStyle = d > .97 ? "#ffffff" : K.col;
+      const x = sx + Math.cos(a) * R, y = hy + Math.sin(a) * ry;
+      const gz = (d > .85 ? 1.5 : 1) * gs;           // 앞으로 올 때 커진다
+      ctx.beginPath();
+      auraDot(x - PIX * gz, y - PIX * 2 * gz, PIX * 2 * gz, PIX * 4 * gz);   // 룬 판
+      auraDot(x - PIX * 2.5 * gz, y, PIX * 5 * gz, PIX);
+      auraDot(x - PIX * 1.5 * gz, y - PIX * 2.5 * gz, PIX * 3 * gz, PIX);
+      ctx.fill();
+    }
+    }
+    if (!front) {
+      /* 룬 기둥 — 몸 뒤에 선 넓고 옅은 빛. 마법사의 「웅장」은 높이 선 것이다. */
+      /* 룬 기둥은 뺐다. 줄마다 쌓아 흐리게까지 해 봤는데 화면에서는 머리 위의
+         **회색 얼룩**이었다 — 파란 파스텔을 어두운 배경에 낮은 알파로 깔면 색이
+         아니라 회색으로 내려앉는다(§121 에서 4차 색에 대해 겪은 것과 같다).
+         마법사의 얼굴은 도는 룬이므로 거기에 몰아준다. */
+      for (let i = 0; i < 2 + tier; i++) {
+        const ph = (T * .3 + i * .21) % 1;
+        ctx.globalAlpha = (1 - ph) * .55 * k;
+        ctx.fillStyle = pal[0];
+        const a = i * 2.399;
+        ctx.beginPath();
+        auraDot(sx + Math.cos(a) * 15 * AL, sy - 26 * AL + ph * 36 * AL, PIX, PIX * 2); ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
 /* 1차 망토 + 3차 궤도의 뒤 절반 — 스프라이트보다 먼저 그린다 */
 function drawAdvanceBack(sx, sy) {
   const n = advList().length;
@@ -6682,6 +6884,7 @@ function drawPlayerBody() {
     ctx.fillStyle = advColor();
     ctx.beginPath(); ctx.arc(sx, sy, (22 + tier * 3) * AL, 0, TAU); ctx.fill();
     ctx.restore();
+    drawClassAura(sx, sy, false);          // 직업의 오오라 — 뒤 절반(§132)
     drawAdvanceBack(sx, sy);
   }
   const y0 = sy + HERO_FOOT;
@@ -6691,7 +6894,7 @@ function drawPlayerBody() {
   ctx.translate(-sx, -y0);
   drawPlayerArt();
   ctx.restore();
-  if (tier) drawAdvanceFront(sx, sy);
+  if (tier) { drawAdvanceFront(sx, sy); drawClassAura(sx, sy, true); }
 }
 function drawPlayerArt() {
   const sx = player.sx, sy = player.sy;

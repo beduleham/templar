@@ -23,6 +23,18 @@ const { BOT } = require('./bot.js');
   await pg.waitForFunction('typeof Game !== "undefined" && Sprites.ready', null, { timeout: 20000 });
   await pg.evaluate((B) => { (0, eval)(B); }, BOT);
   const r = await pg.evaluate(() => {
+    /* 씨앗을 박는다(§141). 이 10분 판은 봇이 굴리는 판이라 같은 코드로도 값이
+       크게 흔들린다 — 아래 「이펙트 예산은 만든 장면에서 잰다」 주석이 그 이유로
+       예산 검사를 옮겨 놓은 자리다. 그런데 **체력바 검사는 여전히 이 판 위에**
+       얹혀 있어서, 같은 코드로 17.5 · 20.3 · 27.4 가 나왔고 문턱(25)을 한 번
+       넘었다. 레벨이 14 와 23 사이를 오가면 화력이 두 배로 달라지고, 그러면
+       상처 입은 적 수도 따라 달라진다.
+
+       §130 이 hound-pack 에 한 것과 같다 — 값이 굴릴 때마다 달라지는 검사는
+       검사가 아니다. 소리 난수는 §131 에서 이미 갈라 두었으므로 씨앗 하나면
+       판이 그대로 되풀이된다. */
+    let seed = 8641;
+    Math.random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     selectedClass = 0; Game.reset(); botInstall(); Game.state = 'playing';
     while (Game.time < 600) {
       if (Game.state === 'levelup' || Game.state === 'advance') { Game.applyChoice(Game.choices.find(c => c.type !== 'heal') || Game.choices[0]); continue; }

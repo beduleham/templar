@@ -6,3 +6,6 @@
 
 # Tooling
 node_modules/
+
+# 파이썬 캐시
+art/__pycache__/

@@ -113,6 +113,32 @@ const { chromium } = require('playwright');
         shadowMoved: +(Math.max(...shadow) - Math.min(...shadow)).toFixed(2),
       };
     }
+
+    /* 카메라(§129). 「걷는 동안 주인공이 화면 가운데에 있는가」는 이동감과 한 몸이라
+       여기서 같이 본다. lerp 로만 따라가면 등속으로 걷는 내내 같은 만큼 뒤처지는데,
+       그건 부드러움이 아니라 **붙박인 어긋남**이다 — 게다가 이동 속도를 올릴수록
+       커지므로 강화를 먹을수록 화면이 더 틀어진다. 그래서 빠를 때도 함께 잰다. */
+    out.cam = {};
+    selectedClass = 0; Game.reset(); Game.state = 'playing';
+    for (let i = 0; i < 120; i++) { Game.state = 'playing'; update(1 / 60); }
+    const KM = Keymap.map;
+    const walk = (ks, n) => {
+      keys.clear(); for (const k of ks) keys.add(k);
+      let mx = 0;
+      for (let i = 0; i < n; i++) {
+        Game.state = 'playing'; update(1 / 60);
+        mx = Math.max(mx, Math.abs(player.sx - W / 2), Math.abs((player.sy - HT / 2) * TILT));
+      }
+      keys.clear();
+      return +mx.toFixed(1);
+    };
+    out.cam.멈춤 = walk([], 60);
+    out.cam.오른쪽 = walk([KM.right[0]], 180);
+    out.cam.왼위 = walk([KM.left[0], KM.up[0]], 180);
+    player.dynSpeed = 1.6;
+    out.cam.빠를때 = walk([KM.right[0], KM.down[0]], 180);
+    player.dynSpeed = 1;
+    Game.state = 'title';
     return out;
   });
 
@@ -139,6 +165,12 @@ const { chromium } = require('playwright');
     if (v.shadowMoved > .01)
       fail.push(`${k}: 그림자가 ${v.shadowMoved}px 같이 움직였다 — 그림자는 바닥에 남아야 「발이 땅을 밀었다」가 된다`);
   }
+
+  /* 어긋남은 방향에도 속도에도 상관없이 몇 px 안이어야 한다. 고치기 전에는
+     오른쪽으로 걸을 때 가로 16.7px · 세로 11.2px 이었고, 이동 +60% 면 더 컸다. */
+  console.log('카메라 어긋남(px): ' + Object.entries(r.cam).map(([k, v]) => k + ' ' + v).join(' · '));
+  for (const [k, v] of Object.entries(r.cam))
+    if (v > 4) fail.push(`${k} 일 때 주인공이 화면 가운데에서 ${v}px 벗어난다 — 카메라 앞당김이 빠졌다(§129)`);
 
   fail.push(...errs);
   await b.close();

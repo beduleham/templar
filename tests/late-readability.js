@@ -137,6 +137,45 @@ const { BOT } = require('./bot.js');
     };
     o.hue = { mid: scene(0), saint: scene(90), monster: scene(-90) };
     Game.faith = 0;
+    /* ④ 겹친 폭발의 빛(§128). 뭉친 무리에 낙뢰를 쏟으면 폭발마다 광원이 하나씩
+       붙는데, 광원은 여덟 개까지라는 **수** 상한만 있고 겹침은 안 봤다 — 반지름
+       190px 짜리 빛 여덟이 한 점에 포개져 무리가 통째로 날아갔다.
+
+       여기서 가르는 것은 「한 점에 스물」과 「흩어진 스물」이다. 둘 다 스무 발인데
+       앞은 눌려야 하고 뒤는 그대로여야 한다. 수로만 세면 둘이 구별되지 않으므로
+       이 검사가 곧 그 구별이 살아 있는지를 본다. */
+    const lit = (spread) => {
+      clearAll();
+      for (let i = 0; i < 20; i++)
+        spawnFx('fx_boom_holy', player.x + (i % 5 - 2) * spread, player.y + ((i / 5 | 0) - 2) * spread, 120, 0);
+      const sum = fxs.filter(f => f.active).reduce((a, f) => a + f.dim, 0);
+      wait();
+      return { 몫: +sum.toFixed(1), 밝기: +bright().toFixed(2) };
+    };
+    o.tight = lit(18); o.spread = lit(150);
+
+    /* ⑤ 갈래 이펙트의 세기(§128). 손으로 그린 시트는 가는 선이라 그냥 넣으면
+       기존 폭발의 1/5~1/15 밖에 안 밝았다 — 크기는 같은 급인데 안 보였다.
+       시트를 다시 구울 때 번짐(glow)을 빼먹으면 조용히 그 시절로 돌아가므로
+       **폭발을 자로 삼아** 잰다. 절대값은 배경과 화면 크기에 흔들리지만 비율은 안 그렇다. */
+    /* 시계를 쥐고 재야 값이 비교된다 — frame(now) 는 지난 호출과의 실제 시간차로
+       update 를 돌리므로, getImageData 가 걸린 시간만큼 이펙트가 앞질러 늙는다.
+       그래서 16.7ms 씩만 흘리고, 한 순간이 아니라 **한살이의 최댓값**을 쓴다. */
+    let ft = 1e6;
+    const one = (key, px) => {
+      clearAll(); spawnFx(key, player.x, player.y - 40, px, 0);
+      let best = 0;
+      for (let i = 0; i < 20 && fxs.some(f => f.active); i++) {
+        last = ft; ft += 16.7; Game.state = 'playing'; frame(ft);
+        best = Math.max(best, bright());
+      }
+      return best;
+    };
+    const ref = one('fx_boom_holy', 96);
+    o.shape = {};
+    for (const [k, px] of [['fx_crescent', 132], ['fx_wedge', 126], ['fx_volley', 128],
+                           ['fx_pillar', 132], ['fx_implode', 104]])
+      o.shape[k] = +(one(k, px) / Math.max(.01, ref)).toFixed(2);
     clearAll();
     return o;
   });
@@ -147,7 +186,20 @@ const { BOT } = require('./bot.js');
     + ` · 성인 ${bud.hue.saint.pct}% ${bud.hue.saint.warm} ${bud.hue.saint.red}`
     + ` · 괴물 ${bud.hue.monster.pct}% ${bud.hue.monster.warm} ${bud.hue.monster.red}`);
   console.log(`10분: 적 ${r.enemies} · 등급 ${r.ranked} (${(r.ratio * 100).toFixed(0)}%) · 체력바 ${r.bars} · 밝은 픽셀 ${r.bright}% · 입자 ${r.particles} · 파동 ${r.waves} · 폭발 최대 ${r.boomMax}px · lv${r.lv}`);
+  console.log(`겹친 빛: 한 점에 스물 몫 ${bud.tight.몫} 밝기 ${bud.tight.밝기}%`
+    + ` · 흩어진 스물 몫 ${bud.spread.몫} 밝기 ${bud.spread.밝기}%`);
+  console.log(`갈래 세기(폭발=1): ` + Object.entries(bud.shape).map(([k, v]) => k.slice(3) + ' ' + v).join(' · '));
   let bad = 0;
+  /* 한 점에 포개진 스물은 몫이 크게 깎여야 하고(§128), 흩어진 스물은 안 깎여야 한다.
+     경계는 넉넉히 잡는다 — 정확한 값이 아니라 「구별이 살아 있는가」를 보는 검사다. */
+  if (!(bud.tight.몫 < 8)) { console.log(`!! 한 점에 포갠 폭발 스물의 몫이 ${bud.tight.몫} — 겹침 예산이 안 먹는다`); bad++; }
+  if (!(bud.spread.몫 > 18)) { console.log(`!! 흩어진 폭발 스물의 몫이 ${bud.spread.몫} — 겹치지도 않았는데 눌렸다`); bad++; }
+  /* 아래는 폭발의 0.3~1.1 배. 아래를 밑돌면 「있는데 안 보인다」로 돌아간 것이고,
+     위를 넘으면 갈래가 폭발과 구별이 안 된다 — 모양을 가르려고 넣은 그림이다. */
+  for (const [k, v] of Object.entries(bud.shape)) {
+    if (v < .3) { console.log(`!! ${k} 가 폭발의 ${v}배 — 시트에서 번짐이 빠졌는지 보라(§128)`); bad++; }
+    if (v > 1.1) { console.log(`!! ${k} 가 폭발의 ${v}배 — 갈래 그림이 폭발보다 세다`); bad++; }
+  }
   if (!(bud.boom40 > bud.boom8)) { console.log(`!! 폭발 40발이 8발보다 안 밝다 — 장면이 안 만들어졌다`); bad++; }
   if (bud.boomRatio > 3) { console.log(`!! 폭발 40발이 8발의 ${bud.boomRatio}배 — 겹칠수록 하나씩 조용해져야 한다(가산 합성)`); bad++; }
   if (bud.ink[0] !== 1 || bud.ink[1] !== 1) { console.log(`!! 작은 고리(${bud.ink[0]}/${bud.ink[1]})가 온전하지 않다 — 부딪히는 자리는 또렷해야 한다`); bad++; }

@@ -6422,8 +6422,13 @@ function drawAdvanceFront(sx, sy) {
    물들인 것은 캔버스에 들고 있는다. 쓰이는 조합은 마디 수만큼이라 스무 장을
    넘지 않는다 — 매 프레임 새로 만들면 그게 더 비싸다. */
 const tintCv = new Map();
-function tinted(key, col) {
-  const id = key + col;
+/* mode — 「multiply」는 흰빛 그림에 색을 **깔 때** 쓴다(머리 장식·궤도·마법진처럼
+   원본이 무채색일 때). 원본이 이미 색을 가진 그림에는 안 통한다: 파란 보석에 금색을
+   곱하면 청록이 된다(§148에서 실제로 그렇게 나왔다 — 곱셈은 색을 **빼는** 연산이라
+   원본에 없는 색은 못 만든다). 그럴 때는 「color」다 — 색조와 채도는 칠하는 색에서,
+   밝기는 원본에서 가져오므로 보석의 결을 그대로 둔 채 색만 갈아입힌다. */
+function tinted(key, col, mode = "multiply") {
+  const id = key + col + mode;
   let c = tintCv.get(id);
   if (c) return c;
   const f = ATLAS_FRAMES[key];
@@ -6432,7 +6437,7 @@ function tinted(key, col) {
   c = document.createElement("canvas"); c.width = w; c.height = h;
   const g = c.getContext("2d");
   g.drawImage(Sprites.atlas, f.x, f.y, w, h, 0, 0, w, h);
-  g.globalCompositeOperation = "multiply";
+  g.globalCompositeOperation = mode;
   g.fillStyle = col; g.fillRect(0, 0, w, h);
   /* multiply 는 투명한 곳도 색으로 덮는다. 원본을 알파 마스크로 한 번 더 얹어
      실루엣을 되돌린다 — 안 하면 칸 전체가 색 사각형이 된다. */
@@ -10989,9 +10994,23 @@ function chip(x, y, w, h, fill, stroke, r, alpha = 1) {
   return Math.max(0, cap - 7);
 }
 /* 영창 단계 보석(§121). 켜진 것은 푸른 보석, 꺼진 것은 빈 틀. 그림이 없으면 예전 칸. */
-function pip(x, y, w, h, on, onCol) {
+/* 켜진 눈금 그림은 **파란 보석**이다 — 마법사 영창 단계를 위해 그린 것이라 그 색이
+   맞다. 그런데 같은 그림을 설정·제단에 그대로 쓰면 금빛 화면 한가운데 파란 보석이
+   박힌다(§148). 모양은 같은 것을 쓰고 색만 그 화면의 것으로 입힌다 — 머리 장식·궤도·
+   마법진에서 쓰던 tinted() 와 같은 수법이다. onCol 을 주면 물들이고, 안 주면 원래 색. */
+function pip(x, y, w, h, on, onCol, tint) {
   const key = on ? "ui_pip_on" : "ui_pip_off";
   if (!Sprites.frames[key]) { pxChip(x, y, w, h, on ? onCol : "rgba(255,255,255,.13)", null, 3); return; }
+  if (on && tint) {
+    const c = tinted(key, tint, "color");
+    if (c) {
+      const f = Sprites.frames[key], ww = f.w / f.h * h;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(c, Math.round(x + w / 2 - ww / 2), Math.round(y + h / 2 - h / 2), Math.round(ww), Math.round(h));
+      ctx.imageSmoothingEnabled = false;
+      return;
+    }
+  }
   uiArt(key, x + w / 2, y + h / 2, h);
 }
 /* 스킬 형태 아이콘(§122). 능동 스킬 일흔둘(직업 4 · 각성 68)이 여섯 형태를 나눠 쓴다 —
@@ -14488,7 +14507,11 @@ function drawAltar() {
   /* 세 줄로 놓으면 1,184px 이 필요하다 — 세로 화면(520)에서는 가운데 한 줄만 보이고
      양옆 네 장이 통째로 잘렸다. 좁으면 한 줄로 세우고 카드를 낮춘다. */
   const cols = W >= 1180 ? 3 : W >= 800 ? 2 : 1;
-  const gap = cols === 1 ? 14 : 22;
+  /* 한 줄일 때 사이를 14 로 두었더니, 카드마다 액자가 6px 씩 밖으로 나가서 위아래
+     액자가 2px 을 사이에 두고 맞붙어 사다리처럼 보였다(§148). 액자를 두르면 카드의
+     겉넓이가 12px 커진다 — 사이도 그만큼 더 준다. 격자는 남는 높이에 맞춰 스스로
+     줄어드니(gk) 화면 밖으로 밀리지 않는다. */
+  const gap = cols === 1 ? 22 : 22;
   const cw = Math.min(380, Math.floor((W - (cols + 1) * 24) / cols));
   const ch = cols === 1 ? 112 : 128;
   const rows = Math.ceil(ALTAR.length / cols);
@@ -14515,10 +14538,26 @@ function drawAltar() {
     const afford = !maxed && Meta.souls >= cost;
     const hovered = inRect(amx, amy, x, y, cw, ch);
 
-    panel(x, y, cw, ch, 14,
-      hovered && afford ? "rgba(34,28,52,.98)" : "rgba(14,14,24,.92)",
-      maxed ? "rgba(255,211,77,.5)" : afford ? (hovered ? "#c9a3ff" : "rgba(201,163,255,.35)") : "rgba(255,255,255,.1)");
-    if (hovered && afford) drawSlice9("ui_panel", x - 6, y - 6, cw + 12, ch + 12, .16, .20);
+    /* 액자는 **늘** 두른다(§148). 예전에는 살 수 있고 손이 올라간 칸에만 금빛 액자를
+       씌우고 나머지는 납작한 테로 그렸는데, 여섯 중 다섯이 평상시 납작한 테라
+       제단만 다른 게임처럼 보였다. 이 게임의 말투는 금빛 액자다 — 제목 화면도,
+       레벨업 카드도, 성전 기록도, 결과창도 전부 그것으로 말한다.
+
+       그러면 상태는 무엇이 말하나. 테가 아니라 **바닥색**이 말한다: 다 올린 칸은
+       금빛이 도는 바닥, 살 수 있는 칸은 보랏빛, 아직 못 사는 칸은 식은 바닥.
+       글자와 아이콘 색도 이미 같은 것을 말하고 있었다. 테를 상태에 쓰면
+       「이 화면의 말투」와 「이 칸의 상태」가 같은 자리를 놓고 다툰다. */
+    const bed = maxed ? "rgba(40,32,14,.95)"
+              : afford ? (hovered ? "rgba(40,32,60,.98)" : "rgba(22,18,36,.94)")
+              : "rgba(14,14,24,.92)";
+    /* 바닥을 먼저 깔고 액자를 위에 씌운다. 액자를 먼저 그리고 바닥을 destination-over
+       로 넣어 봤는데, 그 합성은 **이미 그린 모든 것** 아래로 가므로 바닥이 세계 뒤로
+       깔려 카드가 통째로 비쳤다. 「아래에 그린다」는 이 칸의 아래가 아니라 화면의
+       아래다. 액자 그림은 가운데가 뚫려 있으니 순서만 지키면 된다. */
+    panel(x, y, cw, ch, 14, bed, "rgba(0,0,0,0)");
+    if (!drawSlice9("ui_panel", x - 6, y - 6, cw + 12, ch + 12, .16, .20))
+      panel(x, y, cw, ch, 14, bed,
+        maxed ? "rgba(255,211,77,.5)" : afford ? (hovered ? "#c9a3ff" : "rgba(201,163,255,.35)") : "rgba(255,255,255,.1)");
 
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
     /* 못 사는 칸도 '지금 몇 %인지 · 얼마나 더 모아야 하는지'는 읽혀야 한다.
@@ -14559,9 +14598,8 @@ function drawAltar() {
     // 레벨 눈금 — 여기만 둥근 모서리를 쓰면 나머지 픽셀과 재질이 어긋난다
     for (let k = 0; k < u.max; k++) {
       const px = x + 68 + k * 20;
-      ctx.fillStyle = k < lv ? "#c9a3ff" : "rgba(255,255,255,.13)";
-      ctx.beginPath(); pxR(px, y + 70, 15, 9); ctx.fill();
-      if (k < lv) { ctx.fillStyle = "#efe4ff"; ctx.beginPath(); pxR(px, y + 70, 15, PIX); ctx.fill(); }
+      // 설정과 같은 눈금 그림. 색만 제단의 것(영혼 보랏빛, 다 올렸으면 금빛)으로 입힌다.
+      pip(px, y + 70, 15, 11, k < lv, maxed ? "#ffd34d" : "#c9a3ff", maxed ? "#ffd34d" : "#c9a3ff");
     }
 
     ctx.textAlign = "right";
@@ -15123,7 +15161,9 @@ function drawOptions() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
   fitFont("800", 42, "설정", W - 40);
-  ctx.fillStyle = "#8fd0ff";
+  /* 화면 제목은 전부 금빛이다(성전 기록 #ffd36e). 설정과 키 설정만 하늘색이라
+     두 화면이 다른 집 물건처럼 보였다(§148). */
+  ctx.fillStyle = "#ffd36e";
   ctx.fillText("설정", W / 2, narrow() ? 44 : 76);
 
   const n = OPT_ROWS.length + 1;                 // 마지막은 기록 지우기
@@ -15181,12 +15221,11 @@ function drawOptions() {
     for (let k = 0; k < segs; k++) {
       const sx = bx + k * (segW + sgap);
       const on = bar ? k < Opt[R.key] : k === Opt[R.key];
-      ctx.fillStyle = on ? "#8fd0ff" : "rgba(255,255,255,.1)";
-      ctx.beginPath(); pxR(sx, y + ch / 2 - 9, segW, 18); ctx.fill();
-      if (on) {
-        ctx.fillStyle = "#d6ecff";
-        ctx.beginPath(); pxR(sx, y + ch / 2 - 9, segW, PIX); ctx.fill();
-      }
+      /* 눈금은 **게임이 이미 쓰는 그림**으로 그린다(§148). 평평한 하늘색 네모였는데,
+         이 화면에서만 쓰는 색이자 이 화면에서만 쓰는 모양이라 설정만 딴 게임이었다.
+         마법사 영창 단계가 쓰던 같은 눈금(ui_pip_on/off)을 그대로 쓴다 — 새 그림도
+         새 색도 필요 없고, 같은 뜻(칸이 찬다)에 같은 모양이 된다. */
+      pip(sx, y + ch / 2 - 9, segW, 18, on, "#ffd36e", "#ffd36e");
       if (inRect(mouse.x, mouse.y, sx - 2, y + 8, segW + 4, ch - 16) && mouse.clicked) {
         // 막대에서 이미 켜진 마지막 칸을 다시 누르면 끈다 — 그래야 0 에 닿는다
         const v = bar ? (Opt[R.key] === k + 1 ? k : k + 1) : k;
@@ -15229,7 +15268,7 @@ function optRow(x0, y, cw, ch, sel, rule, gap) {
 function drawKeys() {
   menuScrim(Game.optFrom === "paused" ? .82 : .7);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  fitFont("800", 42, "키 설정", W - 40); ctx.fillStyle = "#8fd0ff";
+  fitFont("800", 42, "키 설정", W - 40); ctx.fillStyle = "#ffd36e";
   ctx.fillText("키 설정", W / 2, narrow() ? 44 : 76);
   const n = KEY_ORDER.length, top = narrow() ? 92 : 140, gap = 8;
   const cw = Math.min(520, W - 48), ch = Math.max(36, Math.min(52, Math.floor((H - top - 80 - (n - 1) * gap) / n)));

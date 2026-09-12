@@ -4382,7 +4382,7 @@ const Game = {
       this.advancePending = 0;
       this.choices = opts;
       this.state = "advance";
-      this.hover = -1;
+      this.hover = -1; this.cardT = 0;
       Sfx.levelup();
       return true;
     }
@@ -4581,7 +4581,7 @@ const Game = {
       if (player.xp < player.xpNext) return;
     }
     this.state = "levelup";
-    this.hover = -1;
+    this.hover = -1; this.cardT = 0;
     Sfx.levelup();
   },
 
@@ -4878,7 +4878,14 @@ function update(dt) {
   if (Game.state !== "playing") return;
 
   Game.time += dt;
-  if (Game.time >= RUN_TIME) { Game.state = "won"; Game.endRun(); return; }
+  if (Game.time >= RUN_TIME) {
+    Game.state = "won"; Game.overT = 0; Game.endRun();
+    /* 15분을 버틴 순간에 아무 소리도 안 났다. 쓰러질 때는 소리가 있는데(Sfx.dead)
+       이긴 쪽이 조용하면 가장 큰 순간이 가장 밋밋해진다(§149). */
+    Sfx.duck(.7, 2.2);
+    Sfx.arp([523, 659, 784, 1046, 1318, 1568], 95, .26, "triangle", .95);
+    return;
+  }
   Game.updateSpawning(dt);
 
   const s = player.stats;
@@ -5570,7 +5577,7 @@ function onPlayerDown() {
     return;
   }
   player.hp = 0;
-  Game.state = "dead";
+  Game.state = "dead"; Game.overT = 0;
   Game.endRun();
   Sfx.dead();
 }
@@ -14249,6 +14256,12 @@ function drawCodex() {
   const cls = CLASSES[Game.codexCls] || CLASSES[0];
   const rows = codexTree(cls.key);
   const CW = 98, CH = 112, GAP = 8;
+  /* 차수 사이는 칸 사이보다 넓게 둔다(§149). 잇는 선은 처음부터 있었는데 — 「선이
+     없다」고 적었던 것은 내 눈이 틀린 것이다 — 위아래 틈이 가로와 같은 8px 이라
+     세 마디짜리 꺾은선이 그 안에 통째로 눌려 있었다. 확대하면 보이고 1배에서는
+     안 보인다. **있는 것과 읽히는 것은 다르다.** 선이 「어디서 나왔나」를 말하려면
+     선이 지나갈 자리가 있어야 한다. */
+  const RGAP = 28;
   let tip = null;
 
   /* 나무로 갈지 차수 하나씩 갈지는 **글자가 사람 눈에 몇 px 로 보이는가**로 정한다.
@@ -14326,7 +14339,7 @@ function drawCodex() {
   }
 
   const treeWide = Math.max(...rows.map(r => r.length));
-  const treeH = rows.length * CH + (rows.length - 1) * GAP;
+  const treeH = rows.length * CH + (rows.length - 1) * RGAP;
   /* 아래 62px 은 짚은 칸 설명 자리다. 예전엔 두 줄(46)이었는데 기록 한 줄이
      늘어 세 줄이 됐다 — 자리를 안 늘렸더니 4차 줄과 글자가 겹쳤다. */
   const treeY0 = gBot + 14, treeAvail = H - treeY0 - 62;
@@ -14412,11 +14425,11 @@ function drawCodex() {
     ctx.translate(cx, top); ctx.scale(gk, gk); ctx.translate(-cx, -top);
 
     const cellX = (row, i) => cx - (row.length * CW + (row.length - 1) * GAP) / 2 + i * (CW + GAP);
-    const rowY = r => top + r * (CH + GAP);
+    const rowY = r => top + r * (CH + RGAP);
 
     /* 잇는 선을 먼저 깐다 — 어느 갈래에서 나왔는지가 이 화면의 반이다.
        4차는 부모가 갈래가 아니라 직업이라 선을 안 긋는다(다 이어져 보여 뜻이 없다). */
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
     for (let r = 1; r <= 2; r++) {
       for (let i = 0; i < rows[r].length; i++) {
         const pi = rows[r - 1].findIndex(p => p.key === rows[r][i].from);
@@ -14424,11 +14437,18 @@ function drawCodex() {
         const x0 = cellX(rows[r - 1], pi) + CW / 2, py = rowY(r - 1) + CH;
         const x1 = cellX(rows[r], i) + CW / 2, y1 = rowY(r);
         const lit = Meta.seen(rows[r][i].key) && Meta.seen(rows[r - 1][pi].key);
-        ctx.strokeStyle = lit ? "rgba(255,211,110,.45)" : "rgba(255,255,255,.13)";
+        /* 대비도 올린다. 안 걸어 본 선을 흰색 13% 로 두었더니 어두운 바탕에서
+           거의 바탕과 같았다 — 아직 안 간 길도 **길로는 보여야** 어디로 갈지가 읽힌다. */
+        ctx.strokeStyle = lit ? "rgba(255,211,110,.72)" : "rgba(255,255,255,.24)";
+        const my = (py + y1) / 2;
         ctx.beginPath();
-        ctx.moveTo(x0, py); ctx.lineTo(x0, (py + y1) / 2);
-        ctx.lineTo(x1, (py + y1) / 2); ctx.lineTo(x1, y1);
+        ctx.moveTo(x0, py); ctx.lineTo(x0, my);
+        ctx.lineTo(x1, my); ctx.lineTo(x1, y1);
         ctx.stroke();
+        /* 갈라지는 자리에 매듭 하나. 꺾은선만 있으면 여러 자식이 같은 가로줄을 쓸 때
+           어느 세로선이 어느 것인지 눈이 못 따라간다 — 매듭이 「여기서 갈린다」를 말한다. */
+        ctx.fillStyle = lit ? "rgba(255,211,110,.9)" : "rgba(255,255,255,.3)";
+        ctx.beginPath(); ctx.arc(x1, my, 2.5, 0, TAU); ctx.fill();
       }
     }
 
@@ -14699,12 +14719,25 @@ function drawAdvance() {
   const mx = stack ? (mouse.x - W / 2) / k + cw / 2 : (mouse.x - W / 2) / k + W / 2;
   const my = stack ? (mouse.y - yTop) / k : (mouse.y - yTop) / k + yTop;
 
+  /* 레벨업 카드와 같은 차례 등장(§149). 전직은 판을 통째로 바꾸는 선택이라
+     더 천천히 든다 — 0.11초씩 밀고 0.34초에 걸쳐 앉는다. */
+  Game.cardT = Math.min(2, (Game.cardT || 0) + STEP);
+  const aIn = i => {
+    const t = clamp((Game.cardT - i * .11) / .34, 0, 1);
+    return 1 - (1 - t) * (1 - t);
+  };
+
   ctx.save();
   if (stack) { ctx.translate(W / 2, yTop); ctx.scale(k, k); ctx.translate(-cw / 2, 0); }
   else if (k < 1) { ctx.translate(W / 2, yTop); ctx.scale(k, k); ctx.translate(-W / 2, -yTop); }
 
   for (let i = 0; i < n; i++) {
     const a = Game.choices[i]; if (!a) continue;
+    const aT = aIn(i);
+    if (aT <= 0) continue;
+    ctx.save();
+    ctx.globalAlpha = aT;
+    ctx.translate(0, (1 - aT) * 30);
     const x = stack ? 0 : x0 + i * (cw + gap);
     const y0 = stack ? i * (ch + gap) : yTop;      // 카드 기준선
     const hovered = inRect(mx, my, x, y0, cw, ch) || (Pad.active && Game.padSel === i);
@@ -14783,6 +14816,7 @@ function drawAdvance() {
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
     ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 20 + oy);
 
+    ctx.restore();
     if (hovered && mouse.clicked) Game.applyChoice(a);
   }
   ctx.restore();
@@ -15000,11 +15034,25 @@ function drawLevelUp() {
   const my = stack ? (mouse.y - y0) / k : mouse.y;
 
   Game._luLayout = { titleY, cardTop: y0, cardBot: Math.round(y0 + k * (3 * ch + 2 * gap)), k: +k.toFixed(2) };   // 회귀가 읽는다
+  /* 카드는 **차례로** 든다(§149). 셋이 한 프레임에 통째로 나타나면 고를 것이 셋이라는
+     사실조차 한꺼번에 던져진다 — 0.07초씩 밀어 왼쪽부터 앉히면 눈이 순서대로 따라간다.
+     시간축은 결과 화면과 같은 수법으로 그리는 쪽에서 센다(update 가 멈춰 있다). */
+  Game.cardT = Math.min(2, (Game.cardT || 0) + STEP);
+  const cIn = i => {
+    const t = clamp((Game.cardT - i * .07) / .26, 0, 1);
+    return 1 - (1 - t) * (1 - t);
+  };
+
   ctx.save();
   if (stack) { ctx.translate(W / 2, y0); ctx.scale(k, k); ctx.translate(-cw / 2, 0); }
 
   for (let i = 0; i < 3; i++) {
     const c = Game.choices[i]; if (!c) continue;
+    const cT = cIn(i);
+    if (cT <= 0) continue;
+    ctx.save();
+    ctx.globalAlpha = cT;
+    ctx.translate(0, (1 - cT) * 26);
     const x = stack ? 0 : x0 + i * (cw + gap);
     const y0 = stack ? i * (ch + gap) : 178;      // 카드 기준선 — 쌓으면 행마다 내려간다
     const hovered = inRect(mx, my, x, y0, cw, ch) || (Pad.active && Game.padSel === i);
@@ -15147,6 +15195,7 @@ function drawLevelUp() {
     ctx.font = "700 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
     ctx.fillText("[" + (i + 1) + "]", x + cw / 2, y0 + ch - 20 + oy);
 
+    ctx.restore();
     if (hovered && mouse.clicked) Game.applyChoice(c);
   }
   ctx.restore();
@@ -15337,8 +15386,44 @@ function drawPaused() {
 }
 
 function drawEnd(win) {
-  ctx.fillStyle = win ? "rgba(20,14,6,.85)" : "rgba(20,6,10,.85)"; ctx.fillRect(0, 0, W, H);
+  /* 판이 끝난 뒤의 시간축(§149). 클리어도 사망도 **한 프레임에 완성된 표**로 떴다 —
+     15분을 버틴 순간과 죽은 순간이 같은 속도로 나타났다. 그리는 쪽에서 한 프레임씩
+     세어 둔다: update 가 멈춘 상태라 세어 줄 사람이 여기밖에 없고, 회귀가 프레임을
+     정해진 수만큼 넘기므로 벽시계보다 이쪽이 되풀이된다. */
+  Game.overT = Math.min(4, (Game.overT || 0) + STEP);
+  const T = Game.overT;
+  const ease = (a, b) => clamp((T - a) / (b - a), 0, 1);
+  const out = v => 1 - (1 - v) * (1 - v);            // 빨리 나왔다 천천히 멎는다
+
+  ctx.fillStyle = win ? "rgba(20,14,6,.85)" : "rgba(20,6,10,.85)";
+  ctx.globalAlpha = ease(0, .25); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+  /* 이긴 순간에만 — 제목 자리에서 빛 고리가 세 겹 퍼지고 금빛 티끌이 오른다.
+     판이 멈춰 있어 입자 풀이 돌지 않으므로 시간축에서 직접 그린다(좌표는 해시라
+     판마다 같은 자리 — 되풀이되는 연출이 되풀이되는 검사를 만든다). */
+  if (win) {
+    ctx.save();
+    for (let i = 0; i < 3; i++) {
+      const rt = ease(.05 + i * .17, 1.35 + i * .17);
+      if (rt <= 0 || rt >= 1) continue;
+      ctx.globalAlpha = (1 - rt) * .45;
+      pxRing(W / 2, H / 2 - 150, 30 + out(rt) * W * .42, PIX * 2, pxPal("#ffd34d"));
+    }
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 30; i++) {
+      const hx = hash2(i * 37 + 11, 5), hs = hash2(i * 91 + 3, 9);
+      const life = (T * (.22 + hs * .18) + hx) % 1;
+      const a = Math.sin(life * Math.PI) * .55 * ease(.3, .9);
+      if (a <= .01) continue;
+      const px = W * (.08 + hx * .84) + Math.sin(life * 7 + i) * 14;
+      const py = H * .96 - life * H * .8;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = hs > .5 ? "#ffe9a8" : "#ffd34d";
+      ctx.fillRect(Math.round(px), Math.round(py), PIX, PIX * 2);
+    }
+    ctx.restore();
+  }
   /* 제목 위가 통째로 비어 있었다 — 결과 화면은 판이 끝난 뒤 가장 오래 보는
      화면인데 숫자 표 하나뿐이라, 이겼는지 졌는지가 글자 색으로만 갈렸다.
      문장을 하나 얹는다(월계관 = 생존, 부러진 검 = 쓰러짐).
@@ -15347,19 +15432,32 @@ function drawEnd(win) {
      안 되고, 자리가 아주 좁으면(44px 미만) 아예 안 그린다 — 문장은 있으면
      좋은 것이지, 읽어야 할 것을 밀어내면서까지 넣을 것은 아니다. */
   const eh = Math.min(104, H / 2 - 196);
-  if (eh > 44) {
+  if (eh > 44 && T > .12) {
     ctx.save();
-    ctx.globalAlpha = .22 + Math.sin(Game.time * 1.8) * .06;
+    ctx.globalAlpha = (.22 + Math.sin(Game.time * 1.8) * .06) * ease(.12, .5);
     pxRing(W / 2, H / 2 - 186 - eh / 2, eh * .62, PIX * 2,
            pxPal(win ? "#ffd34d" : "#ff5b6b"));
     ctx.globalAlpha = 1;
     ctx.restore();
-    Sprites.draw("emblem", W / 2, H / 2 - 186 - eh / 2, eh / 128,
+    ctx.globalAlpha = ease(.12, .5);
+    Sprites.draw("emblem", W / 2, H / 2 - 186 - eh / 2, eh / 128 * (.86 + out(ease(.12, .55)) * .14),
                  win ? EMBLEM.win : EMBLEM.fall);
+    ctx.globalAlpha = 1;
   }
 
-  ctx.font = "800 58px " + FONT; ctx.fillStyle = win ? "#ffd34d" : "#ff5b6b";
-  ctx.fillText(win ? "생존 성공!" : "쓰러졌다...", W / 2, H / 2 - 150);
+  /* 제목은 크게 들어왔다 제자리에 앉는다 — 이긴 쪽은 세게(1.35배에서), 쓰러진 쪽은
+     조용히(1.08배에서). 같은 연출을 양쪽에 쓰면 이긴 것이 위로가 되고 진 것이 잔치가 된다. */
+  {
+    const tp = out(ease(.02, win ? .5 : .65));
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 150);
+    ctx.scale(1 + (win ? .35 : .08) * (1 - tp), 1 + (win ? .35 : .08) * (1 - tp));
+    ctx.globalAlpha = tp;
+    ctx.font = "800 58px " + FONT; ctx.fillStyle = win ? "#ffd34d" : "#ff5b6b";
+    ctx.fillText(win ? "생존 성공!" : "쓰러졌다...", 0, 0);
+    ctx.restore();
+  }
+  if (T < .3) return;                        // 아직 판이 들어올 차례가 아니다
 
   /* 결과는 판 없이 글자만 띄워 두었었다. 어둡게 덮어도 세계가 비쳐서
      주인공의 후광이 숫자 한가운데를 지나갔다 — 읽을 곳에는 바닥이 있어야 한다. */
@@ -15373,6 +15471,9 @@ function drawEnd(win) {
      620 아래로 안 내려가고(넓이 고정), 세로는 700 이 바닥이다. 가장 아래 줄이
      H/2+230 이므로 620 짜리에서 540, 80px 이 남는다. */
   const pw = Math.min(W - 40, 430), ph = 258;
+  const pT = out(ease(.3, .62));
+  ctx.save(); ctx.globalAlpha = pT;
+  ctx.translate(0, (1 - pT) * 16);
   panel(W / 2 - pw / 2, H / 2 - 106, pw, ph, 16,
         win ? "rgba(26,20,10,.94)" : "rgba(22,12,16,.94)",
         win ? "rgba(255,211,77,.4)" : "rgba(255,120,120,.28)");
@@ -15389,6 +15490,11 @@ function drawEnd(win) {
   ctx.font = "600 18px " + FONT;
   rows.forEach((r, i) => {
     const y = H / 2 - 66 + i * 32;
+    /* 여섯 줄이 한꺼번에 뜨면 읽을 차례가 없다. 0.06초씩 밀어 위에서 아래로 앉힌다 —
+       사람이 읽는 차례와 나타나는 차례가 같아진다. */
+    const rT = out(ease(.5 + i * .06, .72 + i * .06));
+    if (rT <= 0) return;
+    ctx.globalAlpha = pT * rT;
     ctx.textAlign = "right"; ctx.fillStyle = "rgba(255,255,255,.55)";
     ctx.fillText(r[0], W / 2 - 16, y);
     ctx.textAlign = "left"; ctx.fillStyle = "#fff";
@@ -15396,6 +15502,7 @@ function drawEnd(win) {
     if (r[0] === "획득 영혼")
       drawMenuIcon("orb", W / 2 + 24 + ctx.measureText(r[1]).width, y, "#c9a3ff", 2);
   });
+  ctx.globalAlpha = pT;
 
   ctx.textAlign = "center";
 
@@ -15408,10 +15515,14 @@ function drawEnd(win) {
     if (sp.sin) parts.push("처형 " + Sin.killed + " → +" + sp.sin);
     if (sp.win) parts.push("클리어 → +" + sp.win);
     ctx.font = "600 12.5px " + FONT;
+    ctx.globalAlpha = pT * ease(.92, 1.15);
     ctx.fillStyle = "rgba(255,255,255,.42)";
     ctx.fillText(parts.join("   ·   "), W / 2, H / 2 + 116);
   }
+  ctx.restore();
+  if (T < 1.05) return;                      // 안내 줄은 표를 다 읽을 즈음에
 
+  ctx.save(); ctx.globalAlpha = ease(1.05, 1.35);
   ctx.font = "700 17px " + FONT;
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
   ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 170);
@@ -15422,6 +15533,7 @@ function drawEnd(win) {
   const have = "보유 영혼 " + Meta.souls.toLocaleString("ko-KR");
   ctx.fillText(have, W / 2 + 12, H / 2 + 230);
   drawMenuIcon("orb", W / 2 - ctx.measureText(have).width / 2 + 1, H / 2 + 230, "#c9a3ff", 2);
+  ctx.restore();
 }
 
 /* ---------- 메인 루프 ---------- */

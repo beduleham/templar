@@ -37,13 +37,19 @@ const CAPTURE = `(() => {
     return { x: x*t.a + y*t.c + t.e, y: x*t.b + y*t.d + t.f, k: t.a }; };
   const _t = ctx.fillText.bind(ctx);
   ctx.fillText = function (t, x, y) {
-    const p = map(x, y), w = ctx.measureText(t).width * p.k;
+    const p = map(x, y), m = ctx.measureText(t);
     const fs = (parseFloat((ctx.font.match(/(\\d+(?:\\.\\d+)?)px/) || [0,14])[1]) || 14) * p.k;
-    const bl = ctx.textBaseline;
-    const top = bl === 'top' || bl === 'hanging' ? p.y
-              : bl === 'bottom' || bl === 'alphabetic' ? p.y - fs*.82 : p.y - fs*.58;
-    const half = ctx.textAlign === 'center' ? w/2 : ctx.textAlign === 'right' ? w : 0;
-    if (String(t).trim()) boxes.push({ t: String(t).slice(0,26), x: p.x-half, y: top, w, h: fs*1.16, fs: +fs.toFixed(0) });
+    /* 상자는 **재서** 잡는다. 예전에는 글꼴 크기로 어림했다 —
+       위쪽을 글꼴×0.58(middle 기준)로 보고 높이를 글꼴×1.16 으로 두었다.
+       한글 굵은 글씨는 그렇지 않다: 「24레벨」 700 11px 의 실제 윗높이는 10.0px,
+       곧 글꼴×0.91 이다. 어림이 3.6px 짧으니 화면 맨 위 글자가 실제로는 위로
+       3px 잘려 나가 있는데도 검사는 안쪽에 있다고 읽었다(§147 에서 눈으로 찾았다).
+       actualBoundingBox* 는 textAlign·textBaseline 을 이미 반영한 값이라
+       맞춤을 따로 계산할 필요도 없다 — 어림 두 줄이 통째로 사라진다. */
+    const x0 = p.x - m.actualBoundingBoxLeft * p.k, x1 = p.x + m.actualBoundingBoxRight * p.k;
+    const y0 = p.y - m.actualBoundingBoxAscent * p.k, y1 = p.y + m.actualBoundingBoxDescent * p.k;
+    if (String(t).trim())
+      boxes.push({ t: String(t).slice(0,26), x: x0, y: y0, w: Math.max(1, x1-x0), h: Math.max(1, y1-y0), fs: +fs.toFixed(0) });
     return _t.apply(null, arguments);
   };
   frame(performance.now());
@@ -204,6 +210,85 @@ const CAPTURE = `(() => {
     const tag = `${r.W}×${r.H} 미션${BIG ? '큼' : '평상'}`;
     if (r.ov.length) { console.log(`!! ${tag} — 띠에서 겹침 ${r.ov.length}쌍\n     ${r.ov.join('\n     ')}`); bad++; }
     else console.log(`${tag} — 띠 ${r.rows}줄, 겹침 없음`);
+    await pg.close();
+  }
+
+  /* ── 3. 전직한 좌상단 · 결과창 (§147)
+     앞의 두 장면은 **레벨 1 · 전직 없음**이라, 전직해야 나오는 글자를 한 번도 재지
+     않았다. 그래서 전직 이름이 자원 바를 13px 넘고 자세 아이콘이 그 글자 한가운데
+     박히는 것을 검사가 통과시켰다. 판이 끝난 화면도 마찬가지로 아무도 안 봤다 —
+     영혼 내역 줄이 액자 아래 금테를 밟고 있었다.
+
+     **안 그려지는 상태는 안 재어진다.** 켜야 나오는 것은 켜고 재야 한다. */
+  for (const [vw, vh] of [[1280, 720], [1450, 634], [390, 844]]) {
+    const pg = await newPage(vw, vh);
+    const r = await pg.evaluate(async (CAP) => {
+      let seed = 4242; Math.random = () => (seed = (seed*1103515245+12345)&0x7fffffff)/0x7fffffff;
+      acc = 0; let ft = 1e6;
+      const step = () => { last = ft; ft += 1000/60; frame(ft); };
+      selectedClass = CLASSES.findIndex(c => c.key === 'paladin');
+      Game.reset(); Game.state = 'playing'; Game.time = 420;
+      for (let i = 1; i < 24; i++) player.level++;
+      player.sigils = 10;
+      let from = 'paladin'; player.advance.length = 0;
+      for (let t = 1; t <= 2; t++) {
+        const c = ADVANCES.filter(a => a.tier === t && a.from === from)[0];
+        if (!c) break; player.advance.push(c); from = c.key;
+      }
+      recomputeStats(); player.hp = player.stats.maxHp * .55;
+      for (let i = 0; i < 200; i++) { update(1/60); player.hp = player.stats.maxHp * .55; }
+      step();
+      const left = eval(CAP).filter(q => q.x < 340 && q.y < 200);
+      const ov = [];
+      for (let i = 0; i < left.length; i++) for (let j = i+1; j < left.length; j++) {
+        const A = left[i], B = left[j];
+        const w = Math.min(A.x+A.w, B.x+B.w) - Math.max(A.x, B.x);
+        const h = Math.min(A.y+A.h, B.y+B.h) - Math.max(A.y, B.y);
+        if (w > 0 && h > 0) ov.push(A.t + ' ↔ ' + B.t);
+      }
+      /* 체력·자원 바는 14~254 이고 그림 액자의 끝 장식이 8px 이라 글자가 놓일 수
+         있는 곳은 22~246 이다. 틀이 있는 자리에 글자를 놓을 때는 틀 두께만큼 들어간다. */
+      /* **바에 딸린 글자만** 본다. 거르개를 두 번 고쳤다. 그냥 x 범위로 걸렀더니
+         바 왼쪽 밖(0~19)을 지나가는 몹 이름표가 잡혔고, 「바에 걸치면」으로 고쳤더니
+         이번엔 세로 폰의 가운데 시계(225~295)가 잡혔다. 둘 다 바 글자가 아니다.
+         바 글자는 **왼쪽에 매인 것**이므로 x<200 에서 시작한다. */
+      const over = left.filter(q => q.y > 20 && q.y < 66 && q.x < 200 && q.x + q.w > 22
+                                 && (q.x < 21 || q.x + q.w > 247))
+                       .map(q => q.t + ' x ' + q.x.toFixed(0) + '~' + (q.x+q.w).toFixed(0));
+      /* 시계 판이 왼쪽 바를 덮는가 — 세로 폰에서 실제로 덮는다(D9). 아직 안 고쳤으므로
+         실패로 세우지 않고 **값만 적는다**. 바를 좁히려면 HUD 기둥 폭(240·254·246…)을
+         통째로 매개변수로 빼야 해서 여기서 할 일이 아니다. 고칠 때 이 숫자가 0 이 된다. */
+      const f = Sprites.frames.ui_clock;
+      const cw = 150, ch = f ? Math.round(cw * f.h / f.w) : 0;
+      const clockLap = Math.max(0, Math.min(254, W/2 + cw/2) - Math.max(14, W/2 - cw/2));
+
+      // 결과창 — 금테를 밟는 글자
+      Game.kills = 1423; Game.dmgDealt = 982314;
+      Game.soulsEarned = 350; Game.soulParts = { time: 150, kills: 0, win: 200 };
+      Game.state = 'won';
+      const res = eval(CAP).filter(q => q.h > 8 && q.x > W*.2 && q.x < W*.8 && q.y > H*.25);
+      const pw = Math.min(W - 40, 430);
+      const x0 = Math.round(W/2 - pw/2 - 40), x1 = Math.round(W/2 + pw/2 + 40), wpx = x1 - x0;
+      const d = ctx.getImageData(x0, 0, wpx, H).data;
+      const gold = [];
+      for (let y = 0; y < H; y++) {
+        let n = 0;
+        for (let x = 0; x < wpx; x++) { const i = (y*wpx+x)*4;
+          if (d[i] > 120 && d[i+1] > 85 && d[i+2] < d[i]*.72) n++; }
+        if (n > wpx*.45) gold.push(y);
+      }
+      const gb = gold[gold.length-1];
+      const onRail = gb == null ? [] : res.filter(q => q.y < gb + 2 && q.y + q.h > gb - 2)
+                                          .map(q => q.t + ' @ ' + q.y.toFixed(0));
+      return { W, H, ov, over, gb, onRail, clockLap: Math.round(clockLap), clockH: ch };
+    }, CAPTURE);
+    const tag = `${r.W}×${r.H} 전직2차`;
+    if (r.ov.length) { console.log(`!! ${tag} — 좌상단 겹침: ${r.ov.join(' · ')}`); bad++; }
+    if (r.over.length) { console.log(`!! ${tag} — 바 안쪽선(22~246)을 넘는 글자: ${r.over.join(' · ')}`); bad++; }
+    if (r.onRail.length) { console.log(`!! ${tag} — 결과창 금테(${r.gb})를 밟는 글자: ${r.onRail.join(' · ')}`); bad++; }
+    if (!r.ov.length && !r.over.length && !r.onRail.length)
+      console.log(`${tag} — 좌상단 겹침 없음 · 바 밖 없음 · 결과창 금테 ${r.gb} 깨끗`
+        + (r.clockLap ? `  (시계 판이 바를 ${r.clockLap}px 덮는다 — D9, 아직 안 고침)` : ''));
     await pg.close();
   }
 

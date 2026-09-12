@@ -9885,12 +9885,25 @@ function drawHUD() {
     ctx.beginPath(); pxR(markX, 45, PIX, 19); ctx.fill();
     ctx.font = "700 10px " + FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255,255,255,.9)";
-    ctx.fillText(R.name + "  " + Math.floor(player.res), 20, 53);
+    /* 바의 끝 장식은 8px 다(그림에서 잰다) — 안쪽은 22 부터다. 20 에 두었더니 글자가
+       장식을 2px 파고들었다. 틀이 있는 자리에 글자를 놓을 때는 틀 두께를 재고 들어간다. */
+    ctx.fillText(R.name + "  " + Math.floor(player.res), 22, 53);
+    /* 전직 이름 — 자원 바 **안쪽 오른끝(246)**에 맞추고 아이콘은 글자 왼쪽에 둔다.
+       예전에는 오른끝을 268 로 잡아 바(14~254)를 13px 넘었고, 그 자리에 찍던 자세
+       아이콘(254)이 글자 한가운데 박혀 「불멸의 성벽」의 「성」을 지웠다.
+
+       이 줄에는 스킬 발동 지점을 알리는 흰 눈금이 자원 소모량을 따라 움직인다. 그게
+       글자를 가를까 봐 체력 줄로 옮겨 봤는데 — **세로 폰에서 가운데 시계가 바로 그
+       자리로 내려온다**(검사가 잡았다). 옮기기 전에 눈금이 실제로 어디까지 가는지
+       재었어야 했다: 스킬 72가지를 전부 재니 가장 비싼 메테오(60)가 x=156 이고 그
+       위로는 없다. 오른쪽 170~246 은 **항상 비어 있다.** 겁내던 것은 일어나지 않는
+       일이었고, 피하러 간 자리에 진짜 문제가 있었다. */
     if (player.advance.length) {
-      ctx.textAlign = "right";
-      ctx.font = "700 11px " + FONT; ctx.fillStyle = advColor();
-      drawMenuIcon("stance", 254, 49, advColor(), 2);
-      ctx.fillText(advName(), 268, 53);
+      ctx.font = "700 11px " + FONT; ctx.textAlign = "right";
+      ctx.fillStyle = advColor();
+      const an = advName(), aw = ctx.measureText(an).width;
+      ctx.fillText(an, 246, 53);
+      drawMenuIcon("stance", 246 - aw - 9, 53, advColor(), 2);
       ctx.textAlign = "left";
     }
   }
@@ -9976,14 +9989,12 @@ function drawHUD() {
        얻은 것 한 줄, 잃은 것 한 줄. 저울의 두 접시는 붙여 놓으면 안 된다. */
     ctx.textAlign = "left"; ctx.font = "600 9.5px " + FONT;
     if (st) {
-      ctx.fillStyle = col; ctx.fillText(faithBoon(st), bx + 4, cy + bh + 7);
-      ctx.fillStyle = "rgba(255,255,255,.45)";
-      ctx.fillText("대가 · " + faithCurse(st), bx + 4, cy + bh + 19);
+      inkText(faithBoon(st), bx + 4, cy + bh + 7, col, 2.5);
+      inkText("대가 · " + faithCurse(st), bx + 4, cy + bh + 19, "rgba(255,255,255,.6)", 2.5);
       cy += 46;
     } else {
       const [left, to] = faithNext();
-      ctx.fillStyle = "rgba(255,255,255,.32)";
-      ctx.fillText(FAITH_NAME[to + 2] + "까지 " + left, bx + 4, cy + bh + 7);
+      inkText(FAITH_NAME[to + 2] + "까지 " + left, bx + 4, cy + bh + 7, "rgba(255,255,255,.5)", 2.5);
       cy += 34;
     }
     ctx.textAlign = "left";
@@ -10533,18 +10544,18 @@ function drawHUD() {
     ctx.globalAlpha = 1;
     // 이름과 단축키는 박스 밖에 — 62px 안에 한글 이름은 들어가지 않는다
     ctx.font = "700 12px " + FONT;
-    ctx.fillStyle = ready ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.4)";
-    ctx.fillText(curSkill().name, bx + bw / 2, by + bw + 12);
+    inkText(curSkill().name, bx + bw / 2, by + bw + 12,
+            ready ? "rgba(255,255,255,.9)" : "rgba(255,255,255,.55)");
     /* 회복이 줄었으면 그 자리에서 말한다. 안 말하면 「왜 덜 낫지」로만 남고,
        무엇보다 **어떻게 되돌리는지**를 모른다 — 한 걸음이면 원래대로다. */
     const hs = curSkill().healPct > 0 ? skillHealScale(player) : 1;
     if (hs < .99) {
-      ctx.font = "700 10px " + FONT; ctx.fillStyle = "#ff9f6b";
-      ctx.fillText("회복 -" + Math.round((1 - hs) * 100) + "%  ·  움직이면 돌아온다",
-        bx + bw / 2, by + bw + 27);
+      ctx.font = "700 10px " + FONT;
+      inkText("회복 -" + Math.round((1 - hs) * 100) + "%  ·  움직이면 돌아온다",
+        bx + bw / 2, by + bw + 27, "#ff9f6b", 2.5);
     } else {
-      ctx.font = "600 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.3)";
-      ctx.fillText("스페이스", bx + bw / 2, by + bw + 27);
+      ctx.font = "600 10px " + FONT;
+      inkText("스페이스", bx + bw / 2, by + bw + 27, "rgba(255,255,255,.45)", 2.5);
     }
   }
 
@@ -10925,6 +10936,20 @@ function plateInset(h) {
    손그림이 없으면 false 를 돌려주므로 부르는 쪽이 예전 칩 테두리로 떨어진다. */
 /* 도감 칸 액자의 귀 몫 — 그림에서 재서 정했다(귀 장식 115px / 541·668). */
 const CODEX_CAP_X = .21, CODEX_CAP_Y = .17;
+/* 세계 위에 바탕 없이 얹는 글자는 **어두운 테를 두르고** 찍는다.
+   판 위(HUD 칸·카드·패널)의 글자는 제 바닥이 있으니 그냥 찍으면 되지만, 바닥 없이
+   화면에 직접 찍는 글자는 그 뒤로 무엇이든 지나간다 — 스킬 이름표가 몹 이름표와
+   뒤엉키고, 신앙 각주가 밝은 지형 위에서 사라진다. 이미 스킬 칸의 자원 숫자와
+   신앙 저울 라벨이 이 수법을 쓰고 있었는데 나머지가 안 따라갔다(§147).
+
+   테는 글자를 가리지 않게 **먼저** 긋고 그 위에 채운다. 굵기는 글자 크기의 1/4
+   언저리 — 더 굵으면 글자가 뭉개지고, 더 얇으면 밝은 바닥에서 안 산다. */
+function inkText(txt, x, y, col, sw = 3) {
+  ctx.lineWidth = sw; ctx.strokeStyle = "rgba(0,0,0,.8)";
+  ctx.lineJoin = "round"; ctx.miterLimit = 2;
+  ctx.strokeText(txt, x, y);
+  ctx.fillStyle = col; ctx.fillText(txt, x, y);
+}
 const HUD_CAP = { bar: .09, rail: .05, slot: .20, skillframe: .19, mapframe: .14,
                   card: .14, card_awaken: .14, portrait: .12 };   // §118 카드 액자·초상 창틀
 function hudFrame(kind, x, y, w, h) {
@@ -15298,7 +15323,16 @@ function drawEnd(win) {
 
   /* 결과는 판 없이 글자만 띄워 두었었다. 어둡게 덮어도 세계가 비쳐서
      주인공의 후광이 숫자 한가운데를 지나갔다 — 읽을 곳에는 바닥이 있어야 한다. */
-  const pw = Math.min(W - 40, 430), ph = 240;   // 아래 안내 줄(H/2+148)에 걸치지 않게
+  /* 액자 높이는 **안에 들어가는 것**이 정한다. 240 으로 두었더니 영혼 내역 줄
+     (H/2+116, 잉크 469~482)이 아래 금테(484)를 2px 밟았다 — 세 해상도에서 모두.
+     내역은 마지막 줄(획득 영혼, 445~462)과 테 사이 22px 에 13px 글자를 끼우는
+     셈이라 자리가 애초에 없었다. 액자를 18px 키워 테를 502 로 내리고, 아래
+     안내 세 줄도 그만큼 내린다(+170·+198·+230).
+
+     세로로 가장 짧은 화면에서도 들어가는지 재 두었다 — 가로 화면의 논리 높이는
+     620 아래로 안 내려가고(넓이 고정), 세로는 700 이 바닥이다. 가장 아래 줄이
+     H/2+230 이므로 620 짜리에서 540, 80px 이 남는다. */
+  const pw = Math.min(W - 40, 430), ph = 258;
   panel(W / 2 - pw / 2, H / 2 - 106, pw, ph, 16,
         win ? "rgba(26,20,10,.94)" : "rgba(22,12,16,.94)",
         win ? "rgba(255,211,77,.4)" : "rgba(255,120,120,.28)");
@@ -15340,14 +15374,14 @@ function drawEnd(win) {
 
   ctx.font = "700 17px " + FONT;
   ctx.fillStyle = "rgba(255,255,255," + (.55 + Math.sin(performance.now() / 400) * .3).toFixed(2) + ")";
-  ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 148);
+  ctx.fillText("SPACE / R  같은 직업으로 다시", W / 2, H / 2 + 170);
   ctx.font = "700 14px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
-  ctx.fillText("ESC  직업 다시 고르기   ·   TAB  영혼의 제단", W / 2, H / 2 + 176);
+  ctx.fillText("ESC  직업 다시 고르기   ·   TAB  영혼의 제단", W / 2, H / 2 + 198);
   ctx.font = "600 13px " + FONT; ctx.fillStyle = "rgba(255,255,255,.4)";
   ctx.textAlign = "center";
   const have = "보유 영혼 " + Meta.souls.toLocaleString("ko-KR");
-  ctx.fillText(have, W / 2 + 12, H / 2 + 208);
-  drawMenuIcon("orb", W / 2 - ctx.measureText(have).width / 2 + 1, H / 2 + 208, "#c9a3ff", 2);
+  ctx.fillText(have, W / 2 + 12, H / 2 + 230);
+  drawMenuIcon("orb", W / 2 - ctx.measureText(have).width / 2 + 1, H / 2 + 230, "#c9a3ff", 2);
 }
 
 /* ---------- 메인 루프 ---------- */

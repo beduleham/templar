@@ -64,7 +64,11 @@ const { chromium } = require('playwright');
       fxLive = 0; numLive = 0; Game.lvAt = 0; cam.shake = 0; };
     const cw = 300, gap = 26, x0 = (W - (3 * cw + 2 * gap)) / 2;
     const draw = (A) => { CARDBG_A = A; fix(); mouse.x = -99; mouse.y = -99;
-                          ctx.setTransform(1, 0, 0, 1, 0, 0); frame(performance.now()); };
+                          ctx.setTransform(1, 0, 0, 1, 0, 0);
+                          /* 카드 등장 연출(§149)을 넘겨 앉힌다 — 이 검사가 묻는 것은
+                             「카드 바탕 위에서 문장이 보이는가」지 첫 프레임이 아니다. */
+                          Game.cardT = 9;
+                          frame(performance.now()); };
     /* 재는 상자는 카드 **안쪽**이다 — 액자(§118, 테 14px)를 상자에 넣으면 액자의 장식이
        바탕 얼룩을 올려 워터마크의 몫이 묻힌다(0번 카드가 9.12 → 9.33 으로 「안 보인다」가 됐다).
        테 안으로 22px 들여 잰다. */

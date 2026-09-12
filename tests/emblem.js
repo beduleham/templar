@@ -52,7 +52,12 @@ const { chromium } = require('playwright');
       }
       return { lit, violet };
     };
-    const draw = () => { mouse.x = -99; mouse.y = -99; ctx.setTransform(1, 0, 0, 1, 0, 0); frame(performance.now()); };
+    const draw = () => { mouse.x = -99; mouse.y = -99; ctx.setTransform(1, 0, 0, 1, 0, 0);
+      /* 결과 화면 시간축(§149)을 넘겨 앉힌다. 문장은 0.12초부터 짙어지므로
+         첫 프레임만 그리면 「문장이 안 그려졌다」가 된다 — 안 그려진 게 아니라
+         아직 안 나온 것이다. */
+      Game.cardT = 9; Game.overT = 9;
+      frame(performance.now()); };
 
     Game.state = 'intro'; draw();
     out.screens.intro = shot(W / 2 - 60, 150 - 60, 120, 120);

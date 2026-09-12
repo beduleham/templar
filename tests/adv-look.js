@@ -163,7 +163,31 @@ const { chromium } = require('playwright');
     // 마우스를 화면 밖으로 뺀다. 한 장만 강조되면 그 밝기 차이로 통과해 버려서
     // 미리보기가 실제로 다른지를 못 잰다.
     mouse.x = -999; mouse.y = -999; mouse.clicked = false;
-    drawAdvance();
+
+    /* 카드가 다 앉은 뒤를 잰다. §149 에서 카드에 등장 연출이 붙었는데(0.34초에 걸쳐
+       아래에서 떠오르며 짙어진다) 이 검사는 drawAdvance() 를 **한 번만** 부르므로
+       첫 프레임, 곧 알파 0.002 짜리 화면을 재고 있었다 — 「미리보기가 비어 있다」로
+       실패했다. 이 검사가 묻는 것은 「셋이 서로 다르고 비어 있지 않은가」지
+       「첫 프레임이 완성돼 있는가」가 아니다. 시간을 넘겨 앉힌다. */
+    const settled = () => { Game.cardT = 9; drawAdvance(); };
+
+    /* 다만 연출이 통째로 사라져도 모르면 안 되니, 든 뒤와 들기 전을 함께 잰다.
+       첫 프레임이 앉은 뒤보다 어두워야 「떠오른다」가 살아 있는 것이다. */
+    Game.cardT = 0; drawAdvance();
+    const firstLit = (() => {
+      const d = ctx.getImageData(0, 120, W, 420).data;
+      let on = 0;
+      for (let j = 0; j < d.length; j += 4) if (d[j] + d[j+1] + d[j+2] > 150) on++;
+      return on;
+    })();
+    settled();
+    const settledLit = (() => {
+      const d = ctx.getImageData(0, 120, W, 420).data;
+      let on = 0;
+      for (let j = 0; j < d.length; j += 4) if (d[j] + d[j+1] + d[j+2] > 150) on++;
+      return on;
+    })();
+    settled();
 
     // 카드 좌표는 drawAdvance 와 같은 식으로 잡는다
     const n = Game.choices.length, cw = 400, gap = 30;
@@ -178,12 +202,16 @@ const { chromium } = require('playwright');
       return { h, on };
     };
     const cards = Game.choices.map((_, i) => hash(i));
-    return { n, cards, leak: advView !== null, kept: player.advance.length === before };
+    return { n, cards, leak: advView !== null, kept: player.advance.length === before,
+             firstLit, settledLit };
   });
   console.log(JSON.stringify(prev));
   const fail = [];
   if (prev.n < 2) fail.push(`전직 카드가 ${prev.n} 장뿐이라 미리보기를 견줄 수 없다`);
   if (prev.leak) fail.push('미리보기용 겹 목록(advView)이 화면을 그린 뒤에도 남아 있다');
+  /* 등장 연출이 살아 있는가 — 첫 프레임이 앉은 뒤의 절반보다 밝으면 연출이 없는 것이다. */
+  if (!(prev.firstLit < prev.settledLit * .5))
+    fail.push(`카드 등장 연출이 없다 (첫 프레임 ${prev.firstLit} · 앉은 뒤 ${prev.settledLit})`);
   /* 손그림 초상 — 등록된 adv_ 줄이 판 안에 있는지, 직업마다 몇 장인지,
      그리고 **한 직업 안에서 인물 크기가 같은지**를 본다.
 

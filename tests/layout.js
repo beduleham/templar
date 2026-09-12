@@ -78,6 +78,11 @@ const SCREENS = ['intro', 'title', 'altar', 'options', 'levelup', 'advance', 'de
       for (const sc of screens) {
         setups[sc]();
         if (sc === 'advance' && Game.state !== 'advance') continue;   // 열리지 않으면 건너뛴다
+        /* 시간이 걸리는 연출은 **다 끝난 자리**를 잰다(§149). 이 검사가 묻는 것은
+           「이 화면이 이 기기에서 화면 안에 들어가는가」지 「첫 프레임이 완성돼
+           있는가」가 아니다. 카드와 결과 화면에 등장 연출이 붙은 뒤로 한 프레임만
+           그리면 카드가 알파 0.002 라 「거의 빈 화면」으로 잡혔다. */
+        Game.cardT = 9; Game.overT = 9;
         boxes.length = 0;
         mouse.x = -99; mouse.y = -99;                                  // 마우스가 카드를 고르지 않게
         ctx.setTransform(1, 0, 0, 1, 0, 0);

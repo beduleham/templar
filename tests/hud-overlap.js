@@ -258,14 +258,24 @@ const CAPTURE = `(() => {
       /* 시계 판이 왼쪽 바를 덮는가 — 세로 폰에서 실제로 덮는다(D9). 아직 안 고쳤으므로
          실패로 세우지 않고 **값만 적는다**. 바를 좁히려면 HUD 기둥 폭(240·254·246…)을
          통째로 매개변수로 빼야 해서 여기서 할 일이 아니다. 고칠 때 이 숫자가 0 이 된다. */
+      /* 시계 판이 왼쪽 기둥을 덮는가 — **두 방향을 다 본다**(§150). 처음엔 가로만
+         재고 「69px 덮는다」고 적었는데, 기둥을 시계 아래로 내려 실제로는 안 겹치게
+         된 뒤에도 그 값이 그대로 69 로 나왔다. 한 방향만 재는 자는 고친 것을 못 본다. */
       const f = Sprites.frames.ui_clock;
       const cw = 150, ch = f ? Math.round(cw * f.h / f.w) : 0;
-      const clockLap = Math.max(0, Math.min(254, W/2 + cw/2) - Math.max(14, W/2 - cw/2));
+      const HB = W < 900 ? 64 : 24;                       // 기둥이 시작하는 높이(게임과 같은 규칙)
+      const lapX = Math.max(0, Math.min(254, W/2 + cw/2) - Math.max(14, W/2 - cw/2));
+      const lapY = Math.max(0, Math.min(14 + ch, HB + 62) - Math.max(14, HB));
+      const clockLap = lapX > 0 && lapY > 0 ? Math.round(lapX * lapY) : 0;
 
       // 결과창 — 금테를 밟는 글자
       Game.kills = 1423; Game.dmgDealt = 982314;
       Game.soulsEarned = 350; Game.soulParts = { time: 150, kills: 0, win: 200 };
       Game.state = 'won';
+      /* 결과 화면 등장 연출(§149)을 넘겨 앉힌다. 안 그러면 첫 프레임의 액자가
+         알파 0 이라 금테를 못 찾아 「금테 undefined」가 된다 — 글자가 테를 밟는지
+         묻는 검사인데 테가 없으면 물음 자체가 성립하지 않는다. */
+      Game.overT = 9;
       const res = eval(CAP).filter(q => q.h > 8 && q.x > W*.2 && q.x < W*.8 && q.y > H*.25);
       const pw = Math.min(W - 40, 430);
       const x0 = Math.round(W/2 - pw/2 - 40), x1 = Math.round(W/2 + pw/2 + 40), wpx = x1 - x0;
@@ -288,7 +298,8 @@ const CAPTURE = `(() => {
     if (r.onRail.length) { console.log(`!! ${tag} — 결과창 금테(${r.gb})를 밟는 글자: ${r.onRail.join(' · ')}`); bad++; }
     if (!r.ov.length && !r.over.length && !r.onRail.length)
       console.log(`${tag} — 좌상단 겹침 없음 · 바 밖 없음 · 결과창 금테 ${r.gb} 깨끗`
-        + (r.clockLap ? `  (시계 판이 바를 ${r.clockLap}px 덮는다 — D9, 아직 안 고침)` : ''));
+        + (r.clockLap ? `  ** 시계 판이 기둥을 ${r.clockLap}칸 덮는다 **` : ' · 시계 안 겹침'));
+    if (r.clockLap) { console.log(`!! ${tag} — 시계 판이 왼쪽 기둥을 덮는다 (${r.clockLap}칸)`); bad++; }
     await pg.close();
   }
 

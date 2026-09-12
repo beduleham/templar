@@ -6253,11 +6253,32 @@ const AURA_PP = [0, 1, 2, 3, 2, 1];      // 왕복 재생 차례
    있었을 뿐이다. 한 줄씩 당겨 쓴다. 1차가 예전 2차 자리에서 시작하고, 4차는
    가장 센 줄을 **두 겹으로** 겹쳐 위를 더 연다. */
 const AURA_ROW = [2, 3, 4, 4];
+/* 직업마다 그림이 인물을 덮는 정도가 다르다 — 같은 밝기로 그리면 어떤 직업은
+   주인공이 빛에 묻힌다. 오오라는 **뒤에** 그리므로 몸을 가리지는 않지만, 둘레가
+   더 밝으면 대비가 뒤집혀 실루엣이 사라진다.
+
+   주인공 둘레 200px 상자에서 흰 점(밝기 230 초과)이 몇 %인지 재어 맞췄다(§146):
+   추적자 t4 6.6% · 전사 t4 29.8% 는 인물이 살아 있고, 성기사 t4 33.1% · 마법사
+   t4 43.2% 는 묻힌다.
+
+   깎을 자리는 직업마다 **차수마다** 다르다. 마법사는 t3 도 32.7% 인데, 시트의 4줄째를
+   3차·4차가 함께 쓰기 때문이다 — 4차만 깎으면 절반은 그대로다. 성기사는 t3 가 21.1%
+   로 멀쩡하고 4차에서만 넘친다. 그래서 한 값으로 묶으면 안 된다: 성기사를 한 값으로
+   .74 배 했더니 3차가 8.3% 로 전사(14.7%)보다 어두워졌다.
+
+   4차에서 넘치는 것이 「겹쳐 그리는 둘째 겹」이라고 짐작했는데, 재어 보니 그 겹을
+   .45→.2 로 깎아도 32.3% 에서 33.8% 사이, 1.5 점밖에 안 움직였다. 4차를 밝게 만드는
+   것은 본체가 커지는 것(size = 158 + 차수×26)과 조명 한 방(punch)이다. 짐작한 자리와
+   실제 자리가 달랐다.
+
+   그러니 손잡이는 **차수별 알파 한 줄**이다. 적어 두지 않은 직업은 손대지 않는다. */
+const AURA_DIM = { paladin: [1, .82, 1, .8], mage: [.85, .8, .82, .66] };
 function drawClassAura(sx, sy) {
   const tier = Math.min(4, advList().length);
   if (!tier || !player.cls) return;
   const key = "fx_aura_" + player.cls.key + "_" + AURA_ROW[tier - 1];
   const f = ATLAS_FRAMES[key]; if (!f) return;
+  const dimL = AURA_DIM[player.cls.key], dim = dimL ? dimL[tier - 1] : 1;
   const size = 158 + tier * 26;                       // 화면에서 몇 px 로 그릴 것인가
   const k = size / f.w, h = f.h * k, fl = f.fl || AURA_FLOOR;
   /* Sprites.draw 는 time×fps 로 칸을 고른다. 왕복시키려면 원하는 칸 번호가 나오도록
@@ -6269,11 +6290,11 @@ function drawClassAura(sx, sy) {
      3차와 4차가 같은 그림이 되는데, 그러면 마지막 전직이 아무 일도 아니게 된다. */
   if (tier >= 4) {
     const k2 = k * 1.32, h2 = f.h * k2;
-    ctx.globalAlpha = .45;
+    ctx.globalAlpha = .45 * dim;
     Sprites.draw(key, sx, sy + h2 * (.5 - fl), k2,
                  AURA_PP[(Math.floor(Game.time * (f.fps || 10)) + 3) % AURA_PP.length] / (f.fps || 10) + 1e-4, false);
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = dim;
   Sprites.draw(key, sx, sy + h * (.5 - fl), k, pp / (f.fps || 10) + 1e-4, false);
   /* 갈래의 표식 — 바닥 고리 위에 얹는다. 오오라가 직업×차수만 말하면 1차에서
      형제 둘(같은 직업·같은 차수·다른 갈래)이 똑같이 그려진다. */

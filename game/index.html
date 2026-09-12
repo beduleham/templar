@@ -9876,12 +9876,24 @@ function drawHUD() {
   ctx.font = "700 11px " + FONT; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillStyle = "#ffffff"; ctx.fillText(player.level + "레벨", 34, 7);
 
+  /* 왼쪽 기둥이 시작하는 높이(§150). 가로 화면에서는 24 — 경험치 레일(0~14) 바로 아래다.
+     **세로 폰에서는 64 로 내린다.** 기둥은 x 14~254 로 고정인데 가운데 시계 판은 화면
+     너비를 따라 움직인다: 520px 화면에서 판이 185~335 에 앉으므로 바와 **69px 겹친다**
+     (재어서 알았다 — hud-overlap 이 값을 찍고 있었다). 가로 1280 에서는 판이 565 부터라
+     겹치지 않으니 손댈 일이 없다.
+
+     기둥을 좁히는 길도 있었다. 시계를 피하려면 240 → 167 로 30% 줄여야 하는데, 그러면
+     「방벽 -52%」와 「접전 ×0 +0%」가 한 줄에 못 들어가 글자를 다시 맞춰야 한다. 세로로
+     내리는 쪽은 글자를 하나도 안 건드린다 — 세로 폰은 높이가 1126 이라 40px 은 남는다.
+     **줄일 자리가 없으면 옮길 자리를 본다.** */
+  const HB = narrow() ? 64 : 24;
+
   // 체력
   const hpf = clamp(player.hp / s.maxHp, 0, 1);
-  pxBar(14, 24, 240, 21, hpf, hpf > .3 ? Opt.cbc("#3ddc84", "#4fa8ff") : Opt.cbc("#ff5b6b", "#ff9f3c"));
-  hudFrame("bar", 14, 24, 240, 21);                // 채움을 그린 뒤 그 위에 틀 — 안쪽 창이 뚫려 있다
+  pxBar(14, HB, 240, 21, hpf, hpf > .3 ? Opt.cbc("#3ddc84", "#4fa8ff") : Opt.cbc("#ff5b6b", "#ff9f3c"));
+  hudFrame("bar", 14, HB, 240, 21);                // 채움을 그린 뒤 그 위에 틀 — 안쪽 창이 뚫려 있다
   ctx.font = "700 13px " + FONT; ctx.fillStyle = "#fff"; ctx.textAlign = "left";
-  ctx.fillText(Math.ceil(player.hp) + " / " + Math.round(s.maxHp), 22, 34);
+  ctx.fillText(Math.ceil(player.hp) + " / " + Math.round(s.maxHp), 22, HB + 10);
 
   // 직업 자원
   const C = player.cls;
@@ -9889,18 +9901,18 @@ function drawHUD() {
     const R = C.resource, rf = clamp(player.res / RES_MAX, 0, 1);
     const ready = player.res >= curSkill().cost;
     ctx.globalAlpha = ready ? 1 : .62;
-    pxBar(14, 47, 240, 15, rf, R.color);
+    pxBar(14, HB + 23, 240, 15, rf, R.color);
     ctx.globalAlpha = 1;
-    hudFrame("bar", 14, 47, 240, 15);              // 틀은 준비 여부와 무관하게 또렷하게
+    hudFrame("bar", 14, HB + 23, 240, 15);              // 틀은 준비 여부와 무관하게 또렷하게
     // 스킬 발동에 필요한 지점을 눈금으로 표시
     const markX = Math.round((14 + PIX + (240 - PIX * 2) * (curSkill().cost / RES_MAX)) / PIX) * PIX;
     ctx.fillStyle = "rgba(255,255,255,.8)";
-    ctx.beginPath(); pxR(markX, 45, PIX, 19); ctx.fill();
+    ctx.beginPath(); pxR(markX, HB + 21, PIX, 19); ctx.fill();
     ctx.font = "700 10px " + FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
     ctx.fillStyle = "rgba(255,255,255,.9)";
     /* 바의 끝 장식은 8px 다(그림에서 잰다) — 안쪽은 22 부터다. 20 에 두었더니 글자가
        장식을 2px 파고들었다. 틀이 있는 자리에 글자를 놓을 때는 틀 두께를 재고 들어간다. */
-    ctx.fillText(R.name + "  " + Math.floor(player.res), 22, 53);
+    ctx.fillText(R.name + "  " + Math.floor(player.res), 22, HB + 29);
     /* 전직 이름 — 자원 바 **안쪽 오른끝(246)**에 맞추고 아이콘은 글자 왼쪽에 둔다.
        예전에는 오른끝을 268 로 잡아 바(14~254)를 13px 넘었고, 그 자리에 찍던 자세
        아이콘(254)이 글자 한가운데 박혀 「불멸의 성벽」의 「성」을 지웠다.
@@ -9915,14 +9927,14 @@ function drawHUD() {
       ctx.font = "700 11px " + FONT; ctx.textAlign = "right";
       ctx.fillStyle = advColor();
       const an = advName(), aw = ctx.measureText(an).width;
-      ctx.fillText(an, 246, 53);
-      drawMenuIcon("stance", 246 - aw - 9, 53, advColor(), 2);
+      ctx.fillText(an, 246, HB + 29);
+      drawMenuIcon("stance", 246 - aw - 9, HB + 29, advColor(), 2);
       ctx.textAlign = "left";
     }
   }
 
   // 직업 자세 상태 — 지금 강해지고 있는지 한눈에 보여야 한다
-  let cy = 68;
+  let cy = HB + 44;
   if (C && C.stance) {
     const ci = chip(14, cy, 240, 22, "rgba(10,10,20,.6)", null, 6);   // 끝 장식 몫만큼 안으로
     ctx.textAlign = "left"; ctx.textBaseline = "middle";
@@ -10093,13 +10105,15 @@ function drawHUD() {
   ctx.strokeText(fmtTime(Game.time), W / 2, clockY);
   ctx.fillStyle = "#fff"; ctx.fillText(fmtTime(Game.time), W / 2, clockY);
 
-  // 처치 수 / 기록
+  /* 처치 수 / 기록 — 오른쪽 기둥은 판이 없다. 세계 위에 바로 얹히므로 §147 의 규칙을
+     그대로 쓴다. 「흰 글자라 어디서든 읽힌다」고 적혀 있었는데 재 보니 아니었다:
+     세로 폰의 「최고 기록」 자리 바탕이 상위 10% 에서 128~140 까지 올라가고, 45% 흰
+     글자는 그 위에서 진다(독 장판·폭발·성기사 오오라 위에서 늘 일어난다). */
   ctx.textAlign = "right"; ctx.font = "700 14px " + FONT;
-  ctx.fillStyle = "rgba(255,255,255,.85)";
-  ctx.fillText(String(Game.kills), W - 16, 32);
+  inkText(String(Game.kills), W - 16, 32, "rgba(255,255,255,.9)");
   drawMenuIcon("skull", W - 24 - ctx.measureText(String(Game.kills)).width, 31, "#e8e5da", 2);
-  ctx.fillStyle = "rgba(255,255,255,.45)"; ctx.font = "600 12px " + FONT;
-  ctx.fillText("최고 기록 " + fmtTime(Game.bestTime), W - 16, 50);
+  ctx.font = "600 12px " + FONT;
+  inkText("최고 기록 " + fmtTime(Game.bestTime), W - 16, 50, "rgba(255,255,255,.6)", 2.5);
 
   // 보유 무기 / 패시브
   let ix = 14;
@@ -10411,11 +10425,8 @@ function drawHUD() {
     /* 이 줄만 테를 두른다. 시계·처치 수는 흰 글자라 어디서든 읽히지만 이건
        보랏빛이라 지형지물 표지(금색)나 밝은 이펙트 위에서 통째로 사라진다. */
     const ty = by2 + (fl > 0 ? -1 : 0);
-    ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.8)";
-    ctx.strokeText(txt, W - 16, ty);
-    ctx.fillStyle = fl > 0 ? "#ff8fae"
-      : Sin.killed ? "#c9a3ff" : "rgba(255,255,255,.3)";
-    ctx.fillText(txt, W - 16, ty);
+    inkText(txt, W - 16, ty, fl > 0 ? "#ff8fae"
+      : Sin.killed ? "#c9a3ff" : "rgba(255,255,255,.45)");
     drawMenuIcon("skull", W - 24 - ctx.measureText(txt).width, by2 - 1,
                  fl > 0 ? "#ff8fae" : "#c9a3ff", 2);
     by2 += 20;

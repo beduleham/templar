@@ -95,12 +95,37 @@ function botSteer() {
       const d = Math.hypot(pk.x - player.x, pk.y - player.y);
       if (d < sd) { sd = d; sig = pk; }
     }
+    /* **코앞의 것은 곧장 간다.** 점수판은 150u 앞을 보는 격자라, 그보다 가까운 표적은
+       어느 방향으로 걸어도 점수 차가 거의 없다 — 76u 앞의 징표를 44초 동안 맴돌기만
+       하고 못 줍는 일이 실제로 있었다(줍는 반경은 30u 다). 자기 걸음보다 작은 것은
+       격자로 못 집으므로, 가까우면 점수를 건너뛰고 직진한다. */
+    if (sig && sd < botCfg.grabRange) {
+      __botX = (sig.x - player.x) / (sd || 1); __botY = (sig.y - player.y) / (sd || 1);
+      return;
+    }
     if (sig) { gx = sig.x; gy = sig.y; gw = botCfg.seekPull * 3; }
     else if (typeof nearestShrine === "function") {
       const sh = nearestShrine();
       if (sh) { gx = sh.x; gy = sh.y; gw = botCfg.seekPull; }
     }
     if (gw) gd0 = Math.hypot(gx - player.x, gy - player.y);
+  }
+  /* **숙제는 징표 다음이다.** 보스가 「표식을 부숴라」를 걸면 사람은 배너를 읽고
+     가지만 봇은 적만 보고 걷는다 — 그래서 표식 쪽으로 끌어 준다. 다만 징표보다
+     앞세우면 안 된다: 앞세웠더니 god-mode 전직이 8/8 에서 6/8, 판당 제단이 5.1 에서
+     3.5 로 떨어졌다(5:00 뒤로 제단 대신 보스 표식만 쫓는다). 전직을 해야 숙제를 풀
+     힘이 생기므로 순서가 거꾸로였다.
+
+     원래 적어 둔 이유는 그대로다. 보스가 「뿌리를 부숴라」를 걸면 그것을 깨기 전에는 보스가 피해를
+     18% 만 받고 초당 1.8% 씩 회복한다 — 사람은 배너를 읽고 가지만 봇은 적만 보고
+     걷는다(지형은 점수판에 아예 안 들어온다). 그래서 표식 쪽으로 끌어 준다. */
+  if (!gw && botCfg.missionPull > 0 && typeof Mission === "object" && Mission.on && Mission.marks.length) {
+    let mk = null, md = 1e9;
+    for (const m of Mission.marks) {
+      const d = Math.hypot(m.x - player.x, m.y - player.y);
+      if (d < md) { md = d; mk = m; }
+    }
+    if (mk) { gx = mk.x; gy = mk.y; gw = botCfg.missionPull; gd0 = md; }
   }
   let best = 0, bestScore = -1e9;
   for (let i = 0; i < 16; i++) {
@@ -237,6 +262,12 @@ globalThis.botCfg = globalThis.botCfg || {
   rangeCap: 4,          // 「사거리 안」 이득을 몇 마리까지 칠까 (Infinity 면 예전 그대로)
   nearVeto: 110,        // 이 거리 안에 적이 있으면 그 방향을 깎는다 (0 이면 끔)
   nearVetoW: 14,        // 그 거부권의 세기 — 딱 붙었을 때 값
+  /* 보스가 「표식을 부숴라」를 걸면 사람은 배너를 읽고 간다. 봇도 가야 한다 —
+     안 그러면 보스는 피해를 18% 만 받고 초당 1.8% 씩 회복하므로 영영 안 죽는다. */
+  missionPull: 30,      // 보스 숙제(표식) 쪽 끌림 — 0 이면 끔
+  /* 160 과 260 이 같은 값을 냈다(성기사 전직 1/6 → 3/6, 생존 손해 없음). 점수판을
+     건너뛰는 창이므로 작은 쪽을 쓴다. */
+  grabRange: 160,       // 이 거리 안의 떨어진 징표는 점수판을 건너뛰고 직진 (0 이면 끔)
 };
 function botElemLv(el) {
   let lv = 0;

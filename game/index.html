@@ -13842,13 +13842,27 @@ function drawTitle() {
 
     // 견줌 막대
     let by = capY + 22;
+    /* 축 이름 크기는 **눈에 보이는 px 로** 정한다(§151). 논리 9.5px 로 박아 두었더니
+       세로 폰에서 7.1px, 작은 폰 6.6px, 가로 폰 5.7px 으로 찍혔다 — 논리 폭이 넓어
+       보이는 화면일수록 실제로는 더 줄여 그리기 때문이다(가로 폰은 논리 1410 을
+       844 에 그린다). 이 프로젝트가 성전 기록에 대해 이미 정해 둔 규칙(사람 눈에
+       9.5px 이상)을 여기에도 쓴다.
+
+       글자를 키우면 자리도 그만큼 든다. 46px 에 박아 두면 가로 폰에서 「전리품」이
+       50px 이라 막대를 파고든다 — 이름 자리를 재서 잡고 막대를 그만큼 뒤로 민다.
+       막대는 견주는 그림이라 8px 짧아져도 읽는 데 지장이 없다. */
+    const axP = Math.max(9.5, 10 / cssK);
+    ctx.font = "700 " + axP.toFixed(1) + "px " + FONT;
+    let axW = 0;
+    for (const a of CLASS_AXES) axW = Math.max(axW, ctx.measureText(a.name).width);
+    const axL = Math.max(46, Math.ceil(axW) + 8);
     for (const a of CLASS_AXES) {
-      ctx.textAlign = "left"; ctx.font = "700 9.5px " + FONT;
-      ctx.fillStyle = "rgba(255,255,255,.4)";
+      ctx.textAlign = "left"; ctx.font = "700 " + axP.toFixed(1) + "px " + FONT;
+      ctx.fillStyle = "rgba(255,255,255,.5)";
       ctx.fillText(a.name, x + 22, by);
       /* 견줌 막대. 홈 하나에 채움 둘이던 것을 여섯 단계로 —
          네 장을 나란히 놓고 비교하는 자리라 여기가 흐리면 고를 수가 없다. */
-      const bx = x + 68, bw = cw - 92, pal = pxPal(a.color);
+      const bx = x + 22 + axL, bw = cw - 46 - axL, pal = pxPal(a.color);
       const fw = bw * classBars[i][a.key];
       ctx.fillStyle = "rgba(0,0,0,.34)";            // 파인 홈
       ctx.beginPath(); pxR(bx, by - 4, bw, 8); ctx.fill();
@@ -14710,6 +14724,11 @@ function drawAdvance() {
   /* 미리보기가 세로로 차지하는 높이: 머리 장식 꼭대기(sy-46)부터
      발밑 오라 밑단(sy+34)까지 80px. 두 배면 160px 이라 150 짜리 칸에서는
      머리가 위로 삐져나오고 문양이 이름 글자를 덮었다(실측). */
+  /* 창을 140 으로 키우고 인물도 1.25배로 키워 봤다가 되돌렸다(§151). 미리보기의 배율은
+     **2배만** 받는다 — 1.5배로 늘리면 3px 칸이 4.5px 이 되어 이 그림만 가장자리가
+     흐려지기 때문이다(drawAdvancePreview 머리말). 그래서 1.25 는 아무 일도 안 하고
+     창만 커져 인물이 차지하는 비율이 도로 46% 로 내려갔다. **손잡이가 받는 값을
+     확인하지 않고 돌리면, 돌린 줄 알고 다음 판단을 그 위에 쌓는다.** */
   const big = !hasExtra, ph = big ? 172 : 112, dy = ph - 112;
   /* 레벨업 화면과 같은 문제 — 카드 셋이면 1,260px 이다. 좁으면 세로로 쌓고 한 번 줄인다. */
   const stack = narrow();
@@ -14719,6 +14738,7 @@ function drawAdvance() {
      석 장을 나란히 못 읽는다. */
   const FY = 40;
   const cw = 400, ch = (hasExtra ? 470 : 372) + dy + FY, gap = stack ? 14 : 30;
+  Game._advPh = ph;                                  // 회귀·계측이 읽는다(다시 계산하면 어긋난다)
   const total = n * cw + (n - 1) * gap;
   const x0 = (W - total) / 2, yTop = stack ? 116 : 150;
   /* 가로로 놓을 때도 줄인다. 예전에는 `: 1` 이라 안 줄였는데, 성향 띠로 카드가
@@ -14764,18 +14784,27 @@ function drawAdvance() {
     /* 미리보기. 원래 여기엔 자세 아이콘이 있었는데 석 장이 전부 같은 그림이라
        고르는 데 아무 도움이 안 됐다. 고르면 어떤 모습이 되는지를 그린다. */
     ctx.textAlign = "center";
-    pxChip(x + 34, y0 + 14 + oy, cw - 68, ph,
+    /* 창은 **정사각**이다(§151). 예전엔 카드 폭을 다 써서 332×112 — 3:1 납작한 띠였다.
+       재 보니 그 안에서 인물이 쓰는 폭은 1차 20% · 3차 38% 였다(세로는 67~70%).
+       인물이 작은 게 아니라 **창이 인물에 비해 옆으로 늘어나 있었다.** 창틀 그림
+       (ui_portrait)도 원래 192×192 정사각이라 늘려 쓸 이유가 없다.
+       정사각으로 바꾸면 인물이 쓰는 폭이 1차 61% · 3차 74% 가 된다 — 인물은 그대로다. */
+    const pw2 = ph, px2 = x + cw / 2 - pw2 / 2;
+    pxChip(px2, y0 + 14 + oy, pw2, ph,
       hovered ? "rgba(255,255,255,.055)" : "rgba(255,255,255,.03)", null, 10);
     /* 초상 창틀은 초상 **아래**에 깐다. 초상이 창보다 커서(§99: 88/144px, 창 안쪽 86/146)
        발과 머리가 테를 몇 px 넘는데, 틀 위에 서면 「창을 뚫고 나온다」로 읽히고 틀이
        위에 오면 발이 잘린다. */
-    hudFrame("portrait", x + 34, y0 + 14 + oy, cw - 68, ph);
+    hudFrame("portrait", px2, y0 + 14 + oy, pw2, ph);
     drawAdvancePreview(a, x + cw / 2, y0 + 14 + ph / 2 + (big ? 12 : 7) + oy, big ? 2 : 1);
-    ctx.textAlign = "left";
-    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.42)";
-    // 창틀 왼쪽 위 리벳(23px) 밖으로 — 예전 자리(x+46, y0+28)는 리벳 위였다
+    /* 차수·갈래 표는 창 **옆**에 둔다. 창이 정사각이 되면서 좌우에 빈 자리가 생겼고,
+       거기가 액자 옆 명판 자리다. 창 안쪽 위에 놓아 봤더니 창틀 안쪽 테(위에서 13px)를
+       밟았고, 더 내리면 인물 머리(창 위에서 25px)에 닿는다 — 112px 창의 위쪽에는
+       글자 한 줄이 들어갈 자리가 없다. */
+    ctx.textAlign = "right";
+    ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.45)";
     ctx.fillText(TIER_PART[tier - 1] + " · " + (MOTIF_KR[ADV_MOTIF[a.key]] || ""),
-      x + 62, y0 + 30 + oy);
+      x + cw / 2 - pw2 / 2 - 12, y0 + 14 + ph / 2 + oy);
     ctx.textAlign = "center";
     ctx.font = "800 34px " + FONT; ctx.fillStyle = a.color;
     ctx.fillText(a.name, x + cw / 2, y0 + 132 + dy + oy);
@@ -14809,16 +14838,31 @@ function drawAdvance() {
 
     // 새 특성 / 지급 무기
     ctx.textAlign = "center";
-    sy = y0 + 364 + dy + oy;
+    sy = y0 + 362 + dy + oy;
     if (a.traits && a.traits.length) {
+      /* 특성에도 **설명을 적는다**(§151). 스킬은 이름과 설명을 함께 보여주는데 특성은
+         이름만 나열해서, 같은 카드 안에서 한쪽은 「무엇을 하는지」를 말하고 한쪽은
+         이름만 던졌다. 설명은 처음부터 있었다 — 26개 전부 desc 를 들고 있는데 화면이
+         안 읽고 있었을 뿐이다(§137 의 레벨업 카드와 같은 함정). */
       ctx.font = "700 10px " + FONT; ctx.fillStyle = "rgba(255,255,255,.35)";
       ctx.fillText("새 특성", x + cw / 2, sy);
-      ctx.font = "600 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.8)";
-      ctx.fillText(a.traits.map(t => t.name).join("   ·   "), x + cw / 2, sy + 20);
+      a.traits.forEach((t, ti) => {
+        const ty = sy + 18 + ti * 30;
+        ctx.font = "600 12.5px " + FONT; ctx.fillStyle = "rgba(255,255,255,.85)";
+        ctx.fillText(t.name, x + cw / 2, ty);
+        if (t.desc) {
+          ctx.font = "500 11px " + FONT; ctx.fillStyle = "rgba(255,255,255,.5)";
+          fitFont("500", 11, t.desc, cw - 56);
+          ctx.fillText(t.desc, x + cw / 2, ty + 14);
+        }
+      });
     }
     if (a.grant) {
+      /* 무기 지급 줄은 특성이 몇 줄을 쓰는지에 따라 내려간다. 예전엔 sy+46 으로 박아
+         두었는데, 특성이 둘이고 설명까지 붙으면 그 위에 앉는다. */
+      const gy = sy + 18 + (a.traits ? a.traits.length * 30 : 0) + 10;
       ctx.font = "600 12px " + FONT; ctx.fillStyle = "#ffd36e";
-      iconText(WEAPONS[a.grant].px, "무기 지급 · " + WEAPONS[a.grant].name, x + cw / 2, sy + 46,
+      iconText(WEAPONS[a.grant].px, "무기 지급 · " + WEAPONS[a.grant].name, x + cw / 2, gy,
         ELEMENTS[WEAPONS[a.grant].element].color, 2);
     }
 

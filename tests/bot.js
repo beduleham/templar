@@ -119,6 +119,29 @@ function botSteer() {
      원래 적어 둔 이유는 그대로다. 보스가 「뿌리를 부숴라」를 걸면 그것을 깨기 전에는 보스가 피해를
      18% 만 받고 초당 1.8% 씩 회복한다 — 사람은 배너를 읽고 가지만 봇은 적만 보고
      걷는다(지형은 점수판에 아예 안 들어온다). 그래서 표식 쪽으로 끌어 준다. */
+  /* 경험치 젬도 **가지러 가야 하는 물건**이다. 자석 반경은 92 뿐이라, 사거리 280 으로
+     멀리서 죽이면 전리품이 그 자리에 남는다 — 전사는 떨어진 값의 36% 를 바닥에 두고
+     죽었고, 그래서 「직업마다 경험치가 20배 난다」는 값이 나왔다. 자 탓이었다.
+
+     **다른 목적지와 겨루게 두지 않는다.** 처음엔 「징표 → 숙제 → 젬」 순서로 한 자리를
+     두고 다투게 했는데, 징표를 못 얻는 직업은 제단 끌림이 판 내내 켜져 있어서 젬 차례가
+     영영 안 왔다(손잡이를 0 과 25 로 돌려도 세 직업이 **한 글자도 안 바뀌었다**).
+     사람은 제단으로 걸어가면서 지나가는 길에 줍는다. 그래서 젬은 **따로, 같이** 건다. */
+  let ggx = 0, ggy = 0, ggw = 0, ggd0 = 0;
+  if (botCfg.gemPull > 0) {
+    let best = null, bestS = 0;
+    for (const g of gems) {
+      if (!g.active) continue;
+      const d = Math.hypot(g.x - player.x, g.y - player.y);
+      if (d > 520) continue;
+      const sc = g.value / (d + 60);
+      if (sc > bestS) { bestS = sc; best = g; }
+    }
+    if (best) {
+      ggx = best.x; ggy = best.y; ggw = botCfg.gemPull;
+      ggd0 = Math.hypot(ggx - player.x, ggy - player.y);
+    }
+  }
   if (!gw && botCfg.missionPull > 0 && typeof Mission === "object" && Mission.on && Mission.marks.length) {
     let mk = null, md = 1e9;
     for (const m of Mission.marks) {
@@ -134,6 +157,7 @@ function botSteer() {
     let s = -Math.hypot(tx, ty) * .02;            // 원점에서 너무 멀어지지 않게
     // 목적지에 가까워지는 방향에 점수 — 150px 만큼 좁히면 +gw
     if (gw) s += gw * (gd0 - Math.hypot(gx - tx, gy - ty)) / 150;
+    if (ggw) s += ggw * (ggd0 - Math.hypot(ggx - tx, ggy - ty)) / 150;   // 젬은 목적지와 따로, 같이 건다
     const near = hash.query(tx, ty, 300, scratch3);
     let cnt = 0, kcnt = 0, dmin = 1e9;
     for (let j = 0; j < near.length; j++) {
@@ -268,6 +292,10 @@ globalThis.botCfg = globalThis.botCfg || {
   /* 160 과 260 이 같은 값을 냈다(성기사 전직 1/6 → 3/6, 생존 손해 없음). 점수판을
      건너뛰는 창이므로 작은 쪽을 쓴다. */
   grabRange: 160,       // 이 거리 안의 떨어진 징표는 점수판을 건너뛰고 직진 (0 이면 끔)
+  /* 0 · 12 · 25 를 재어 「바닥에 남은 젬 값」으로 골랐다 — 그것이 「주웠나」의 직접
+     측정치다. 네 직업 중 최댓값이 0 에서 3,157 · 12 에서 977 · 25 에서 2,067 이라
+     가장 고른 12 를 쓴다. 너무 세게 당기면 젬을 쫓다 목적지를 놓친다. */
+  gemPull: 12,          // 경험치 젬 쪽 끌림 — 0 이면 끔 (자석 반경은 92 뿐이다)
 };
 function botElemLv(el) {
   let lv = 0;
